@@ -69,7 +69,10 @@ def global_(date: str | None, refresh: bool) -> None:
 
 @cli.command(help="Show A-share major indices only.")
 @_date_opt
-def indices(date: str | None) -> None:
+@_refresh_opt
+def indices(date: str | None, refresh: bool) -> None:
+    if refresh:
+        _core.NO_CACHE = True
     date_str = date or _core.nearest_trade_date()
     data = _core.get_index(date_str)
     _core.print_index(data)
@@ -77,7 +80,10 @@ def indices(date: str | None) -> None:
 
 @cli.command(name="zt-pool", help="Show A-share limit-up (涨停) pool.")
 @_date_opt
-def zt_pool(date: str | None) -> None:
+@_refresh_opt
+def zt_pool(date: str | None, refresh: bool) -> None:
+    if refresh:
+        _core.NO_CACHE = True
     date_str = date or _core.nearest_trade_date()
     zt = _core.get_zt_pool(date_str)
     dt = _core.get_dt_pool(date_str)
@@ -87,7 +93,10 @@ def zt_pool(date: str | None) -> None:
 
 @cli.command(help="Show A-share fund flow (north-bound, main capital).")
 @_date_opt
-def flow(date: str | None) -> None:
+@_refresh_opt
+def flow(date: str | None, refresh: bool) -> None:
+    if refresh:
+        _core.NO_CACHE = True
     date_str = date or _core.nearest_trade_date()
     flow_data = _core.get_fund_flow(date_str)
     _core.print_fund_flow(flow_data)

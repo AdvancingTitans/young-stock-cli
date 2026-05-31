@@ -35,8 +35,19 @@ young zt-pool           # limit-up (涨停) / limit-down / 炸板 pool
 young flow              # north-bound + main-capital fund flow
 young a -d 20260530     # historical date (YYYYMMDD)
 young a --refresh       # bypass cache, force re-fetch
+young indices --json    # pipe-friendly JSON for scripts
+young a --zt --json     # JSON for limit-up / limit-down / broken-board pools
 young update            # upgrade young-stock-cli in the current Python env
 young --help
+```
+
+JSON output is available on the market data commands, so pipeline users can
+skip the rich tables:
+
+```bash
+young indices --json | jq '.indices[] | .f12'
+young flow --json | jq '.flow'
+young global --json | jq '.hk[] | {symbol, price}'
 ```
 
 ### Example output (`young indices`)

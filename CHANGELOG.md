@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.4] - 2026-06-01
+
+### Fixed
+- `young flow` now returns the latest verified A-share fund-flow record instead of going blank when the requested date is newer than the data source.
+- Default trade-date selection now keeps pre-close weekday runs on the previous trading day, avoiding premature same-day reports before A-share data settles.
+
+### Added
+- Added `young stock <symbol>` for single-stock snapshots across A-share, Hong Kong, and best-effort US symbols, with source/date labels and optional news lookup.
+
+### Changed
+- Fund-flow output is explicitly labeled as A-share / Shanghai Composite scope and prints the returned trading date.
+- A-share reports only use fund-flow data when the returned trading date matches the report date; stale source data is shown as a clear notice rather than mixed into the review.
+- Documentation no longer describes Eastmoney `push2his` as a stable historical fund-flow fallback.
+
 ## [0.1.3] - 2026-05-31
 
 ### Added

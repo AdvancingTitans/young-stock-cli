@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from young_stock import _core
 
 
@@ -12,6 +14,14 @@ def test_detect_market_type():
     assert _core.detect_market_type("0700.HK") == "hk_market"
     assert _core.detect_market_type("AAPL") == "us_market"
     assert _core.detect_market_type("N225") == "jp_market"
+
+
+def test_normalize_single_stock_symbol():
+    assert _core.normalize_stock_symbol("600519") == ("600519", "cn_market")
+    assert _core.normalize_stock_symbol("000001.SZ") == ("000001", "cn_market")
+    assert _core.normalize_stock_symbol("0700") == ("0700.HK", "hk_market")
+    assert _core.normalize_stock_symbol("700.hk") == ("0700.HK", "hk_market")
+    assert _core.normalize_stock_symbol("AAPL") == ("AAPL", "us_market")
 
 
 def test_cache_key_deterministic():
@@ -39,6 +49,65 @@ def test_hk_indices_use_full_hsi_quote_with_volume(monkeypatch):
     assert quotes[0].name == "恒生指数"
     assert quotes[0].volume == 22858777046
     assert "volume_missing_index" not in quotes[0].quality_flags
+
+
+def test_sina_a_stock_quote_uses_source_trade_date():
+    fields = [
+        "贵州茅台", "1270.600", "1275.980", "1326.000", "1329.000", "1270.000",
+        "1325.990", "1326.000", "7647805", "10037388211.000", "100", "1325.990",
+        "200", "1325.900", "800", "1325.880", "100", "1325.870", "100",
+        "1325.860", "434", "1326.000", "100", "1326.040", "100", "1326.050",
+        "700", "1326.090", "200", "1326.100", "2026-05-29", "15:00:02", "00", "",
+    ]
+
+    qd = _core._sina_a_to_quote(fields, "600519", "20260601")
+
+    assert qd is not None
+    assert qd.name == "贵州茅台"
+    assert qd.market == "cn_market"
+    assert qd.date == "2026-05-29"
+    assert qd.price == 1326.0
+    assert round(qd.change_pct or 0, 2) == 3.92
+    assert qd.turnover == 10037388211.0
+    assert qd.source == "sina"
+
+
+def test_get_single_stock_quote_uses_hk_fallback_chain(monkeypatch):
+    monkeypatch.setattr(_core, "cache_load", lambda *args, **kwargs: None)
+    monkeypatch.setattr(_core, "cache_save", lambda *args, **kwargs: None)
+    monkeypatch.setattr(_core, "fetch_hk_stocks_sina", lambda symbols, date: [])
+
+    fallback = _core.QuoteData(
+        symbol="0700.HK",
+        name="腾讯控股",
+        market="hk_market",
+        date="2026-05-29",
+        price=427.2,
+        prev_close=425.0,
+        change=2.2,
+        change_pct=0.518,
+        volume=48005475,
+        currency="HKD",
+        source="eastmoney_stock_get",
+        completeness=100,
+    )
+    monkeypatch.setattr(_core, "fetch_hk_stocks_direct", lambda symbols, date: [fallback])
+    monkeypatch.setattr(_core, "fetch_em_stocks", lambda *args, **kwargs: [])
+
+    qd = _core.get_single_stock_quote("0700", "20260529")
+
+    assert qd is not None
+    assert qd.symbol == "0700.HK"
+    assert qd.name == "腾讯控股"
+    assert qd.source == "eastmoney_stock_get"
+
+
+def test_print_single_stock_unavailable_is_clear(capsys):
+    _core.print_single_stock_unavailable("BAD", "暂未拿到可核验行情")
+
+    output = capsys.readouterr().out
+    assert "暂未拿到可核验行情" in output
+    assert "BAD" in output
 
 
 def test_fund_flow_falls_back_to_push2his(monkeypatch):
@@ -70,6 +139,77 @@ def test_fund_flow_falls_back_to_push2his(monkeypatch):
     assert "push2his.eastmoney.com" in calls[1]
     assert flow["主力净流入"] == "-42899849216.0"
     assert saved
+
+
+def test_fund_flow_rejects_stale_latest_record(monkeypatch):
+    monkeypatch.setattr(_core, "cache_load", lambda *args, **kwargs: None)
+    monkeypatch.setattr(_core, "cache_save", lambda *args, **kwargs: None)
+
+    def fake_fetch_fund_flow_json(url):
+        return {
+            "data": {
+                "klines": [
+                    "2026-05-29,-42899849216.0,24645406720.0,18254442496.0,"
+                    "-14700744704.0,-28199104512.0,-2.80,1.61,1.19,-0.96,"
+                    "-1.84,4068.57,-0.73,0.00,0.00"
+                ]
+            }
+        }
+
+    monkeypatch.setattr(_core, "fetch_fund_flow_json", fake_fetch_fund_flow_json)
+
+    flow = _core.get_fund_flow("20260601")
+
+    assert "_unavailable" in flow
+    assert flow["_latest_date"] == "2026-05-29"
+    assert flow["_requested_date"] == "2026-06-01"
+    assert "主力净流入" not in flow
+
+
+def test_fund_flow_can_return_latest_available_for_flow_command(monkeypatch):
+    monkeypatch.setattr(_core, "cache_load", lambda *args, **kwargs: None)
+    monkeypatch.setattr(_core, "cache_save", lambda *args, **kwargs: None)
+
+    def fake_fetch_fund_flow_json(url):
+        return {
+            "data": {
+                "klines": [
+                    "2026-05-29,-42899849216.0,24645406720.0,18254442496.0,"
+                    "-14700744704.0,-28199104512.0,-2.80,1.61,1.19,-0.96,"
+                    "-1.84,4068.57,-0.73,0.00,0.00"
+                ]
+            }
+        }
+
+    monkeypatch.setattr(_core, "fetch_fund_flow_json", fake_fetch_fund_flow_json)
+
+    flow = _core.get_fund_flow("20260601", strict_date=False)
+
+    assert flow["date"] == "2026-05-29"
+    assert flow["_date_note"] == "latest_available"
+    assert flow["_scope"] == "A股"
+    assert flow["主力净流入"] == "-42899849216.0"
+
+
+def test_print_fund_flow_labels_a_share_and_stale_notice(capsys):
+    _core.print_fund_flow(
+        {
+            "_unavailable": "资金流数据日期和请求日期不一致",
+            "_latest_date": "2026-05-29",
+            "_requested_date": "2026-06-01",
+        }
+    )
+
+    output = capsys.readouterr().out
+    assert "A股资金流向" in output
+    assert "暂不展示" in output
+    assert "主力净流入" not in output
+
+
+def test_nearest_trade_date_before_a_share_close_returns_previous_trade_day():
+    assert _core.nearest_trade_date(datetime(2026, 6, 1, 3, 30)) == "20260529"
+    assert _core.nearest_trade_date(datetime(2026, 6, 1, 14, 59)) == "20260529"
+    assert _core.nearest_trade_date(datetime(2026, 6, 1, 15, 1)) == "20260601"
 
 
 def test_tencent_hk_index_quote_uses_close_turnover_and_source(monkeypatch):

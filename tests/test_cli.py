@@ -31,8 +31,26 @@ def test_cli_subcommands_registered():
     from click.testing import CliRunner
     runner = CliRunner()
     result = runner.invoke(cli, ["--help"])
-    for sub in ["a", "hk", "us", "global", "indices", "zt-pool", "flow", "cache-clear", "update"]:
+    for sub in ["a", "hk", "us", "global", "indices", "zt-pool", "flow", "stock", "cache-clear", "update"]:
         assert sub in result.output, f"subcommand `{sub}` missing from help"
+
+
+def test_cli_stock_runs_single_stock_quote(monkeypatch):
+    from click.testing import CliRunner
+
+    calls = []
+
+    def fake_run_stock(symbol, date_str, include_news):
+        calls.append((symbol, date_str, include_news))
+
+    monkeypatch.setattr(cli_module._core, "nearest_trade_date", lambda: "20260529")
+    monkeypatch.setattr(cli_module._core, "run_stock_quote", fake_run_stock)
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["stock", "600519", "--no-news"])
+
+    assert result.exit_code == 0
+    assert calls == [("600519", "20260529", False)]
 
 
 def test_cli_update_runs_pip_upgrade(monkeypatch):

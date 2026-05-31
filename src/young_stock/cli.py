@@ -40,7 +40,7 @@ _date_opt = click.option("--date", "-d", default=None, help="Trade date YYYYMMDD
 _refresh_opt = click.option("--refresh", is_flag=True, help="Skip cache and force re-fetch.")
 
 
-@cli.command(help="A-share after-hours dashboard: indices, ZT/DT pool, fund flow, boards.")
+@cli.command(help="A-share dashboard: indices, ZT/DT pool, verified A-share fund flow, boards.")
 @_date_opt
 @_refresh_opt
 def a(date: str | None, refresh: bool) -> None:
@@ -108,15 +108,28 @@ def zt_pool(date: str | None, refresh: bool) -> None:
     _core.print_zt_analysis(zt, dt, zb)
 
 
-@cli.command(help="Show A-share fund flow (north-bound, main capital).")
+@cli.command(help="Show latest verified A-share fund flow.")
 @_date_opt
 @_refresh_opt
 def flow(date: str | None, refresh: bool) -> None:
     if refresh:
         _core.NO_CACHE = True
     date_str = date or _core.nearest_trade_date()
-    flow_data = _core.get_fund_flow(date_str)
+    flow_data = _core.get_fund_flow(date_str, strict_date=False)
     _core.print_fund_flow(flow_data)
+
+
+@cli.command(help="Show one stock by code, e.g. 600519, 0700.HK, AAPL.")
+@click.argument("symbol")
+@_date_opt
+@_refresh_opt
+@click.option("--no-news", is_flag=True, help="Only show quote data, skip news lookup.")
+def stock(symbol: str, date: str | None, refresh: bool, no_news: bool) -> None:
+    if refresh:
+        _core.NO_CACHE = True
+    _core.cache_clear_old(days=7)
+    date_str = date or _core.nearest_trade_date()
+    _core.run_stock_quote(symbol, date_str, include_news=not no_news)
 
 
 @cli.command(help="Clear cached responses older than N days.")

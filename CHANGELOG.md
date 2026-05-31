@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- `young flow` now falls back to Eastmoney's historical fund-flow endpoint and a broader request strategy when the realtime endpoint closes Python direct connections.
+- `young hk` now uses Sina's full `hkHSI` quote for Hang Seng Index volume instead of the volume-less `int_hangseng` quote.
+
 ## [0.1.1] - 2026-05-31
 
 ### Added

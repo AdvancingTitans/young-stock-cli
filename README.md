@@ -35,6 +35,7 @@ young zt-pool           # limit-up (涨停) / limit-down / 炸板 pool
 young flow              # north-bound + main-capital fund flow
 young a -d 20260530     # historical date (YYYYMMDD)
 young a --refresh       # bypass cache, force re-fetch
+young update            # upgrade young-stock-cli in the current Python env
 young --help
 ```
 
@@ -67,6 +68,7 @@ It is also a foundation for analysis pipelines: every subcommand maps to a Pytho
 - **Trade-day awareness** — nearest-trade-day resolution including weekends and (best-effort) holidays.
 - **Rich terminal tables** — readable on dark and light terminals.
 - **Sector boards via browser fallback** — when Eastmoney's board API rate-limits, falls back to rendering the public web page (optional, requires a local browser engine).
+- **Local updater** — `young update` runs `python -m pip install --upgrade young-stock-cli` with the same interpreter that launched the CLI.
 
 ## Library usage
 
@@ -114,6 +116,7 @@ young zt-pool      # 涨停 / 跌停 / 炸板分析
 young flow         # 北向资金 + 主力资金流向
 young global       # 全球指数一屏
 young a -d 20260530 --refresh    # 指定日期 + 强制刷新
+young update       # 在当前 Python 环境中更新 CLI
 ```
 
 数据来源：东方财富公开行情接口（`push2.eastmoney.com` / `push2ex.eastmoney.com`），与官网网页同源。本地缓存 7 天，目录 `~/.young_stock/cache/`，可用 `young cache-clear` 清理。

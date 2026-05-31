@@ -1,6 +1,7 @@
 """young-stock-cli command line interface."""
 from __future__ import annotations
 
+import subprocess
 import sys
 
 import click
@@ -65,6 +66,22 @@ def us(date: str | None, refresh: bool) -> None:
 @_refresh_opt
 def global_(date: str | None, refresh: bool) -> None:
     _run("global", date, refresh)
+
+
+@cli.command(help="Update young-stock-cli with the current Python environment.")
+@click.option("--pre", is_flag=True, help="Allow pre-release versions.")
+@click.option("--user", "user_install", is_flag=True, help="Install to the user site-packages directory.")
+def update(pre: bool, user_install: bool) -> None:
+    cmd = [sys.executable, "-m", "pip", "install", "--upgrade", "young-stock-cli"]
+    if pre:
+        cmd.append("--pre")
+    if user_install:
+        cmd.append("--user")
+
+    click.echo("Running: " + " ".join(cmd))
+    result = subprocess.run(cmd, check=False)
+    if result.returncode != 0:
+        raise click.ClickException(f"update failed with exit code {result.returncode}")
 
 
 @cli.command(help="Show A-share major indices only.")

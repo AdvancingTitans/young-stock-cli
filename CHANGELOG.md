@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `young hk`, `young us`, `young global` — Hong Kong / US / global indices snapshots.
 - `young indices`, `young zt-pool`, `young flow` — focused subcommands.
 - `young cache-clear` — manage the local response cache.
+- `young update` — upgrade the installed CLI from the current Python environment.
 - Eastmoney public endpoints (`push2.eastmoney.com`, `push2ex.eastmoney.com`) integrated, no login required.
 - Built-in 7-day response cache (`~/.young_stock/cache/`).
 - Rich terminal tables for human-friendly output.

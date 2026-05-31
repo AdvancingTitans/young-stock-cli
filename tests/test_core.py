@@ -70,3 +70,65 @@ def test_fund_flow_falls_back_to_push2his(monkeypatch):
     assert "push2his.eastmoney.com" in calls[1]
     assert flow["主力净流入"] == "-42899849216.0"
     assert saved
+
+
+def test_tencent_hk_index_quote_uses_close_turnover_and_source(monkeypatch):
+    raw = (
+        'v_hkHSI="100~恒生指数~HSI~25182.390~25006.160~25161.520~46207014.1280~0~0~'
+        '25182.390~0~0~0~0~0~0~0~0~0~25182.390~0~0~0~0~0~0~0~0~0~0.0~'
+        '2026/05/29 18:31:24~176.230~0.70~25313.330~25055.800~25182.390~'
+        '46207014.1280~46207014.128~0~0~~0~0~1.03~0~0~Hang Seng Index";'
+    )
+
+    monkeypatch.setattr(_core, "fetch_tencent_batch", lambda codes: raw)
+
+    quotes = _core.fetch_hk_indices_tencent({"^HSI": "恒生指数"}, "20260529")
+
+    assert len(quotes) == 1
+    assert quotes[0].name == "恒生指数"
+    assert quotes[0].price == 25182.39
+    assert quotes[0].change_pct == 0.70
+    assert quotes[0].turnover == 462070141280.0
+    assert quotes[0].source == "tencent"
+
+
+def test_merge_quotes_fills_only_missing_symbols():
+    primary = [
+        _core.QuoteData(symbol="AAPL", name="苹果", price=1, source="sina"),
+    ]
+    fallback = [
+        _core.QuoteData(symbol="AAPL", name="Apple", price=2, source="eastmoney"),
+        _core.QuoteData(symbol="NVDA", name="英伟达", price=3, source="eastmoney"),
+    ]
+
+    merged = _core.merge_quotes_by_symbol(primary, fallback, ["AAPL", "NVDA"])
+
+    assert [q.symbol for q in merged] == ["AAPL", "NVDA"]
+    assert merged[0].price == 1
+    assert merged[1].source == "eastmoney"
+
+
+def test_news_chain_falls_back_to_sina(monkeypatch):
+    monkeypatch.setattr(_core, "futu_news_search", lambda *args, **kwargs: {"_error": "blocked"})
+    monkeypatch.setattr(_core, "futu_stock_feed", lambda *args, **kwargs: {"data": []})
+    monkeypatch.setattr(
+        _core,
+        "sina_roll_news",
+        lambda keyword, size=5, aliases=None: {
+            "source": "sina_roll",
+            "data": [{"title": "英伟达发布新一代 AI PC", "url": "https://example.com", "publish_time": 1780224318}],
+        },
+    )
+
+    news = _core.news_search_chain("NVDA", size=5, lang="zh-CN", aliases=["英伟达"])
+
+    assert news["source"] == "sina_roll"
+    assert news["data"][0]["title"].startswith("英伟达")
+
+
+def test_report_footer_is_user_friendly(capsys):
+    _core.print_report_footer()
+
+    output = capsys.readouterr().out
+    assert "输出结束" not in output
+    assert "复盘仅供参考" in output

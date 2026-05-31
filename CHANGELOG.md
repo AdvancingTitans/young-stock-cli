@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.3] - 2026-05-31
+
+### Added
+- Added Tencent Finance as an additional no-login quote fallback, with Hong Kong indices using Tencent's close-oriented quote first.
+- Added a news fallback chain: Futu news, Futu feed, then Sina Finance rolling news.
+
+### Changed
+- Market reports now show friendlier source/quality notes, explicit fund-flow source, and a less technical footer.
+- Global/HK index tables distinguish turnover from volume and show the active data source.
+
 ## [0.1.2] - 2026-05-31
 
 ### Fixed

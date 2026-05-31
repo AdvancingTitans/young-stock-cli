@@ -63,7 +63,7 @@ It is also a foundation for analysis pipelines: every subcommand maps to a Pytho
 
 ## What's in the box
 
-- **Eastmoney public endpoints** — no login, no token. The same endpoints the official web UI uses.
+- **Multiple public quote sources** — Tencent Finance, Sina Finance, and Eastmoney are tried in sequence so temporary source failures can be filled by another no-login endpoint.
 - **Smart caching** — `~/.young_stock/cache/`, 7-day TTL, auto-pruned. Pass `--refresh` to skip.
 - **Trade-day awareness** — nearest-trade-day resolution including weekends and (best-effort) holidays.
 - **Rich terminal tables** — readable on dark and light terminals.
@@ -119,6 +119,6 @@ young a -d 20260530 --refresh    # 指定日期 + 强制刷新
 young update       # 在当前 Python 环境中更新 CLI
 ```
 
-数据来源：东方财富公开行情接口（`push2.eastmoney.com` / `push2ex.eastmoney.com`），与官网网页同源。本地缓存 7 天，目录 `~/.young_stock/cache/`，可用 `young cache-clear` 清理。
+数据来源：腾讯财经、新浪财经、东方财富公开行情接口（`qt.gtimg.cn` / `hq.sinajs.cn` / `push2.eastmoney.com` / `push2ex.eastmoney.com`），多源自动切换。本地缓存 7 天，目录 `~/.young_stock/cache/`，可用 `young cache-clear` 清理。
 
 适用人群：每天盘后想用一条命令看完五张图的开发者 / 量化研究者 / 自动化爱好者。欢迎 issue / PR。

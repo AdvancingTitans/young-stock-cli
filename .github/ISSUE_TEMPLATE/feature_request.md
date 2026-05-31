@@ -1,15 +1,17 @@
 ---
 name: Feature request
-about: Suggest a new market, data source, or CLI feature
+about: Suggest a new feature or data source
+title: "[FEAT] "
 labels: enhancement
 ---
 
-## What problem does this solve
+**Problem**
+What problem would this solve?
 
-## Proposed solution
+**Proposed solution**
+What would the CLI / API look like?
 
-## Data source(s) involved
+**Alternatives considered**
 
-<!-- e.g. Eastmoney clist, Sina finance, Tushare, Futu, ... -->
-
-## Alternatives considered
+**Data source (if applicable)**
+URL / endpoint / docs link, and whether it requires login.

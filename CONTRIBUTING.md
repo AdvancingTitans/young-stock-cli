@@ -1,48 +1,39 @@
 # Contributing
 
-Thanks for your interest in improving `young-stock-cli`. This is a small,
-focused project; contributions of all sizes are welcome.
+Thanks for considering a contribution! This project welcomes pull requests, bug reports, and feature suggestions.
 
-## Development setup
+## Quick start
 
 ```bash
 git clone https://github.com/AdvancingTitans/young-stock-cli.git
 cd young-stock-cli
-uv venv --python 3.11
-uv pip install -e ".[dev]"
-uv run pytest -q
+pip install -e ".[dev]"
+pytest
+ruff check .
 ```
 
-## How to contribute
+## Pull requests
 
-- **Bug reports**: open an issue with the exact command you ran, the full
-  stack trace, and the trading day you queried (Eastmoney's payload format
-  changes over time — knowing the date matters).
-- **New data source / endpoint**: open an issue first to discuss API
-  stability and rate-limit behaviour before sending a PR.
-- **Documentation / translation**: PRs welcome. The README is bilingual
-  (English on top, Chinese below).
+1. Fork → create a topic branch (`feat/...` or `fix/...`).
+2. Add or update tests for your change.
+3. Run `pytest` and `ruff check .` locally — CI runs both.
+4. Open a PR with a clear description: what + why.
 
-## Pull request checklist
+## Reporting bugs
 
-- [ ] `uv run pytest -q` passes locally.
-- [ ] `uv run ruff check src tests` is clean.
-- [ ] New behaviour has a test (mock the network, do not hit live APIs).
-- [ ] `CHANGELOG.md` updated under `## [Unreleased]`.
+Please include:
+
+- `young --version`
+- Python version (`python --version`)
+- OS
+- The exact command you ran and the full traceback / output.
 
 ## Code style
 
-- Python 3.8+ syntax (we still support 3.8 because some quant users are
-  stuck on legacy interpreters).
-- 100-column line limit (enforced by ruff).
-- Prefer the standard library; runtime dependencies should stay at zero
-  unless there's a clear reason.
+- `ruff` for linting and import sorting.
+- Type hints encouraged but not required for small fixes.
+- Keep functions focused; prefer composing small helpers.
 
-## Release process
+## License
 
-Maintainers only:
-
-1. Bump `__version__` in `src/young_stock_cli/__version__.py`.
-2. Move `## [Unreleased]` content to a new dated section in `CHANGELOG.md`.
-3. Tag: `git tag v0.x.y && git push --tags`.
-4. GitHub Actions builds the wheel and publishes to PyPI on tag push.
+By contributing, you agree your contribution will be licensed under the MIT license.

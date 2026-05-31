@@ -16,19 +16,20 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import re
 import sys
 import time
-import random
-import urllib.request
-import urllib.parse
 import urllib.error
-from datetime import datetime, timedelta
-from dataclasses import dataclass, field, asdict
-from functools import wraps
+import urllib.parse
+import urllib.request
 from collections import Counter
+from collections.abc import Callable
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timedelta
+from functools import wraps
 from pathlib import Path
-from typing import Optional, List, Dict, Any, Callable
+from typing import Any
 
 # ------------------------------------------------------------------
 # 配置
@@ -119,7 +120,7 @@ FUTU_NEWS_URL = "https://ai-news-search.futunn.com/news_search"
 FUTU_FEED_URL = "https://ai-news-search.futunn.com/stock_feed"
 
 # 诊断记录
-DIAGNOSTICS: List[str] = []
+DIAGNOSTICS: list[str] = []
 
 
 def diag(msg: str) -> None:
@@ -136,21 +137,21 @@ class QuoteData:
     name: str = ""
     market: str = "us_market"
     date: str = ""
-    price: Optional[float] = None
-    prev_close: Optional[float] = None
-    change: Optional[float] = None
-    change_pct: Optional[float] = None
-    open_price: Optional[float] = None
-    high: Optional[float] = None
-    low: Optional[float] = None
-    volume: Optional[int] = None
+    price: float | None = None
+    prev_close: float | None = None
+    change: float | None = None
+    change_pct: float | None = None
+    open_price: float | None = None
+    high: float | None = None
+    low: float | None = None
+    volume: int | None = None
     currency: str = "USD"
     source: str = ""
-    quality_flags: List[str] = field(default_factory=list)
-    notes: List[str] = field(default_factory=list)
+    quality_flags: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
     completeness: float = 0.0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
@@ -169,7 +170,7 @@ def _cache_path(symbol: str, date_str: str, source: str) -> Path:
     return d / _cache_key(symbol, date_str, source)
 
 
-def cache_load(symbol: str, date_str: str, source: str, ttl: int = CACHE_TTL_SECONDS) -> Optional[Dict[str, Any]]:
+def cache_load(symbol: str, date_str: str, source: str, ttl: int = CACHE_TTL_SECONDS) -> dict[str, Any] | None:
     if NO_CACHE:
         return None
     p = _cache_path(symbol, date_str, source)
@@ -178,14 +179,14 @@ def cache_load(symbol: str, date_str: str, source: str, ttl: int = CACHE_TTL_SEC
             mtime = p.stat().st_mtime
             if time.time() - mtime > ttl:
                 return None  # 缓存过期
-            with open(p, "r", encoding="utf-8") as f:
+            with open(p, encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
             pass
     return None
 
 
-def cache_save(symbol: str, date_str: str, source: str, data: Dict[str, Any]) -> None:
+def cache_save(symbol: str, date_str: str, source: str, data: dict[str, Any]) -> None:
     p = _cache_path(symbol, date_str, source)
     try:
         with open(p, "w", encoding="utf-8") as f:
@@ -303,7 +304,7 @@ def fmt_volume(v) -> str:
 # HTTP 工具
 # ------------------------------------------------------------------
 
-def _fetch_raw(url: str, headers: Optional[Dict[str, str]] = None, timeout: int = 15) -> str:
+def _fetch_raw(url: str, headers: dict[str, str] | None = None, timeout: int = 15) -> str:
     default_headers = {
         "User-Agent": (
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -318,7 +319,7 @@ def _fetch_raw(url: str, headers: Optional[Dict[str, str]] = None, timeout: int 
         return resp.read().decode("utf-8", errors="ignore")
 
 
-def fetch_json(url: str, headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+def fetch_json(url: str, headers: dict[str, str] | None = None) -> dict[str, Any]:
     try:
         raw = _fetch_raw(url, headers)
     except Exception as e:
@@ -350,7 +351,7 @@ def fetch_json(url: str, headers: Optional[Dict[str, str]] = None) -> Dict[str, 
 # 东财数据解析工具
 # ------------------------------------------------------------------
 
-def _normalize_diff(data_diff: Any) -> List[Dict[str, Any]]:
+def _normalize_diff(data_diff: Any) -> list[dict[str, Any]]:
     """东财 diff 有时是数组，有时是对象（clist 返回 {\"0\":{}, \"1\":{}}）"""
     if data_diff is None:
         return []
@@ -361,7 +362,7 @@ def _normalize_diff(data_diff: Any) -> List[Dict[str, Any]]:
     return []
 
 
-def _safe_float(v: Any) -> Optional[float]:
+def _safe_float(v: Any) -> float | None:
     if v is None or v == "" or v == "-":
         return None
     try:
@@ -370,7 +371,7 @@ def _safe_float(v: Any) -> Optional[float]:
         return None
 
 
-def _safe_int(v: Any) -> Optional[int]:
+def _safe_int(v: Any) -> int | None:
     if v is None or v == "" or v == "-":
         return None
     try:
@@ -379,7 +380,7 @@ def _safe_int(v: Any) -> Optional[int]:
         return None
 
 
-def _em_clist_price(v: Any) -> Optional[float]:
+def _em_clist_price(v: Any) -> float | None:
     """clist/get fltt=2 返回价格类字段 ×100 的整数，需除以 100"""
     val = _safe_float(v)
     if val is None:
@@ -387,7 +388,7 @@ def _em_clist_price(v: Any) -> Optional[float]:
     return val / 100
 
 
-def _em_item_to_quote(item: Dict[str, Any], symbol: str, market_type: str, date_str: str) -> QuoteData:
+def _em_item_to_quote(item: dict[str, Any], symbol: str, market_type: str, date_str: str) -> QuoteData:
     """将东财 diff 项转为 QuoteData"""
     price = _em_clist_price(item.get("f2"))
     prev_close = _em_clist_price(item.get("f18"))
@@ -431,7 +432,7 @@ def _em_item_to_quote(item: Dict[str, Any], symbol: str, market_type: str, date_
 # ------------------------------------------------------------------
 
 @retry_on_recoverable(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
-def eastmoney_clist(fs_filter: str, fields: str = EM_CLIST_FIELDS, pz: int = 200, date_str: str = "") -> List[Dict[str, Any]]:
+def eastmoney_clist(fs_filter: str, fields: str = EM_CLIST_FIELDS, pz: int = 200, date_str: str = "") -> list[dict[str, Any]]:
     """东财 clist 批量接口：免登录、不限流、一次可拉多条"""
     cached = cache_load(fs_filter, date_str, "eastmoney_clist")
     if cached:
@@ -449,7 +450,7 @@ def eastmoney_clist(fs_filter: str, fields: str = EM_CLIST_FIELDS, pz: int = 200
     return diff
 
 
-def fetch_em_indices(symbols_map: Dict[str, str], date_str: str, market_fs: str) -> List[QuoteData]:
+def fetch_em_indices(symbols_map: dict[str, str], date_str: str, market_fs: str) -> list[QuoteData]:
     """通过东财 clist 获取指数，按 symbol 过滤"""
     all_data = eastmoney_clist(market_fs, date_str=date_str)
     results = []
@@ -469,13 +470,13 @@ def fetch_em_indices(symbols_map: Dict[str, str], date_str: str, market_fs: str)
     return results
 
 
-def fetch_em_stocks(codes: List[str], date_str: str, market_fs: str) -> List[QuoteData]:
+def fetch_em_stocks(codes: list[str], date_str: str, market_fs: str) -> list[QuoteData]:
     """通过东财 clist 获取个股，批量查询后本地过滤"""
     all_data = eastmoney_clist(market_fs, pz=500, date_str=date_str)
     results = []
 
     # 构建查找表（支持 0700 / 00700 等变体）
-    lookup: Dict[str, Dict[str, Any]] = {}
+    lookup: dict[str, dict[str, Any]] = {}
     for item in all_data:
         c = str(item.get("f12", "")).upper().replace(".HK", "")
         lookup[c] = item
@@ -504,10 +505,10 @@ def validate_quote(qd: QuoteData) -> QuoteData:
     flags = []
 
     # 价格验证
-    for fname, val in [("price", qd.price), ("open_price", qd.open_price), ("high", qd.high), ("low", qd.low)]:
+    for field, val in [("price", qd.price), ("open_price", qd.open_price), ("high", qd.high), ("low", qd.low)]:
         if val is not None and val <= 0:
-            setattr(qd, fname, None)
-            notes.append(f"{fname}异常已过滤")
+            setattr(qd, field, None)
+            notes.append(f"{field}异常已过滤")
             flags.append("price_anomaly")
 
     # 成交量验证
@@ -565,7 +566,7 @@ def detect_market_type(ticker: str) -> str:
 # ------------------------------------------------------------------
 
 @retry_on_recoverable(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
-def get_index(date_str: str) -> List[Dict[str, Any]]:
+def get_index(date_str: str) -> list[dict[str, Any]]:
     cached = cache_load("index_all", date_str, "eastmoney")
     if cached:
         return cached.get("data", [])
@@ -581,7 +582,7 @@ def get_index(date_str: str) -> List[Dict[str, Any]]:
 
 
 @retry_on_recoverable(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
-def get_zt_pool(date_str: str) -> Dict[str, Any]:
+def get_zt_pool(date_str: str) -> dict[str, Any]:
     cached = cache_load("zt_pool", date_str, "eastmoney")
     if cached:
         return cached
@@ -594,7 +595,7 @@ def get_zt_pool(date_str: str) -> Dict[str, Any]:
 
 
 @retry_on_recoverable(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
-def get_dt_pool(date_str: str) -> Dict[str, Any]:
+def get_dt_pool(date_str: str) -> dict[str, Any]:
     cached = cache_load("dt_pool", date_str, "eastmoney")
     if cached:
         return cached
@@ -607,7 +608,7 @@ def get_dt_pool(date_str: str) -> Dict[str, Any]:
 
 
 @retry_on_recoverable(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
-def get_zb_pool(date_str: str) -> Dict[str, Any]:
+def get_zb_pool(date_str: str) -> dict[str, Any]:
     cached = cache_load("zb_pool", date_str, "eastmoney")
     if cached:
         return cached
@@ -620,7 +621,7 @@ def get_zb_pool(date_str: str) -> Dict[str, Any]:
 
 
 @retry_on_recoverable(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
-def get_fund_flow(date_str: str) -> Dict[str, str]:
+def get_fund_flow(date_str: str) -> dict[str, str]:
     cached = cache_load("fund_flow", date_str, "eastmoney")
     if cached:
         return cached
@@ -636,7 +637,7 @@ def get_fund_flow(date_str: str) -> Dict[str, str]:
         return {}
     cols = "date,主力净流入,小单净流入,中单净流入,大单净流入,超大单净流入,主力净流入占比,小单净流入占比,中单净流入占比,大单净流入占比,超大单净流入占比,收盘价,涨跌幅,总成交额".split(",")
     vals = klines[0].split(",")
-    result = dict(zip(cols, vals))
+    result = dict(zip(cols, vals, strict=False))
     cache_save("fund_flow", date_str, "eastmoney", result)
     return result
 
@@ -646,7 +647,7 @@ def get_fund_flow(date_str: str) -> Dict[str, str]:
 # ------------------------------------------------------------------
 
 @retry_on_recoverable(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
-def futu_news_search(keyword: str, size: int = 10, lang: str = "en", news_type: int = 1) -> Dict[str, Any]:
+def futu_news_search(keyword: str, size: int = 10, lang: str = "en", news_type: int = 1) -> dict[str, Any]:
     params = urllib.parse.urlencode({
         "keyword": keyword,
         "size": size,
@@ -665,7 +666,7 @@ def futu_news_search(keyword: str, size: int = 10, lang: str = "en", news_type: 
 
 
 @retry_on_recoverable(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
-def futu_stock_feed(keyword: str, size: int = 30) -> Dict[str, Any]:
+def futu_stock_feed(keyword: str, size: int = 30) -> dict[str, Any]:
     params = urllib.parse.urlencode({"keyword": keyword, "size": size})
     url = f"{FUTU_FEED_URL}?{params}"
     try:
@@ -681,7 +682,7 @@ def futu_stock_feed(keyword: str, size: int = 30) -> Dict[str, Any]:
 # 板块榜（camofox 降级层）
 # ------------------------------------------------------------------
 
-def camofox_board_list(board_type: str = "industry") -> Dict[str, Any]:
+def camofox_board_list(board_type: str = "industry") -> dict[str, Any]:
     base = os.environ.get("CAMOFOX_URL", "http://localhost:9377")
     user_id = os.environ.get("CAMOFOX_USER_ID", "")
     session_key = os.environ.get("CAMOFOX_SESSION_KEY", "")
@@ -731,7 +732,7 @@ def camofox_board_list(board_type: str = "industry") -> Dict[str, Any]:
 # 输出格式化
 # ------------------------------------------------------------------
 
-def print_index(data: List[Dict[str, Any]]) -> None:
+def print_index(data: list[dict[str, Any]]) -> None:
     print("## 指数表现\n")
     print(f"{'指数':<10} {'收盘':>10} {'涨跌':>10} {'涨跌幅':>10} {'成交额':>12}")
     print("-" * 60)
@@ -755,7 +756,7 @@ def print_index(data: List[Dict[str, Any]]) -> None:
     print()
 
 
-def print_zt_analysis(zt_data: Dict, dt_data: Dict, zb_data: Dict) -> None:
+def print_zt_analysis(zt_data: dict, dt_data: dict, zb_data: dict) -> None:
     zt_pool = zt_data.get("data", {}).get("pool", []) if "_error" not in zt_data else []
     dt_pool = dt_data.get("data", {}).get("pool", []) if "_error" not in dt_data else []
     zb_pool = zb_data.get("data", {}).get("pool", []) if "_error" not in zb_data else []
@@ -770,7 +771,7 @@ def print_zt_analysis(zt_data: Dict, dt_data: Dict, zb_data: Dict) -> None:
         print(f"炸板率: {zb_rate:.1f}% {'(高)' if zb_rate > 40 else ''}")
     print()
 
-    ladders: Dict[int, List] = {}
+    ladders: dict[int, list] = {}
     for s in zt_pool:
         days = s.get("zttj", {}).get("days", 1)
         if days >= 2:
@@ -800,7 +801,7 @@ def print_zt_analysis(zt_data: Dict, dt_data: Dict, zb_data: Dict) -> None:
     print()
 
 
-def print_fund_flow(flow_data: Dict[str, str]) -> None:
+def print_fund_flow(flow_data: dict[str, str]) -> None:
     if not flow_data or "_error" in flow_data:
         return
     print("## 资金流向（上证指数口径）\n")
@@ -812,7 +813,7 @@ def print_fund_flow(flow_data: Dict[str, str]) -> None:
     print()
 
 
-def print_boards(board_data: Dict[str, Any], title: str) -> None:
+def print_boards(board_data: dict[str, Any], title: str) -> None:
     if "_skipped" in board_data or "_error" in board_data:
         return
     rows = board_data.get("rows", [])
@@ -832,7 +833,7 @@ def print_boards(board_data: Dict[str, Any], title: str) -> None:
     print()
 
 
-def print_sentiment_summary(zt_data: Dict, dt_data: Dict, zb_data: Dict, flow_data: Dict) -> None:
+def print_sentiment_summary(zt_data: dict, dt_data: dict, zb_data: dict, flow_data: dict) -> None:
     zt_total = zt_data.get("data", {}).get("tc", 0) if "_error" not in zt_data else 0
     dt_total = dt_data.get("data", {}).get("tc", 0) if "_error" not in dt_data else 0
     zb_total = zb_data.get("data", {}).get("tc", 0) if "_error" not in zb_data else 0
@@ -851,7 +852,7 @@ def print_sentiment_summary(zt_data: Dict, dt_data: Dict, zb_data: Dict, flow_da
     print()
 
 
-def print_global_indices(indices: List[QuoteData], market_name: str) -> None:
+def print_global_indices(indices: list[QuoteData], market_name: str) -> None:
     print(f"## {market_name} 大盘指数\n")
     print(f"{'指数':<15} {'当前价':>12} {'涨跌幅':>10} {'成交量':>14} {'数据质量':>8}")
     print("-" * 70)
@@ -886,7 +887,7 @@ def print_global_stock(qd: QuoteData) -> None:
     print()
 
 
-def print_futu_news(news_data: Dict, keyword: str) -> None:
+def print_futu_news(news_data: dict, keyword: str) -> None:
     if "_error" in news_data:
         return
     data = news_data.get("data", [])
@@ -906,7 +907,7 @@ def print_futu_news(news_data: Dict, keyword: str) -> None:
     print()
 
 
-def print_global_sentiment(indices: List[QuoteData]) -> None:
+def print_global_sentiment(indices: list[QuoteData]) -> None:
     print("## 情绪定性\n")
     bullish = 0
     bearish = 0
@@ -933,7 +934,7 @@ def print_global_sentiment(indices: List[QuoteData]) -> None:
     print()
 
 
-def print_data_quality_report(results: List[QuoteData]) -> None:
+def print_data_quality_report(results: list[QuoteData]) -> None:
     warnings = []
     recommendations = []
     total = len(results)
@@ -991,7 +992,7 @@ def print_diagnostic_summary() -> None:
 # 复盘主体
 # ------------------------------------------------------------------
 
-def nearest_trade_date(dt: Optional[datetime] = None) -> str:
+def nearest_trade_date(dt: datetime | None = None) -> str:
     if dt is None:
         dt = datetime.now()
     wd = dt.weekday()

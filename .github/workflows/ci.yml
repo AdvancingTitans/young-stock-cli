@@ -7,36 +7,26 @@ on:
     branches: [main]
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff
+      - run: ruff check .
+
   test:
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
-        python-version: ["3.9", "3.10", "3.11", "3.12"]
-
+        python-version: ["3.10", "3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-
-      - name: Install
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
-
-      - name: Lint
-        run: ruff check src tests
-
-      - name: Test
-        run: pytest -q --cov=young_stock_cli --cov-report=xml
-
-      - name: Upload coverage
-        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
-        uses: codecov/codecov-action@v4
-        with:
-          files: ./coverage.xml
-          fail_ci_if_error: false
+      - run: pip install -e ".[dev]"
+      - run: pytest --cov=young_stock --cov-report=term-missing

@@ -1,28 +1,20 @@
-"""Reserve test_core sanity to ensure module imports without side-effects."""
-import importlib
+from young_stock import _core
 
 
-def test_core_imports():
-    mod = importlib.import_module("young_stock_cli._core")
-    assert hasattr(mod, "main")
-    # Key public-ish helpers used elsewhere
-    for fn in ("nearest_trade_date", "detect_market_type", "fmt_price", "fmt_pct"):
-        assert hasattr(mod, fn), f"_core.{fn} missing"
+def test_format_helpers():
+    assert _core.fmt_price(12.345) == "12.35"
+    assert _core.fmt_pct(1.234).endswith("%")
+    assert "亿" in _core.fmt_amount(1.5e8) or "万" in _core.fmt_amount(1.5e8)
 
 
 def test_detect_market_type():
-    from young_stock_cli._core import detect_market_type
-
-    assert "cn" in detect_market_type("000001") or detect_market_type("000001") == "a"
-    assert "hk" in detect_market_type("00700.HK")
-    # US tickers fall through to a default (us_market or us)
-    assert "us" in detect_market_type("AAPL")
+    assert _core.detect_market_type("000001") == "cn_market"
+    assert _core.detect_market_type("0700.HK") == "hk_market"
+    assert _core.detect_market_type("AAPL") == "us_market"
+    assert _core.detect_market_type("N225") == "jp_market"
 
 
-def test_formatters():
-    from young_stock_cli._core import fmt_pct, fmt_price
-
-    assert "+" in fmt_pct(1.23)
-    assert "-" in fmt_pct(-1.23)
-    # fmt_price(None) returns some placeholder; just confirm it's a string
-    assert isinstance(fmt_price(None), str)
+def test_cache_key_deterministic():
+    a = _core._cache_key("000001", "20250101", "em")
+    b = _core._cache_key("000001", "20250101", "em")
+    assert a == b

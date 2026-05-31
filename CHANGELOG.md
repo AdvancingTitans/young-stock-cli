@@ -1,18 +1,18 @@
 # Changelog
 
-All notable changes to this project are documented here. The format follows
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
-adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.1.0] - 2026-05-31
 
 ### Added
 - Initial public release.
-- `young a` / `hk` / `us` / `global` subcommands.
-- A-share post-market replay: indices, 涨停/跌停/炸板 pool, fund flow,
-  industry & concept sector rankings (via browser fallback).
-- HK & US replays via Eastmoney `clist` batch endpoint (no-login, no rate limit).
-- Three-tier fetch strategy: cache → stable JSON API → browser fallback
-  (camofox / Playwright / Hermes built-in browser).
-- Data-quality scoring + diagnostic reporting for every run.
-- Cross-market sentiment summary for `young global`.
+- `young a` — A-share after-hours dashboard (indices, ZT/DT pool, fund flow, sector boards).
+- `young hk`, `young us`, `young global` — Hong Kong / US / global indices snapshots.
+- `young indices`, `young zt-pool`, `young flow` — focused subcommands.
+- `young cache-clear` — manage the local response cache.
+- Eastmoney public endpoints (`push2.eastmoney.com`, `push2ex.eastmoney.com`) integrated, no login required.
+- Built-in 7-day response cache (`~/.young_stock/cache/`).
+- Rich terminal tables for human-friendly output.

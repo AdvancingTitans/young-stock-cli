@@ -1,25 +1,26 @@
 ---
 name: Bug report
-about: Something is broken or returning wrong data
+about: Report a problem with young-stock-cli
+title: "[BUG] "
 labels: bug
 ---
 
-## What happened
+**What happened**
+A short description of the bug.
 
-<!-- exact command, exact output, exact trading day -->
+**Steps to reproduce**
+1. Run `young ...`
+2. ...
 
-```
-$ young a 20260526
-...
-```
+**Expected behavior**
+What you expected to see.
 
-## What you expected
-
-## Environment
-
-- young-stock-cli version: `young --version`
-- Python: `python3 --version`
+**Environment**
+- `young --version`:
+- Python version:
 - OS:
-- Network (mainland China / overseas / proxy):
 
-## Extra context
+**Output / traceback**
+```
+paste here
+```

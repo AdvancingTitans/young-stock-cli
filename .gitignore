@@ -1,13 +1,35 @@
-.venv/
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
 *.egg-info/
+*.egg
 .pytest_cache/
 .ruff_cache/
 .coverage
-coverage.xml
-dist/
-build/
+htmlcov/
+.tox/
+.mypy_cache/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
 .DS_Store
-.python-version
+
+# Project
+.young_stock/
+*.cast
+.env
+
+# Lock files (uv)
 uv.lock

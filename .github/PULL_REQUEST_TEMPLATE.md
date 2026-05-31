@@ -1,17 +1,18 @@
-## Summary
+## What
 
-<!-- One sentence: what does this PR change and why? -->
+<!-- short description -->
 
-## Type of change
+## Why
 
-- [ ] Bug fix (non-breaking)
-- [ ] New feature (non-breaking)
-- [ ] Breaking change
-- [ ] Documentation / refactor only
+<!-- problem being solved or motivation -->
+
+## How tested
+
+- [ ] `pytest` passes locally
+- [ ] `ruff check .` passes
+- [ ] Manual test: `young ...`
 
 ## Checklist
 
-- [ ] `uv run pytest -q` passes
-- [ ] `uv run ruff check src tests` is clean
-- [ ] `CHANGELOG.md` updated
-- [ ] Tested on at least one real trading day (paste the date)
+- [ ] Updated `CHANGELOG.md` if user-visible
+- [ ] Updated README if behavior changed

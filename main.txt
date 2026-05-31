@@ -1,0 +1,16 @@
+# .dockerignore
+.git
+.gitignore
+*.md
+*.pyc
+__pycache__
+.env
+.env.*
+tests
+docs
+.github
+.vscode
+.idea
+*.egg-info
+dist
+build

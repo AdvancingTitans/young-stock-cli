@@ -1,10 +1,10 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling<1.27"]
 build-backend = "hatchling.build"
 
 [project]
 name = "young-stock-cli"
-version = "0.1.5"
+version = "0.1.6"
 description = "A-share (China stock market) after-hours CLI — no login, no scraping tricks, just data."
 readme = "README.md"
 requires-python = ">=3.10"

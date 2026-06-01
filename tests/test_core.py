@@ -1,6 +1,13 @@
 from datetime import datetime
 
+import pytest
+
 from young_stock import _core
+
+
+@pytest.fixture(autouse=True)
+def disable_ths_flow_network(monkeypatch):
+    monkeypatch.setattr(_core, "fetch_ths_concept_money_flow_snapshot", lambda date_str: {})
 
 
 def test_format_helpers():
@@ -292,6 +299,70 @@ def test_market_fund_flow_snapshot_sums_shanghai_and_shenzhen(monkeypatch):
     assert flow["小单净流入"] == "170.0"
     assert flow["_source"] == "东财资金流页面实时指标"
     assert flow["_date_note"] == "latest_available"
+
+
+def test_parse_ths_money_flow_table():
+    raw = """
+    <table><tbody><tr class="even">
+      <td class="first tc">1</td>
+      <td class="tl"><a>ERP概念</a></td>
+      <td class=" c-rise">1447.8</td>
+      <td class="tr cur c-rise">4.78%</td>
+      <td class="tr c-rise">61.53</td>
+      <td class="tr c-fall">47.25</td>
+      <td class="tr c-rise">14.28</td>
+      <td class="tr">35</td>
+      <td class="tc"><a>软通动力</a></td>
+      <td class="tr c-rise">20.01%</td>
+      <td class="tr c-rise">39.65</td>
+    </tr></tbody></table>
+    """
+
+    rows = _core._parse_ths_money_flow_table(raw)
+
+    assert rows[0]["name"] == "ERP概念"
+    assert rows[0]["net"] == 14.28
+    assert rows[0]["leader"] == "软通动力"
+
+
+def test_fund_flow_prefers_ths_concept_flow(monkeypatch):
+    monkeypatch.setattr(_core, "cache_load", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        _core,
+        "fetch_ths_concept_money_flow_snapshot",
+        lambda date_str: {
+            "date": "2026-06-01",
+            "_source": "同花顺概念资金流",
+            "_fallback_indicator": "concept_money_flow",
+            "_concept_in": "[]",
+            "_concept_out": "[]",
+        },
+    )
+    monkeypatch.setattr(_core, "fetch_fund_flow_json", lambda url: (_ for _ in ()).throw(AssertionError("should not call Eastmoney first")))
+
+    flow = _core.get_fund_flow("20260601")
+
+    assert flow["_source"] == "同花顺概念资金流"
+    assert flow["_fallback_indicator"] == "concept_money_flow"
+
+
+def test_print_fund_flow_concept_indicator(capsys):
+    _core.print_fund_flow(
+        {
+            "date": "2026-06-01",
+            "_source": "同花顺概念资金流",
+            "_fallback_indicator": "concept_money_flow",
+            "_indicator_note": "概念板块资金流参考",
+            "_concept_in": '[{"name":"ERP概念","net":14.28,"leader":"软通动力","leader_change_pct":20.01}]',
+            "_concept_out": '[{"name":"有色金属","net":-8.0,"leader":"示例股","leader_change_pct":-3.0}]',
+        }
+    )
+
+    output = capsys.readouterr().out
+    assert "概念板块口径" in output
+    assert "同花顺概念资金流" in output
+    assert "ERP概念" in output
+    assert "主力净流入:" not in output
 
 
 def test_fund_flow_ignores_old_unavailable_cache(monkeypatch):

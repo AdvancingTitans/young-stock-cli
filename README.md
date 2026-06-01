@@ -77,7 +77,7 @@ It is also a foundation for analysis pipelines: every subcommand maps to a Pytho
 - **Smart caching** — `~/.young_stock/cache/`, 7-day TTL, auto-pruned. Pass `--refresh` to skip.
 - **Trade-day awareness** — nearest-trade-day resolution including weekends and (best-effort) holidays.
 - **Rich terminal tables** — readable on dark and light terminals.
-- **Verified A-share fund flow** — `young flow` shows the latest Eastmoney A-share / Shanghai Composite fund-flow record and its trading date explicitly, including a warning when it differs from the requested report date; if realtime fund-flow sources are temporarily unavailable, it tries Eastmoney page indicators, Sina Finance sector fund-flow, then Sina/Tencent market-activity references, clearly labeling non-equivalent fallbacks before using the most recent locally cached good fund-flow record.
+- **Verified A-share fund flow** — `young flow` first tries Tonghuashun concept-board fund flow for fresh board-direction money signals, then Eastmoney main-capital flow/page indicators, Sina Finance sector fund-flow, Sina/Tencent market-activity references, and finally the most recent locally cached good record. Non-equivalent fallbacks are clearly labeled instead of being presented as whole-market main-capital net inflow.
 - **News heat ranking** — HK/US focus stocks can be ranked by filtered news heat from multiple no-login sources: Futu, Sina Finance, and Eastmoney fast news. Xueqiu/THS are intentionally not hardwired unless a stable no-login interface is available.
 - **Same-day news discipline** — news sections only show items published on the requested trading date, up to five items, with a clear empty-state message when nothing valid is available.
 - **Readable news links** — linked news items are checked for obvious empty/404/no-content pages and replaced by other same-day news when possible.
@@ -139,6 +139,6 @@ young a -d 20260530 --refresh    # 指定日期 + 强制刷新
 young update       # 在当前 Python 环境中更新 CLI
 ```
 
-数据来源：腾讯财经、新浪财经、东方财富公开行情与快讯接口（`qt.gtimg.cn` / `hq.sinajs.cn` / `push2.eastmoney.com` / `push2ex.eastmoney.com` / `np-listapi.eastmoney.com`），多源自动切换。本地缓存 7 天，目录 `~/.young_stock/cache/`，可用 `young cache-clear` 清理。命令会标注当前阶段：上午盘、午间、下午盘或盘后；若展示的是非请求日的最新可用数据，会标注为该交易日盘后数据。
+数据来源：同花顺概念资金流页面、腾讯财经、新浪财经、东方财富公开行情与快讯接口（`data.10jqka.com.cn` / `qt.gtimg.cn` / `hq.sinajs.cn` / `push2.eastmoney.com` / `push2ex.eastmoney.com` / `np-listapi.eastmoney.com`），多源自动切换。本地缓存 7 天，目录 `~/.young_stock/cache/`，可用 `young cache-clear` 清理。命令会标注当前阶段：上午盘、午间、下午盘或盘后；若展示的是非请求日的最新可用数据，会标注为该交易日盘后数据。
 
 适用人群：每天盘后想用一条命令看完五张图的开发者 / 量化研究者 / 自动化爱好者。欢迎 issue / PR。

@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.10] - 2026-06-02
+
+### Added
+- `young flow` now tries the Tonghuashun concept fund-flow page first and displays top concept net inflow/outflow directions when available.
+
+### Changed
+- Fund-flow output now adapts its title to the active source scope: concept board, sector board, market activity, or Eastmoney main-capital flow.
+- Tonghuashun concept flow is treated as a board-direction reference and is clearly labeled as not equivalent to whole-market main-capital net inflow.
+
 ## [0.1.9] - 2026-06-01
 
 ### Added

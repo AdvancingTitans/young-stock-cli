@@ -451,6 +451,52 @@ def test_news_chain_falls_back_to_eastmoney(monkeypatch):
     assert news["data"][0]["title"].startswith("腾讯")
 
 
+def test_combined_news_preserves_per_item_source_and_url(monkeypatch):
+    monkeypatch.setattr(
+        _core,
+        "futu_news_search",
+        lambda *args, **kwargs: {
+            "source": "futu_news",
+            "data": [{"title": "腾讯发布新品", "url": "https://futu.example", "publish_time": 1780300000}],
+        },
+    )
+    monkeypatch.setattr(_core, "futu_stock_feed", lambda *args, **kwargs: {"data": []})
+    monkeypatch.setattr(
+        _core,
+        "sina_roll_news",
+        lambda *args, **kwargs: {
+            "source": "sina_roll",
+            "data": [{"title": "腾讯云签约", "url": "https://sina.example", "publish_time": 1780200000}],
+        },
+    )
+    monkeypatch.setattr(_core, "eastmoney_fast_news", lambda *args, **kwargs: {"source": "eastmoney_fast", "data": []})
+
+    news = _core.combined_news_search("腾讯", size=5, lang="zh-CN", aliases=["腾讯控股"])
+
+    assert news["source_counts"] == {"futu_news": 1, "sina_roll": 1}
+    assert {item["source"] for item in news["data"]} == {"futu_news", "sina_roll"}
+    assert all(item["url"] for item in news["data"])
+
+
+def test_print_news_shows_source_and_link_status(capsys):
+    _core.print_futu_news(
+        {
+            "source": "futu_news+sina_roll",
+            "source_counts": {"futu_news": 1, "sina_roll": 1},
+            "data": [
+                {"title": "腾讯发布新品", "source": "futu_news", "url": "https://futu.example", "publish_time": 1780300000},
+                {"title": "腾讯云签约", "source": "sina_roll", "url": "", "publish_time": 1780200000},
+            ],
+        },
+        "腾讯",
+    )
+
+    output = capsys.readouterr().out
+    assert "来源覆盖" in output
+    assert "来源: 富途资讯 | 链接: https://futu.example" in output
+    assert "来源: 新浪财经 | 链接: 暂无公开链接" in output
+
+
 def test_session_stage_labels_date_mismatch_as_after_hours():
     assert _core.session_stage_label(data_date="2026-05-29", requested_date="20260601") == "交易日盘后"
 

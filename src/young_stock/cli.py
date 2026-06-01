@@ -136,6 +136,19 @@ def stock(symbol: str, date: str | None, refresh: bool, no_news: bool) -> None:
     _core.run_stock_quote(symbol, date_str, include_news=not no_news)
 
 
+@cli.command(help="Show multi-source news for one stock, e.g. 600519, 0700.HK, AAPL.")
+@click.argument("symbol")
+@_date_opt
+@_refresh_opt
+@click.option("--limit", default=8, show_default=True, help="Maximum news items to show.")
+def news(symbol: str, date: str | None, refresh: bool, limit: int) -> None:
+    if refresh:
+        _core.NO_CACHE = True
+    _core.cache_clear_old(days=7)
+    date_str = date or _core.nearest_trade_date()
+    _core.run_stock_news(symbol, date_str, size=limit)
+
+
 @cli.command(help="Clear cached responses older than N days.")
 @click.option("--days", default=7, show_default=True, help="Delete cache files older than this many days.")
 def cache_clear(days: int) -> None:

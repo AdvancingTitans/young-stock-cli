@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.7] - 2026-06-01
+
+### Added
+- Added `young news <symbol>` for a quick single-stock news/momentum check without printing the full quote report.
+
+### Changed
+- News output now shows the source and link status on every item, including a clear "no public link" label instead of blank lines.
+- Multi-source news ranking now keeps per-source hit counts and uses a source-balanced display so Futu does not automatically crowd out Sina Finance or Eastmoney items when those sources have matching news.
+- Hong Kong stock news aliases now strip suffixes such as `-W` / `－Ｗ`, improving matches for names like Meituan-W.
+
 ## [0.1.6] - 2026-06-01
 
 ### Fixed

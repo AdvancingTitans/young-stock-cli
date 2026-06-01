@@ -31,6 +31,7 @@ young hk                # Hong Kong indices snapshot
 young us                # US indices snapshot
 young global            # A + HK + US in one view
 young stock 600519      # one stock snapshot (A-share / HK / US)
+young news 3690.HK      # multi-source news only
 young stock AAPL --no-news
 young us --no-news      # market data only, skip news links
 young indices           # A-share indices only
@@ -68,6 +69,7 @@ It is also a foundation for analysis pipelines: every subcommand maps to a Pytho
 
 - **Multiple public quote sources** — Tencent Finance, Sina Finance, and Eastmoney are tried in sequence so temporary source failures can be filled by another no-login endpoint.
 - **Single-stock lookup** — `young stock 600519`, `young stock 0700.HK`, or `young stock AAPL` prints a compact quote snapshot with source, trade date, price, change, volume, turnover when available, and optional news.
+- **Single-stock news** — `young news 3690.HK` prints only the news/momentum view, with each item showing source and link status.
 - **Smart caching** — `~/.young_stock/cache/`, 7-day TTL, auto-pruned. Pass `--refresh` to skip.
 - **Trade-day awareness** — nearest-trade-day resolution including weekends and (best-effort) holidays.
 - **Rich terminal tables** — readable on dark and light terminals.
@@ -119,6 +121,7 @@ A 股盘后行情命令行工具。免登录、免 API key、免反爬技巧 —
 pip install young-stock-cli
 young a            # A 股盘后总览（主命令）
 young stock 600519 # 单只股票速览（A股 / 港股 / 美股）
+young news 3690.HK # 单只股票消息面，多源新闻与链接
 young hk --no-news # 只看行情，跳过新闻链接
 young zt-pool      # 涨停 / 跌停 / 炸板分析
 young flow         # 最新可核验 A 股资金流向

@@ -137,6 +137,19 @@ def stock(symbol: str, date: str | None, refresh: bool, no_news: bool) -> None:
     _core.run_stock_quote(symbol, date_str, include_news=not no_news)
 
 
+@cli.command(help="Show one fund estimate, top holdings quotes, and holding-stock news.")
+@click.argument("code")
+@_date_opt
+@_refresh_opt
+@click.option("--no-news", is_flag=True, help="Only show fund and holding quote data, skip news lookup.")
+def fund(code: str, date: str | None, refresh: bool, no_news: bool) -> None:
+    if refresh:
+        _core.NO_CACHE = True
+    _core.cache_clear_old(days=7)
+    date_str = date or _core.nearest_trade_date()
+    _core.run_fund_report(code, date_str, include_news=not no_news)
+
+
 @cli.command(help="Show multi-source news for one stock, e.g. 600519, 0700.HK, AAPL.")
 @click.argument("parts", nargs=-1, required=True)
 @_date_opt

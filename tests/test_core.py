@@ -102,6 +102,83 @@ def test_get_single_stock_quote_uses_hk_fallback_chain(monkeypatch):
     assert qd.source == "eastmoney_stock_get"
 
 
+def test_fetch_fund_estimate_parses_jsonp(monkeypatch):
+    monkeypatch.setattr(_core, "cache_load", lambda *args, **kwargs: None)
+    monkeypatch.setattr(_core, "cache_save", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        _core,
+        "fetch_json",
+        lambda url, headers=None: {
+            "fundcode": "161725",
+            "name": "招商中证白酒指数(LOF)A",
+            "jzrq": "2026-05-29",
+            "dwjz": "0.5866",
+            "gsz": "0.5828",
+            "gszzl": "-0.65",
+            "gztime": "2026-06-01 15:00",
+        },
+    )
+
+    data = _core.fetch_fund_estimate("161725", "20260601")
+
+    assert data["name"].startswith("招商中证白酒")
+    assert data["date"] == "2026-06-01"
+    assert data["estimate_change_pct"] == "-0.65"
+
+
+def test_fetch_fund_holdings_parses_eastmoney_html(monkeypatch):
+    monkeypatch.setattr(_core, "cache_load", lambda *args, **kwargs: None)
+    monkeypatch.setattr(_core, "cache_save", lambda *args, **kwargs: None)
+    html = """
+    var apidata={ content:"<h4 class='t'><label class='left'><a>招商中证白酒指数(LOF)A</a>&nbsp;&nbsp;2026年1季度股票投资明细</label><label class='right'>截止至：<font class='px12'>2026-03-31</font></label></h4>
+    <table><tbody><tr><td>1</td><td><a>600519</a></td><td class='tol'><a>贵州茅台</a></td><td></td><td></td><td></td><td class='tor'>18.33%</td><td class='tor'>508.34</td><td class='tor'>737,086.62</td></tr></tbody></table>",arryear:[2026]};
+    """
+    monkeypatch.setattr(_core, "_fetch_raw", lambda *args, **kwargs: html)
+
+    data = _core.fetch_fund_holdings("161725", "20260601")
+
+    assert data["asof"] == "2026-03-31"
+    assert data["holdings"][0]["code"] == "600519"
+    assert data["holdings"][0]["name"] == "贵州茅台"
+    assert data["holdings"][0]["weight_pct"] == 18.33
+
+
+def test_print_fund_report_shows_estimate_and_holdings(capsys):
+    _core.print_fund_report(
+        {
+            "fundcode": "161725",
+            "name": "招商中证白酒指数(LOF)A",
+            "nav_date": "2026-05-29",
+            "nav": "0.5866",
+            "estimate_nav": "0.5828",
+            "estimate_change_pct": "-0.65",
+            "estimate_time": "2026-06-01 15:00",
+            "date": "2026-06-01",
+            "_source": "天天基金实时估值",
+        },
+        {"fundcode": "161725", "asof": "2026-03-31", "holdings": [{"code": "600519", "name": "贵州茅台", "weight_pct": 18.33}]},
+        {
+            "600519": _core.QuoteData(
+                symbol="600519",
+                name="贵州茅台",
+                market="cn_market",
+                date="2026-06-01",
+                price=1300,
+                change_pct=1.2,
+                source="sina",
+                completeness=100,
+            )
+        },
+        "20260601",
+    )
+
+    output = capsys.readouterr().out
+    assert "基金持仓速览" in output
+    assert "当日估算" in output
+    assert "贵州茅台(600519)" in output
+    assert "估算贡献" in output
+
+
 def test_print_single_stock_unavailable_is_clear(capsys):
     _core.print_single_stock_unavailable("BAD", "暂未拿到可核验行情")
 
@@ -244,6 +321,7 @@ def test_fund_flow_uses_latest_good_cache_when_sources_fail(monkeypatch):
     monkeypatch.setattr(_core, "cache_load", lambda *args, **kwargs: None)
     monkeypatch.setattr(_core, "fetch_fund_flow_json", lambda url: {"_error": "blocked"})
     monkeypatch.setattr(_core, "fetch_market_fund_flow_snapshot", lambda date_str: {})
+    monkeypatch.setattr(_core, "fetch_sina_sector_money_flow_snapshot", lambda date_str: {})
     monkeypatch.setattr(_core, "fetch_sina_market_activity_snapshot", lambda date_str: {})
     monkeypatch.setattr(_core, "fetch_tencent_market_activity_snapshot", lambda date_str: {})
     monkeypatch.setattr(
@@ -300,6 +378,7 @@ def test_fund_flow_uses_sina_activity_before_cache(monkeypatch):
     monkeypatch.setattr(_core, "cache_load", lambda *args, **kwargs: None)
     monkeypatch.setattr(_core, "fetch_fund_flow_json", lambda url: {"_error": "blocked"})
     monkeypatch.setattr(_core, "fetch_market_fund_flow_snapshot", lambda date_str: {})
+    monkeypatch.setattr(_core, "fetch_sina_sector_money_flow_snapshot", lambda date_str: {})
     monkeypatch.setattr(
         _core,
         "fetch_sina_market_activity_snapshot",
@@ -325,6 +404,47 @@ def test_fund_flow_uses_sina_activity_before_cache(monkeypatch):
     assert flow["_source"] == "新浪财经A股指数行情"
     assert flow["_fallback_indicator"] == "market_activity"
     assert "_cache_note" not in flow
+
+
+def test_fund_flow_uses_sina_sector_flow_before_activity(monkeypatch):
+    monkeypatch.setattr(_core, "cache_load", lambda *args, **kwargs: None)
+    monkeypatch.setattr(_core, "fetch_fund_flow_json", lambda url: {"_error": "blocked"})
+    monkeypatch.setattr(_core, "fetch_market_fund_flow_snapshot", lambda date_str: {})
+    monkeypatch.setattr(
+        _core,
+        "fetch_sina_sector_money_flow_snapshot",
+        lambda date_str: {
+            "date": "2026-06-01",
+            "_source": "新浪财经资金流页面行业流向",
+            "_fallback_indicator": "sector_money_flow",
+            "_sector_in": '[["化工行业", 52.94]]',
+            "_sector_out": '[["有色金属", -20.0]]',
+        },
+    )
+    monkeypatch.setattr(_core, "fetch_sina_market_activity_snapshot", lambda date_str: {"_fallback_indicator": "market_activity"})
+
+    flow = _core.get_fund_flow("20260601")
+
+    assert flow["_source"] == "新浪财经资金流页面行业流向"
+    assert flow["_fallback_indicator"] == "sector_money_flow"
+
+
+def test_print_fund_flow_sector_indicator(capsys):
+    _core.print_fund_flow(
+        {
+            "date": "2026-06-01",
+            "_source": "新浪财经资金流页面行业流向",
+            "_fallback_indicator": "sector_money_flow",
+            "_indicator_note": "行业资金流参考",
+            "_sector_in": '[["化工行业", 52.94]]',
+            "_sector_out": '[["有色金属", -20.0]]',
+        }
+    )
+
+    output = capsys.readouterr().out
+    assert "行业资金流参考" in output
+    assert "化工行业" in output
+    assert "主力净流入:" not in output
 
 
 def test_market_activity_uses_latest_trade_date_when_source_has_no_date(monkeypatch):
@@ -526,6 +646,28 @@ def test_combined_news_preserves_per_item_source_and_url(monkeypatch):
     assert news["source_counts"] == {"futu_news": 1, "sina_roll": 1}
     assert {item["source"] for item in news["data"]} == {"futu_news", "sina_roll"}
     assert all(item["url"] for item in news["data"])
+
+
+def test_combined_news_skips_empty_content_links(monkeypatch):
+    monkeypatch.setattr(
+        _core,
+        "futu_news_search",
+        lambda *args, **kwargs: {
+            "source": "futu_news",
+            "data": [
+                {"title": "坏链接新闻", "url": "https://bad.example", "publish_time": 1780300000},
+                {"title": "好链接新闻", "url": "https://good.example", "publish_time": 1780290000},
+            ],
+        },
+    )
+    monkeypatch.setattr(_core, "futu_stock_feed", lambda *args, **kwargs: {"data": []})
+    monkeypatch.setattr(_core, "sina_roll_news", lambda *args, **kwargs: {"source": "sina_roll", "data": []})
+    monkeypatch.setattr(_core, "eastmoney_fast_news", lambda *args, **kwargs: {"source": "eastmoney_fast", "data": []})
+    monkeypatch.setattr(_core, "_news_url_has_readable_content", lambda url: "good" in url)
+
+    news = _core.combined_news_search("腾讯", size=1, date_str="20260601")
+
+    assert [item["title"] for item in news["data"]] == ["好链接新闻"]
 
 
 def test_print_news_shows_source_and_link_status(capsys):

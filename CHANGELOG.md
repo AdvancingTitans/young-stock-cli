@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.9] - 2026-06-01
+
+### Added
+- Added `young fund <code>` for fund-focused users. It shows the fund's same-day estimated return, latest NAV date, top A-share holdings, holding-stock quotes, rough holding contribution, and same-day holding-stock news.
+- `young flow` now has an additional Sina Finance sector fund-flow page fallback before falling back to Sina/Tencent market-activity references and the last known good local cache.
+
+### Changed
+- News aggregation now filters out links that clearly point to empty/404/no-content pages and replaces them with other same-day items when available.
+- Fund news is ranked across the fund's top holdings by same-day multi-source heat, with `--no-news` available for quote-only output.
+
 ## [0.1.8] - 2026-06-01
 
 ### Fixed

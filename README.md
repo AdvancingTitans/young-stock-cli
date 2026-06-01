@@ -32,8 +32,10 @@ young hk                # Hong Kong indices snapshot
 young us                # US indices snapshot
 young global            # A + HK + US in one view
 young stock 600519      # one stock snapshot (A-share / HK / US)
+young fund 161725       # fund estimate + top holdings quote/news
 young news 3690.HK      # multi-source news only
 young stock AAPL --no-news
+young fund 161725 --no-news
 young us --no-news      # market data only, skip news links
 young indices           # A-share indices only
 young zt-pool           # limit-up (涨停) / limit-down / 炸板 pool
@@ -70,13 +72,15 @@ It is also a foundation for analysis pipelines: every subcommand maps to a Pytho
 
 - **Multiple public quote sources** — Tencent Finance, Sina Finance, and Eastmoney are tried in sequence so temporary source failures can be filled by another no-login endpoint.
 - **Single-stock lookup** — `young stock 600519`, `young stock 0700.HK`, or `young stock AAPL` prints a compact quote snapshot with source, trade date, price, change, volume, turnover when available, and optional news.
+- **Fund holding lookup** — `young fund 161725` prints the fund's same-day estimated change, latest NAV date, top holdings, holding-stock quotes, rough contribution estimate, and same-day holding-stock news. Official fund NAVs usually update at night, so intraday/close values are clearly labeled as estimates.
 - **Single-stock news** — `young news 3690.HK` prints only the news/momentum view, with each item showing source and link status.
 - **Smart caching** — `~/.young_stock/cache/`, 7-day TTL, auto-pruned. Pass `--refresh` to skip.
 - **Trade-day awareness** — nearest-trade-day resolution including weekends and (best-effort) holidays.
 - **Rich terminal tables** — readable on dark and light terminals.
-- **Verified A-share fund flow** — `young flow` shows the latest Eastmoney A-share / Shanghai Composite fund-flow record and its trading date explicitly, including a warning when it differs from the requested report date; if realtime fund-flow sources are temporarily unavailable, it tries online market indicators from Sina/Tencent and clearly labels them as activity references before falling back to the most recent locally cached good fund-flow record.
+- **Verified A-share fund flow** — `young flow` shows the latest Eastmoney A-share / Shanghai Composite fund-flow record and its trading date explicitly, including a warning when it differs from the requested report date; if realtime fund-flow sources are temporarily unavailable, it tries Eastmoney page indicators, Sina Finance sector fund-flow, then Sina/Tencent market-activity references, clearly labeling non-equivalent fallbacks before using the most recent locally cached good fund-flow record.
 - **News heat ranking** — HK/US focus stocks can be ranked by filtered news heat from multiple no-login sources: Futu, Sina Finance, and Eastmoney fast news. Xueqiu/THS are intentionally not hardwired unless a stable no-login interface is available.
 - **Same-day news discipline** — news sections only show items published on the requested trading date, up to five items, with a clear empty-state message when nothing valid is available.
+- **Readable news links** — linked news items are checked for obvious empty/404/no-content pages and replaced by other same-day news when possible.
 - **Sector boards via browser fallback** — when Eastmoney's board API rate-limits, falls back to rendering the public web page (optional, requires a local browser engine).
 - **Local updater** — `young update` runs `python -m pip install --upgrade young-stock-cli` with the same interpreter that launched the CLI.
 
@@ -124,7 +128,9 @@ pip install young-stock-cli
 young a            # A 股盘后总览（主命令）
 young a --no-news  # 只看 A 股行情与情绪，跳过新闻
 young stock 600519 # 单只股票速览（A股 / 港股 / 美股）
+young fund 161725  # 基金估算收益 + 持仓股行情/新闻
 young news 3690.HK # 单只股票消息面，多源新闻与链接
+young fund 161725 --no-news # 只看基金估算与持仓行情
 young hk --no-news # 只看行情，跳过新闻链接
 young zt-pool      # 涨停 / 跌停 / 炸板分析
 young flow         # 最新可核验 A 股资金流向

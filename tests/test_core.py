@@ -114,6 +114,7 @@ def test_fund_flow_falls_back_to_push2his(monkeypatch):
     monkeypatch.setattr(_core, "cache_load", lambda *args, **kwargs: None)
     saved = []
     monkeypatch.setattr(_core, "cache_save", lambda *args, **kwargs: saved.append(args))
+    monkeypatch.setattr(_core, "fetch_market_fund_flow_snapshot", lambda date_str: {})
 
     calls = []
 
@@ -141,7 +142,7 @@ def test_fund_flow_falls_back_to_push2his(monkeypatch):
     assert saved
 
 
-def test_fund_flow_rejects_stale_latest_record(monkeypatch):
+def test_fund_flow_returns_latest_record_with_date_note(monkeypatch):
     monkeypatch.setattr(_core, "cache_load", lambda *args, **kwargs: None)
     monkeypatch.setattr(_core, "cache_save", lambda *args, **kwargs: None)
 
@@ -160,10 +161,10 @@ def test_fund_flow_rejects_stale_latest_record(monkeypatch):
 
     flow = _core.get_fund_flow("20260601")
 
-    assert "_unavailable" in flow
-    assert flow["_latest_date"] == "2026-05-29"
+    assert flow["date"] == "2026-05-29"
+    assert flow["_date_note"] == "latest_available"
     assert flow["_requested_date"] == "2026-06-01"
-    assert "主力净流入" not in flow
+    assert flow["主力净流入"] == "-42899849216.0"
 
 
 def test_fund_flow_can_return_latest_available_for_flow_command(monkeypatch):
@@ -191,19 +192,184 @@ def test_fund_flow_can_return_latest_available_for_flow_command(monkeypatch):
     assert flow["主力净流入"] == "-42899849216.0"
 
 
+def test_market_fund_flow_snapshot_sums_shanghai_and_shenzhen(monkeypatch):
+    monkeypatch.setattr(
+        _core,
+        "fetch_json",
+        lambda url, headers=None: {
+            "data": {
+                "diff": [
+                    {"f62": -100.0, "f66": -70.0, "f72": -30.0, "f78": 40.0, "f84": 60.0, "f6": 1000.0, "f124": 1780156800},
+                    {"f62": -200.0, "f66": -80.0, "f72": -120.0, "f78": 90.0, "f84": 110.0, "f6": 2000.0, "f124": 1780156800},
+                ]
+            }
+        },
+    )
+
+    flow = _core.fetch_market_fund_flow_snapshot("20260601")
+
+    assert flow["主力净流入"] == "-300.0"
+    assert flow["超大单净流入"] == "-150.0"
+    assert flow["大单净流入"] == "-150.0"
+    assert flow["中单净流入"] == "130.0"
+    assert flow["小单净流入"] == "170.0"
+    assert flow["_source"] == "东财资金流页面实时指标"
+    assert flow["_date_note"] == "latest_available"
+
+
+def test_fund_flow_ignores_old_unavailable_cache(monkeypatch):
+    monkeypatch.setattr(_core, "cache_load", lambda *args, **kwargs: {"_unavailable": "old"})
+    monkeypatch.setattr(_core, "cache_save", lambda *args, **kwargs: None)
+
+    def fake_fetch_fund_flow_json(url):
+        return {
+            "data": {
+                "klines": [
+                    "2026-05-29,-42899849216.0,24645406720.0,18254442496.0,"
+                    "-14700744704.0,-28199104512.0,-2.80,1.61,1.19,-0.96,"
+                    "-1.84,4068.57,-0.73,0.00,0.00"
+                ]
+            }
+        }
+
+    monkeypatch.setattr(_core, "fetch_fund_flow_json", fake_fetch_fund_flow_json)
+
+    flow = _core.get_fund_flow("20260601")
+
+    assert flow["date"] == "2026-05-29"
+    assert flow["主力净流入"] == "-42899849216.0"
+
+
+def test_fund_flow_uses_latest_good_cache_when_sources_fail(monkeypatch):
+    monkeypatch.setattr(_core, "cache_load", lambda *args, **kwargs: None)
+    monkeypatch.setattr(_core, "fetch_fund_flow_json", lambda url: {"_error": "blocked"})
+    monkeypatch.setattr(_core, "fetch_market_fund_flow_snapshot", lambda date_str: {})
+    monkeypatch.setattr(_core, "fetch_sina_market_activity_snapshot", lambda date_str: {})
+    monkeypatch.setattr(_core, "fetch_tencent_market_activity_snapshot", lambda date_str: {})
+    monkeypatch.setattr(
+        _core,
+        "load_latest_fund_flow_cache",
+        lambda date_str: {
+            "date": "2026-05-29",
+            "主力净流入": "-42899849216.0",
+            "_requested_date": "2026-06-01",
+            "_date_note": "latest_available",
+            "_source": "东财实时资金流",
+        },
+    )
+
+    flow = _core.get_fund_flow("20260601")
+
+    assert flow["date"] == "2026-05-29"
+    assert flow["_cache_note"] == "last_known_good"
+    assert flow["主力净流入"] == "-42899849216.0"
+
+
+def test_fund_flow_uses_online_snapshot_before_cache(monkeypatch):
+    monkeypatch.setattr(_core, "cache_load", lambda *args, **kwargs: None)
+    monkeypatch.setattr(_core, "fetch_fund_flow_json", lambda url: {"_error": "blocked"})
+    monkeypatch.setattr(
+        _core,
+        "fetch_market_fund_flow_snapshot",
+        lambda date_str: {
+            "date": "2026-05-29",
+            "主力净流入": "-42000000000",
+            "_requested_date": "2026-06-01",
+            "_date_note": "latest_available",
+            "_source": "东财资金流页面实时指标",
+        },
+    )
+    monkeypatch.setattr(
+        _core,
+        "load_latest_fund_flow_cache",
+        lambda date_str: {
+            "date": "2026-05-28",
+            "主力净流入": "-1",
+            "_source": "本地最近可用资金流缓存",
+        },
+    )
+
+    flow = _core.get_fund_flow("20260601")
+
+    assert flow["_source"] == "东财资金流页面实时指标"
+    assert flow["date"] == "2026-05-29"
+    assert flow["主力净流入"] == "-42000000000"
+
+
+def test_fund_flow_uses_sina_activity_before_cache(monkeypatch):
+    monkeypatch.setattr(_core, "cache_load", lambda *args, **kwargs: None)
+    monkeypatch.setattr(_core, "fetch_fund_flow_json", lambda url: {"_error": "blocked"})
+    monkeypatch.setattr(_core, "fetch_market_fund_flow_snapshot", lambda date_str: {})
+    monkeypatch.setattr(
+        _core,
+        "fetch_sina_market_activity_snapshot",
+        lambda date_str: {
+            "date": "2026-06-01",
+            "_source": "新浪财经A股指数行情",
+            "_fallback_indicator": "market_activity",
+            "总成交额": "3000",
+        },
+    )
+    monkeypatch.setattr(
+        _core,
+        "load_latest_fund_flow_cache",
+        lambda date_str: {
+            "date": "2026-05-29",
+            "主力净流入": "-42899849216.0",
+            "_source": "本地最近可用资金流缓存",
+        },
+    )
+
+    flow = _core.get_fund_flow("20260601")
+
+    assert flow["_source"] == "新浪财经A股指数行情"
+    assert flow["_fallback_indicator"] == "market_activity"
+    assert "_cache_note" not in flow
+
+
 def test_print_fund_flow_labels_a_share_and_stale_notice(capsys):
     _core.print_fund_flow(
         {
-            "_unavailable": "资金流数据日期和请求日期不一致",
-            "_latest_date": "2026-05-29",
+            "date": "2026-05-29",
+            "_date_note": "latest_available",
             "_requested_date": "2026-06-01",
+            "主力净流入": "-42899849216.0",
         }
     )
 
     output = capsys.readouterr().out
     assert "A股资金流向" in output
-    assert "暂不展示" in output
-    assert "主力净流入" not in output
+    assert "当前展示来源最新可用数据" in output
+    assert "主力净流入" in output
+    assert "暂不展示" not in output
+
+
+def test_print_fund_flow_market_activity_indicator(capsys):
+    _core.print_fund_flow(
+        {
+            "date": "2026-06-01",
+            "_source": "新浪财经A股指数行情",
+            "_fallback_indicator": "market_activity",
+            "_indicator_note": "不等同于主力资金净流入",
+            "总成交额": "3000",
+            "上证指数点位": "3000.0",
+            "上证指数涨跌幅": "1.2",
+            "上证指数成交额": "1000",
+        }
+    )
+
+    output = capsys.readouterr().out
+    assert "不等同于主力资金净流入" in output
+    assert "合计成交额" in output
+    assert "主力净流入:" not in output
+
+
+def test_diagnostic_summary_is_quiet_by_default(capsys):
+    _core.DIAGNOSTICS[:] = ["Sina missing AAPL"]
+
+    _core.print_diagnostic_summary()
+
+    assert capsys.readouterr().out == ""
 
 
 def test_nearest_trade_date_before_a_share_close_returns_previous_trade_day():
@@ -264,6 +430,29 @@ def test_news_chain_falls_back_to_sina(monkeypatch):
 
     assert news["source"] == "sina_roll"
     assert news["data"][0]["title"].startswith("英伟达")
+
+
+def test_news_chain_falls_back_to_eastmoney(monkeypatch):
+    monkeypatch.setattr(_core, "futu_news_search", lambda *args, **kwargs: {"_error": "blocked"})
+    monkeypatch.setattr(_core, "futu_stock_feed", lambda *args, **kwargs: {"data": []})
+    monkeypatch.setattr(_core, "sina_roll_news", lambda *args, **kwargs: {"source": "sina_roll", "data": []})
+    monkeypatch.setattr(
+        _core,
+        "eastmoney_fast_news",
+        lambda keyword, size=5, aliases=None: {
+            "source": "eastmoney_fast",
+            "data": [{"title": "腾讯控股回购", "url": "https://example.com", "publish_time": 1780224318}],
+        },
+    )
+
+    news = _core.news_search_chain("腾讯", size=5, lang="zh-CN", aliases=["腾讯控股"])
+
+    assert news["source"] == "eastmoney_fast"
+    assert news["data"][0]["title"].startswith("腾讯")
+
+
+def test_session_stage_labels_date_mismatch_as_after_hours():
+    assert _core.session_stage_label(data_date="2026-05-29", requested_date="20260601") == "交易日盘后"
 
 
 def test_report_footer_is_user_friendly(capsys):

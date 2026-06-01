@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.5] - 2026-06-01
+
+### Fixed
+- `young flow` now always shows the latest verified A-share fund-flow record when available, even if the source trading date differs from the requested report date.
+- Old cached "fund flow unavailable" responses are ignored so upgrades do not keep showing stale empty output.
+- If the realtime fund-flow interface is temporarily unavailable, `young flow` now tries an online market fund-flow snapshot endpoint before falling back to the most recent locally cached good record.
+- When Eastmoney realtime fund-flow endpoints are unavailable, `young flow` now tries additional no-login online market indicators from Sina/Tencent before using the last known good local fund-flow cache; indicator fallbacks are clearly labeled and are not presented as main-capital net inflow.
+
+### Changed
+- Data-source diagnostic traces are quiet by default; set `YOUNG_STOCK_DEBUG=1` to show them while troubleshooting.
+- Added `--no-news` to market commands that can print news links (`young hk`, `young us`) to match the existing single-stock `--no-news` option.
+- Market commands now print the current session stage (morning, midday, afternoon, or after-hours), and stale/latest-available data is labeled as the returned trading date's after-hours data.
+- News lookup now aggregates multiple no-login sources (Futu, Sina Finance, Eastmoney fast news) and uses filtered news heat to rank HK/US focus stocks Top 5.
+
 ## [0.1.4] - 2026-06-01
 
 ### Fixed

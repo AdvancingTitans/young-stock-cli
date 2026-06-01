@@ -9,7 +9,7 @@
 > An A-share (China stock market) after-hours CLI that **just works** — no login, no API keys, no scraping tricks.
 > Also covers HK & US indices and a global snapshot.
 
-A single command (`young a`) prints a complete after-hours dashboard: major indices, limit-up (涨停) and limit-down pools, verified A-share fund flow when the trading date matches, and top sector boards. Everything pulls from public no-login endpoints, with a 7-day local cache so repeated calls during the same session don't hammer the server.
+A single command (`young a`) prints a complete after-hours dashboard: major indices, limit-up (涨停) and limit-down pools, latest verified A-share fund flow with the source trading date, current session stage, and top sector boards. Everything pulls from public no-login endpoints, with a 7-day local cache so repeated calls during the same session don't hammer the server.
 
 Born out of a real workflow: every trading day after close I wanted the same five numbers in one place without opening a browser or paying for a data terminal. So I packaged it.
 
@@ -31,6 +31,8 @@ young hk                # Hong Kong indices snapshot
 young us                # US indices snapshot
 young global            # A + HK + US in one view
 young stock 600519      # one stock snapshot (A-share / HK / US)
+young stock AAPL --no-news
+young us --no-news      # market data only, skip news links
 young indices           # A-share indices only
 young zt-pool           # limit-up (涨停) / limit-down / 炸板 pool
 young flow              # latest verified A-share fund flow
@@ -69,7 +71,8 @@ It is also a foundation for analysis pipelines: every subcommand maps to a Pytho
 - **Smart caching** — `~/.young_stock/cache/`, 7-day TTL, auto-pruned. Pass `--refresh` to skip.
 - **Trade-day awareness** — nearest-trade-day resolution including weekends and (best-effort) holidays.
 - **Rich terminal tables** — readable on dark and light terminals.
-- **Verified A-share fund flow** — `young flow` shows the latest Eastmoney A-share / Shanghai Composite fund-flow date explicitly; full reports only include it when the trading date matches.
+- **Verified A-share fund flow** — `young flow` shows the latest Eastmoney A-share / Shanghai Composite fund-flow record and its trading date explicitly, including a warning when it differs from the requested report date; if realtime fund-flow sources are temporarily unavailable, it tries online market indicators from Sina/Tencent and clearly labels them as activity references before falling back to the most recent locally cached good fund-flow record.
+- **News heat ranking** — HK/US focus stocks can be ranked by filtered news heat from multiple no-login sources: Futu, Sina Finance, and Eastmoney fast news. Xueqiu/THS are intentionally not hardwired unless a stable no-login interface is available.
 - **Sector boards via browser fallback** — when Eastmoney's board API rate-limits, falls back to rendering the public web page (optional, requires a local browser engine).
 - **Local updater** — `young update` runs `python -m pip install --upgrade young-stock-cli` with the same interpreter that launched the CLI.
 
@@ -116,6 +119,7 @@ A 股盘后行情命令行工具。免登录、免 API key、免反爬技巧 —
 pip install young-stock-cli
 young a            # A 股盘后总览（主命令）
 young stock 600519 # 单只股票速览（A股 / 港股 / 美股）
+young hk --no-news # 只看行情，跳过新闻链接
 young zt-pool      # 涨停 / 跌停 / 炸板分析
 young flow         # 最新可核验 A 股资金流向
 young global       # 全球指数一屏
@@ -123,6 +127,6 @@ young a -d 20260530 --refresh    # 指定日期 + 强制刷新
 young update       # 在当前 Python 环境中更新 CLI
 ```
 
-数据来源：腾讯财经、新浪财经、东方财富公开行情接口（`qt.gtimg.cn` / `hq.sinajs.cn` / `push2.eastmoney.com` / `push2ex.eastmoney.com`），多源自动切换。本地缓存 7 天，目录 `~/.young_stock/cache/`，可用 `young cache-clear` 清理。
+数据来源：腾讯财经、新浪财经、东方财富公开行情与快讯接口（`qt.gtimg.cn` / `hq.sinajs.cn` / `push2.eastmoney.com` / `push2ex.eastmoney.com` / `np-listapi.eastmoney.com`），多源自动切换。本地缓存 7 天，目录 `~/.young_stock/cache/`，可用 `young cache-clear` 清理。命令会标注当前阶段：上午盘、午间、下午盘或盘后；若展示的是非请求日的最新可用数据，会标注为该交易日盘后数据。
 
 适用人群：每天盘后想用一条命令看完五张图的开发者 / 量化研究者 / 自动化爱好者。欢迎 issue / PR。

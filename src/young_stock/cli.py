@@ -18,7 +18,7 @@ def cli() -> None:
     pass
 
 
-def _run(market: str, date: str | None, refresh: bool) -> None:
+def _run(market: str, date: str | None, refresh: bool, include_news: bool = True) -> None:
     if refresh:
         _core.NO_CACHE = True
     _core.cache_clear_old(days=7)
@@ -26,9 +26,9 @@ def _run(market: str, date: str | None, refresh: bool) -> None:
     if market == "a":
         _core.run_a_share(date_str)
     elif market == "hk":
-        _core.run_hk_market(date_str)
+        _core.run_hk_market(date_str, include_news=include_news)
     elif market == "us":
-        _core.run_us_market(date_str)
+        _core.run_us_market(date_str, include_news=include_news)
     elif market == "global":
         _core.run_global_market(date_str)
     else:
@@ -50,15 +50,17 @@ def a(date: str | None, refresh: bool) -> None:
 @cli.command(help="Hong Kong market after-hours snapshot.")
 @_date_opt
 @_refresh_opt
-def hk(date: str | None, refresh: bool) -> None:
-    _run("hk", date, refresh)
+@click.option("--no-news", is_flag=True, help="Only show market data, skip news lookup.")
+def hk(date: str | None, refresh: bool, no_news: bool) -> None:
+    _run("hk", date, refresh, include_news=not no_news)
 
 
 @cli.command(help="US market after-hours snapshot.")
 @_date_opt
 @_refresh_opt
-def us(date: str | None, refresh: bool) -> None:
-    _run("us", date, refresh)
+@click.option("--no-news", is_flag=True, help="Only show market data, skip news lookup.")
+def us(date: str | None, refresh: bool, no_news: bool) -> None:
+    _run("us", date, refresh, include_news=not no_news)
 
 
 @cli.command(name="global", help="Global indices snapshot (A + HK + US).")
@@ -92,6 +94,7 @@ def indices(date: str | None, refresh: bool) -> None:
         _core.NO_CACHE = True
     date_str = date or _core.nearest_trade_date()
     data = _core.get_index(date_str)
+    _core.print_stage_line(date_str)
     _core.print_index(data)
 
 
@@ -105,6 +108,7 @@ def zt_pool(date: str | None, refresh: bool) -> None:
     zt = _core.get_zt_pool(date_str)
     dt = _core.get_dt_pool(date_str)
     zb = _core.get_zb_pool(date_str)
+    _core.print_stage_line(date_str)
     _core.print_zt_analysis(zt, dt, zb)
 
 

@@ -327,6 +327,20 @@ def test_fund_flow_uses_sina_activity_before_cache(monkeypatch):
     assert "_cache_note" not in flow
 
 
+def test_market_activity_uses_latest_trade_date_when_source_has_no_date(monkeypatch):
+    monkeypatch.setattr(_core, "nearest_trade_date", lambda: "20260529")
+
+    flow = _core._market_activity_snapshot(
+        [{"f12": "000001", "f14": "上证指数", "f2": "3000", "f3": "1.0", "f6": "1000"}],
+        "新浪财经A股指数行情",
+        "20260601",
+    )
+
+    assert flow["date"] == "2026-05-29"
+    assert flow["_requested_date"] == "2026-06-01"
+    assert flow["_date_note"] == "latest_available"
+
+
 def test_print_fund_flow_labels_a_share_and_stale_notice(capsys):
     _core.print_fund_flow(
         {
@@ -339,6 +353,7 @@ def test_print_fund_flow_labels_a_share_and_stale_notice(capsys):
 
     output = capsys.readouterr().out
     assert "A股资金流向" in output
+    assert "阶段: 2026-05-29 交易日盘后" in output
     assert "当前展示来源最新可用数据" in output
     assert "主力净流入" in output
     assert "暂不展示" not in output
@@ -451,6 +466,41 @@ def test_news_chain_falls_back_to_eastmoney(monkeypatch):
     assert news["data"][0]["title"].startswith("腾讯")
 
 
+def test_combined_news_filters_to_requested_date(monkeypatch):
+    monkeypatch.setattr(
+        _core,
+        "futu_news_search",
+        lambda *args, **kwargs: {
+            "source": "futu_news",
+            "data": [
+                {"title": "腾讯今日新闻", "url": "https://today.example", "publish_time": 1780300000},
+                {"title": "腾讯旧新闻", "url": "https://old.example", "publish_time": 1780210000},
+            ],
+        },
+    )
+    monkeypatch.setattr(_core, "futu_stock_feed", lambda *args, **kwargs: {"data": []})
+    monkeypatch.setattr(_core, "sina_roll_news", lambda *args, **kwargs: {"source": "sina_roll", "data": []})
+    monkeypatch.setattr(_core, "eastmoney_fast_news", lambda *args, **kwargs: {"source": "eastmoney_fast", "data": []})
+
+    news = _core.combined_news_search("腾讯", size=5, date_str="20260601")
+
+    assert [item["title"] for item in news["data"]] == ["腾讯今日新闻"]
+
+
+def test_rank_symbols_only_returns_positive_news(monkeypatch):
+    def fake_combined(keyword, size=5, lang="zh-CN", aliases=None, date_str=None):
+        if keyword == "AAA":
+            return {"data": [{"title": "AAA today", "publish_time": 1780300000}], "all_count": 1, "source_counts": {"futu_news": 1}}
+        return {"data": [], "all_count": 0, "source_counts": {}}
+
+    monkeypatch.setattr(_core, "combined_news_search", fake_combined)
+
+    ranked, heat = _core.rank_symbols_by_news_heat(["AAA", "BBB"], date_str="20260601")
+
+    assert ranked == ["AAA"]
+    assert heat["BBB"]["score"] == 0
+
+
 def test_combined_news_preserves_per_item_source_and_url(monkeypatch):
     monkeypatch.setattr(
         _core,
@@ -497,8 +547,16 @@ def test_print_news_shows_source_and_link_status(capsys):
     assert "来源: 新浪财经 | 链接: 暂无公开链接" in output
 
 
+def test_print_news_empty_is_clear(capsys):
+    _core.print_futu_news({"source": "none", "data": []}, "A股市场")
+
+    output = capsys.readouterr().out
+    assert "目前暂未获取到有效新闻信息" in output
+
+
 def test_session_stage_labels_date_mismatch_as_after_hours():
     assert _core.session_stage_label(data_date="2026-05-29", requested_date="20260601") == "交易日盘后"
+    assert _core.dated_stage_label(data_date="2026-05-29", requested_date="20260601") == "2026-05-29 交易日盘后"
 
 
 def test_report_footer_is_user_friendly(capsys):

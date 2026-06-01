@@ -27,6 +27,7 @@ Requires Python 3.10+.
 
 ```bash
 young a                 # A-share after-hours dashboard (the main thing)
+young a --no-news       # A-share dashboard without news links
 young hk                # Hong Kong indices snapshot
 young us                # US indices snapshot
 young global            # A + HK + US in one view
@@ -75,6 +76,7 @@ It is also a foundation for analysis pipelines: every subcommand maps to a Pytho
 - **Rich terminal tables** — readable on dark and light terminals.
 - **Verified A-share fund flow** — `young flow` shows the latest Eastmoney A-share / Shanghai Composite fund-flow record and its trading date explicitly, including a warning when it differs from the requested report date; if realtime fund-flow sources are temporarily unavailable, it tries online market indicators from Sina/Tencent and clearly labels them as activity references before falling back to the most recent locally cached good fund-flow record.
 - **News heat ranking** — HK/US focus stocks can be ranked by filtered news heat from multiple no-login sources: Futu, Sina Finance, and Eastmoney fast news. Xueqiu/THS are intentionally not hardwired unless a stable no-login interface is available.
+- **Same-day news discipline** — news sections only show items published on the requested trading date, up to five items, with a clear empty-state message when nothing valid is available.
 - **Sector boards via browser fallback** — when Eastmoney's board API rate-limits, falls back to rendering the public web page (optional, requires a local browser engine).
 - **Local updater** — `young update` runs `python -m pip install --upgrade young-stock-cli` with the same interpreter that launched the CLI.
 
@@ -120,6 +122,7 @@ A 股盘后行情命令行工具。免登录、免 API key、免反爬技巧 —
 ```bash
 pip install young-stock-cli
 young a            # A 股盘后总览（主命令）
+young a --no-news  # 只看 A 股行情与情绪，跳过新闻
 young stock 600519 # 单只股票速览（A股 / 港股 / 美股）
 young news 3690.HK # 单只股票消息面，多源新闻与链接
 young hk --no-news # 只看行情，跳过新闻链接

@@ -24,7 +24,7 @@ def _run(market: str, date: str | None, refresh: bool, include_news: bool = True
     _core.cache_clear_old(days=7)
     date_str = date or _core.nearest_trade_date()
     if market == "a":
-        _core.run_a_share(date_str)
+        _core.run_a_share(date_str, include_news=include_news)
     elif market == "hk":
         _core.run_hk_market(date_str, include_news=include_news)
     elif market == "us":
@@ -43,8 +43,9 @@ _refresh_opt = click.option("--refresh", is_flag=True, help="Skip cache and forc
 @cli.command(help="A-share dashboard: indices, ZT/DT pool, verified A-share fund flow, boards.")
 @_date_opt
 @_refresh_opt
-def a(date: str | None, refresh: bool) -> None:
-    _run("a", date, refresh)
+@click.option("--no-news", is_flag=True, help="Only show market data, skip news lookup.")
+def a(date: str | None, refresh: bool, no_news: bool) -> None:
+    _run("a", date, refresh, include_news=not no_news)
 
 
 @cli.command(help="Hong Kong market after-hours snapshot.")
@@ -137,15 +138,16 @@ def stock(symbol: str, date: str | None, refresh: bool, no_news: bool) -> None:
 
 
 @cli.command(help="Show multi-source news for one stock, e.g. 600519, 0700.HK, AAPL.")
-@click.argument("symbol")
+@click.argument("parts", nargs=-1, required=True)
 @_date_opt
 @_refresh_opt
 @click.option("--limit", default=8, show_default=True, help="Maximum news items to show.")
-def news(symbol: str, date: str | None, refresh: bool, limit: int) -> None:
+def news(parts: tuple[str, ...], date: str | None, refresh: bool, limit: int) -> None:
     if refresh:
         _core.NO_CACHE = True
     _core.cache_clear_old(days=7)
     date_str = date or _core.nearest_trade_date()
+    symbol = parts[-1] if len(parts) > 1 and parts[0].lower() == "stock" else parts[0]
     _core.run_stock_news(symbol, date_str, size=limit)
 
 

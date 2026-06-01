@@ -53,6 +53,21 @@ def test_cli_stock_runs_single_stock_quote(monkeypatch):
     assert calls == [("600519", "20260529", False)]
 
 
+def test_cli_a_no_news(monkeypatch):
+    from click.testing import CliRunner
+
+    calls = []
+    monkeypatch.setattr(cli_module._core, "nearest_trade_date", lambda: "20260529")
+    monkeypatch.setattr(cli_module._core, "cache_clear_old", lambda days: None)
+    monkeypatch.setattr(cli_module._core, "run_a_share", lambda date_str, include_news=True: calls.append((date_str, include_news)))
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["a", "--no-news"])
+
+    assert result.exit_code == 0
+    assert calls == [("20260529", False)]
+
+
 def test_cli_us_no_news(monkeypatch):
     from click.testing import CliRunner
 
@@ -78,6 +93,12 @@ def test_cli_news_runs_stock_news(monkeypatch):
 
     runner = CliRunner()
     result = runner.invoke(cli, ["news", "0700.HK", "--limit", "6"])
+
+    assert result.exit_code == 0
+    assert calls == [("0700.HK", "20260529", 6)]
+
+    calls.clear()
+    result = runner.invoke(cli, ["news", "stock", "0700.HK", "--limit", "6"])
 
     assert result.exit_code == 0
     assert calls == [("0700.HK", "20260529", 6)]

@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.11] - 2026-06-02
+
+### Fixed
+- Tonghuashun concept fund-flow is used only when both net-inflow and net-outflow rankings are available; otherwise `young flow` falls back to the existing Eastmoney/Sina/Tencent/local-cache chain.
+- Fund-flow headings now match the actual source scope, including concept boards, sector boards, market-activity references, and Eastmoney main-capital flow.
+
+### Changed
+- Normal command output no longer prints engineering-style data-quality/completeness/source-diagnostic sections; detailed diagnostics remain available with `YOUNG_STOCK_DEBUG=1`.
+
 ## [0.1.10] - 2026-06-02
 
 ### Added

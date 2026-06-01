@@ -334,8 +334,8 @@ def test_fund_flow_prefers_ths_concept_flow(monkeypatch):
             "date": "2026-06-01",
             "_source": "同花顺概念资金流",
             "_fallback_indicator": "concept_money_flow",
-            "_concept_in": "[]",
-            "_concept_out": "[]",
+            "_concept_in": '[{"name":"ERP概念","net":14.28}]',
+            "_concept_out": '[{"name":"有色金属","net":-8.0}]',
         },
     )
     monkeypatch.setattr(_core, "fetch_fund_flow_json", lambda url: (_ for _ in ()).throw(AssertionError("should not call Eastmoney first")))
@@ -566,8 +566,72 @@ def test_print_fund_flow_market_activity_indicator(capsys):
 
     output = capsys.readouterr().out
     assert "不等同于主力资金净流入" in output
+    assert "指数活跃度参考" in output
     assert "合计成交额" in output
     assert "主力净流入:" not in output
+
+
+def test_print_global_indices_hides_completeness(capsys):
+    _core.print_global_indices(
+        [
+            _core.QuoteData(
+                symbol="^HSI",
+                name="恒生指数",
+                market="hk_market",
+                price=25182.39,
+                change_pct=0.70,
+                turnover=462070141280.0,
+                source="tencent",
+                completeness=100,
+            )
+        ],
+        "港股",
+    )
+
+    output = capsys.readouterr().out
+    assert "完整度" not in output
+    assert "100%" not in output
+
+
+def test_print_data_quality_report_is_quiet_by_default(capsys):
+    _core.DIAGNOSTICS[:] = ["Tencent HK index口径提示"]
+
+    _core.print_data_quality_report(
+        [
+            _core.QuoteData(
+                symbol="^HSI",
+                name="恒生指数",
+                completeness=100,
+                notes=["港股指数采用腾讯收盘口径"],
+            )
+        ]
+    )
+
+    assert capsys.readouterr().out == ""
+    _core.DIAGNOSTICS[:] = []
+
+
+def test_print_single_stock_report_hides_completeness(capsys):
+    _core.print_single_stock_report(
+        _core.QuoteData(
+            symbol="600519",
+            name="贵州茅台",
+            market="cn_market",
+            date="2026-06-01",
+            price=1500.0,
+            prev_close=1490.0,
+            change=10.0,
+            change_pct=0.67,
+            volume=123456,
+            source="sina",
+            completeness=100,
+        ),
+        requested_date="20260601",
+    )
+
+    output = capsys.readouterr().out
+    assert "完整度" not in output
+    assert "100%" not in output
 
 
 def test_diagnostic_summary_is_quiet_by_default(capsys):

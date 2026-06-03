@@ -36,6 +36,8 @@ young fund 161725       # fund estimate + top holdings quote/news
 young profile add-stock 600519
 young profile add-fund 161725
 young profile list
+young profile clear-stocks  # clear all saved stocks/ETFs only
+young profile clear-funds   # clear all saved funds only
 young daily --format summary      # concise personalized daily report
 young daily --format key-points   # short report with trend/risk points
 young daily --format full         # full personalized daily report
@@ -53,6 +55,7 @@ young flow              # latest verified A-share fund flow
 young a -d 20260530     # historical date (YYYYMMDD)
 young a --refresh       # bypass cache, force re-fetch
 young update            # upgrade young-stock-cli in the current Python env
+young uninstall         # uninstall from the current Python env
 young --help
 ```
 
@@ -85,9 +88,9 @@ The internals are being split into focused modules: `young_stock.calendar` handl
 - **Multiple public quote sources** — Tencent Finance, Sina Finance, and Eastmoney are tried in sequence so temporary source failures can be filled by another no-login endpoint.
 - **Single-stock lookup** — `young stock 600519`, `young stock 0700.HK`, or `young stock AAPL` prints a compact quote snapshot with source, trade date, price, change, volume, turnover when available, and optional news.
 - **Fund holding lookup** — `young fund 161725` prints the fund's same-day estimated change, latest NAV date, top holdings, holding-stock quotes, rough contribution estimate, and same-day holding-stock news. Official fund NAVs usually update at night, so intraday/close values are clearly labeled as estimates.
-- **Personal daily report** — `young daily` reads your local investment memory from `~/.young_stock/profile.json`, then prints saved stock/ETF trends, fund estimates, global indices, A-share sentiment, and risk-oriented suggestions. First use: add symbols with `young profile add-stock 600519` and `young profile add-fund 161725`.
+- **Personal daily report** — `young daily` reads your local investment memory from `~/.young_stock/profile.json`, then prints saved stock/ETF trends, fund estimates, global indices, A-share sentiment, and Buffett-style risk-oriented suggestions grounded in your symbols, fund estimates, and available news. First use: add symbols with `young profile add-stock 600519` and `young profile add-fund 161725`.
 - **Short report modes** — `young daily --format summary` keeps terminal output compact; `--format key-points` adds a few trend/risk bullets; `--only`, `--order`, and `--quick` trim slower or irrelevant sections.
-- **Investment memory management** — list, remove, clear, and group saved stocks/funds with `young profile list`, `remove-stock`, `remove-fund`, `clear`, and `profile group create/add`.
+- **Investment memory management** — list, remove, clear, and group saved stocks/funds with `young profile list`, `remove-stock`, `remove-fund`, `clear`, `clear-stocks`, `clear-funds`, and `profile group create/add`.
 - **Local workflow helpers** — lightweight `portfolio`, `alert`, `note`, and `diary` commands store local records for portfolio experiments, reminder rules, investment notes, and saved daily-report text.
 - **Diagnostics** — `young diagnose` summarizes recent source health and suggests cache/quick-mode fallbacks when public APIs are unstable.
 - **Single-stock news** — `young news 3690.HK` prints only the news/momentum view, with each item showing source and link status.
@@ -101,7 +104,7 @@ The internals are being split into focused modules: `young_stock.calendar` handl
 - **Same-day news discipline** — news sections only show items published on the requested trading date, up to five items, with a clear empty-state message when nothing valid is available.
 - **Readable news links** — linked news items are checked for obvious empty/404/no-content pages and replaced by other same-day news when possible.
 - **Sector boards via browser fallback** — when Eastmoney's board API rate-limits, falls back to rendering the public web page (optional, requires a local browser engine).
-- **Local updater** — `young update` runs `python -m pip install --upgrade young-stock-cli` with the same interpreter that launched the CLI.
+- **Local updater/uninstaller** — `young update` runs `python -m pip install --upgrade young-stock-cli`; `young uninstall` runs `python -m pip uninstall -y young-stock-cli` with the same interpreter that launched the CLI.
 
 ## Library usage
 

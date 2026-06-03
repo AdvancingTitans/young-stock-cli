@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.14] - 2026-06-03
+
+### Added
+- Added `young uninstall` to remove the package from the current Python environment with one command.
+- Added `young profile clear-stocks` and `young profile clear-funds` for one-click stock/fund memory cleanup without deleting the other side.
+
+### Changed
+- Daily report advice now uses a Buffett-style framework: circle of competence, margin of safety, moat durability, valuation discipline, and Mr. Market. Summary/key-points/full modes now tie risk notes to the user's watched symbols, fund estimates, and available news instead of printing generic caution text.
+
 ## [0.1.13] - 2026-06-03
 
 ### Added

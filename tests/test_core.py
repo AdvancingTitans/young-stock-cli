@@ -667,6 +667,70 @@ def test_run_daily_report_prints_watchlist_and_market_sections(monkeypatch, caps
     assert calls == [("fund", "161725", "20260529", False), ("global", "20260529"), ("a", "20260529", False)]
 
 
+def test_daily_key_points_uses_buffett_specific_risk(monkeypatch, capsys):
+    quotes = {
+        "NVDA": _core.QuoteData(
+            symbol="NVDA",
+            name="英伟达",
+            market="us_market",
+            date="2026-06-03",
+            price=145.0,
+            change_pct=4.2,
+            currency="USD",
+            source="test",
+        ),
+        "AAPL": _core.QuoteData(
+            symbol="AAPL",
+            name="苹果",
+            market="us_market",
+            date="2026-06-03",
+            price=205.0,
+            change_pct=-0.8,
+            currency="USD",
+            source="test",
+        ),
+    }
+
+    monkeypatch.setattr(_core, "get_single_stock_quote", lambda symbol, date: quotes.get(symbol))
+    monkeypatch.setattr(
+        _core,
+        "fetch_fund_estimate",
+        lambda code, date: {
+            "fundcode": code,
+            "name": "测试科技基金",
+            "estimate_change_pct": "2.10",
+            "date": "2026-06-03",
+        },
+    )
+    monkeypatch.setattr(_core, "get_index", lambda date: [])
+    monkeypatch.setattr(_core, "get_fund_flow", lambda date, strict_date=False: {})
+    monkeypatch.setattr(
+        _core,
+        "combined_news_search",
+        lambda *args, **kwargs: {
+            "data": [
+                {"title": "英伟达 AI 芯片需求继续增长"},
+                {"title": "苹果服务业务现金流保持韧性"},
+            ]
+        },
+    )
+
+    _core.run_daily_report(
+        "20260603",
+        {"stocks": ["NVDA", "AAPL"], "funds": ["021528"]},
+        include_news=True,
+        report_format="key-points",
+        only="stocks,funds",
+    )
+
+    output = capsys.readouterr().out
+    assert "英伟达(NVDA)" in output
+    assert "能力圈" in output
+    assert "安全边际" in output
+    assert "护城河" in output
+    assert "021528" in output
+
+
 def test_diagnostic_summary_is_quiet_by_default(capsys):
     _core.DIAGNOSTICS[:] = ["Sina missing AAPL"]
 

@@ -65,6 +65,18 @@ def clear_profile() -> dict[str, list[str]]:
     return profile
 
 
+def clear_profile_kind(kind: str) -> dict[str, list[str]]:
+    if kind not in {"stocks", "funds"}:
+        raise ValueError(f"unknown profile item kind: {kind}")
+    profile = load_profile()
+    profile[kind] = []
+    for group in profile.get("groups", {}).values():
+        if isinstance(group, dict):
+            group[kind] = []
+    save_profile(profile)
+    return profile
+
+
 def add_group(name: str) -> dict[str, list[str]]:
     profile = load_profile()
     group_name = name.strip()

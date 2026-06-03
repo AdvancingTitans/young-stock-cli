@@ -7,6 +7,7 @@ from young_stock.profile import (
     add_group_item,
     add_profile_item,
     clear_profile,
+    clear_profile_kind,
     load_profile,
     profile_path,
     remove_profile_item,
@@ -39,6 +40,22 @@ def test_profile_read_write_uses_env_override(monkeypatch, tmp_path):
         "stocks": [],
         "funds": ["161725"],
         "groups": {"稳健型": {"stocks": [], "funds": ["021528"]}},
+    }
+
+    add_profile_item("stocks", "600000")
+    add_group_item("稳健型", "600000")
+    clear_profile_kind("stocks")
+    assert load_profile() == {
+        "stocks": [],
+        "funds": ["161725"],
+        "groups": {"稳健型": {"stocks": [], "funds": ["021528"]}},
+    }
+
+    clear_profile_kind("funds")
+    assert load_profile() == {
+        "stocks": [],
+        "funds": [],
+        "groups": {"稳健型": {"stocks": [], "funds": []}},
     }
 
     clear_profile()

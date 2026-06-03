@@ -13,6 +13,7 @@ from .profile import (
     add_group_item,
     add_profile_item,
     clear_profile,
+    clear_profile_kind,
     load_profile,
     profile_path,
     remove_profile_item,
@@ -106,6 +107,15 @@ def update(pre: bool, user_install: bool) -> None:
     result = subprocess.run(cmd, check=False)
     if result.returncode != 0:
         raise click.ClickException(f"update failed with exit code {result.returncode}")
+
+
+@cli.command(help="Uninstall young-stock-cli from the current Python environment.")
+def uninstall() -> None:
+    cmd = [sys.executable, "-m", "pip", "uninstall", "-y", "young-stock-cli"]
+    click.echo("Running: " + " ".join(cmd))
+    result = subprocess.run(cmd, check=False)
+    if result.returncode != 0:
+        raise click.ClickException(f"uninstall failed with exit code {result.returncode}")
 
 
 @cli.command(help="Show A-share major indices only.")
@@ -263,6 +273,20 @@ def profile_remove_fund(code: str) -> None:
 def profile_clear() -> None:
     clear_profile()
     click.echo("Cleared investment memory.")
+
+
+@profile.command("clear-stocks", help="Clear all saved stocks/ETFs from investment memory.")
+def profile_clear_stocks() -> None:
+    data = clear_profile_kind("stocks")
+    click.echo("Cleared all saved stocks/ETFs.")
+    click.echo(f"Funds: {', '.join(data.get('funds', [])) or '-'}")
+
+
+@profile.command("clear-funds", help="Clear all saved funds from investment memory.")
+def profile_clear_funds() -> None:
+    data = clear_profile_kind("funds")
+    click.echo("Cleared all saved funds.")
+    click.echo(f"Stocks: {', '.join(data.get('stocks', [])) or '-'}")
 
 
 @profile.group("group", help="Manage investment-memory groups.")

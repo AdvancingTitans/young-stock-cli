@@ -34,7 +34,7 @@ def test_cli_subcommands_registered():
     for sub in [
         "a", "hk", "us", "global", "indices", "zt-pool", "flow", "stock", "fund", "news",
         "daily", "profile", "portfolio", "alert", "note", "diary", "diagnose", "guide", "example",
-        "cache-clear", "update",
+        "cache-clear", "update", "uninstall",
     ]:
         assert sub in result.output, f"subcommand `{sub}` missing from help"
 
@@ -159,6 +159,24 @@ def test_cli_update_runs_pip_upgrade(monkeypatch):
     )]
 
 
+def test_cli_uninstall_runs_pip_uninstall(monkeypatch):
+    from click.testing import CliRunner
+
+    calls = []
+
+    def fake_run(cmd, check):
+        calls.append((cmd, check))
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(cli_module.subprocess, "run", fake_run)
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["uninstall"])
+
+    assert result.exit_code == 0
+    assert calls == [([sys.executable, "-m", "pip", "uninstall", "-y", "young-stock-cli"], False)]
+
+
 def test_cli_daily_guides_first_use_when_profile_empty(monkeypatch, tmp_path):
     from click.testing import CliRunner
 
@@ -222,6 +240,19 @@ def test_cli_profile_remove_clear_and_groups(monkeypatch, tmp_path):
     after_remove = runner.invoke(cli, ["profile", "list"])
     assert "Stocks: -" in after_remove.output
 
+    assert runner.invoke(cli, ["profile", "add-stock", "000001"]).exit_code == 0
+    assert runner.invoke(cli, ["profile", "group", "add", "成长型", "000001"]).exit_code == 0
+    assert runner.invoke(cli, ["profile", "clear-stocks"]).exit_code == 0
+    after_clear_stocks = runner.invoke(cli, ["profile", "list"])
+    assert "Stocks: -" in after_clear_stocks.output
+    assert "Funds: 161725" in after_clear_stocks.output
+    assert "stocks=-" in after_clear_stocks.output
+
+    assert runner.invoke(cli, ["profile", "clear-funds"]).exit_code == 0
+    after_clear_funds = runner.invoke(cli, ["profile", "list"])
+    assert "Funds: -" in after_clear_funds.output
+
+    assert runner.invoke(cli, ["profile", "add-fund", "161725"]).exit_code == 0
     assert runner.invoke(cli, ["profile", "clear"]).exit_code == 0
     after_clear = runner.invoke(cli, ["profile", "list"])
     assert "Funds: -" in after_clear.output

@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.12] - 2026-06-03
+
+### Added
+- Added `young profile add-stock`, `young profile add-fund`, and `young profile show` to maintain local investment memory in `~/.young_stock/profile.json`.
+- Added `young daily`, a personalized daily market report that combines saved stock/fund watchlists, global indices, A-share sentiment, fund flow, and risk-oriented suggestions.
+- Exposed `run_daily_report()` in `young_stock._core` so agent skills can depend on the PyPI package instead of copying the core script.
+
+### Changed
+- The daily report uses the existing nearest-trade-date logic, so pre-close weekday runs still review the latest settled trading day.
+
 ## [0.1.11] - 2026-06-02
 
 ### Fixed

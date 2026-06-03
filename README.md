@@ -33,6 +33,9 @@ young us                # US indices snapshot
 young global            # A + HK + US in one view
 young stock 600519      # one stock snapshot (A-share / HK / US)
 young fund 161725       # fund estimate + top holdings quote/news
+young profile add-stock 600519
+young profile add-fund 161725
+young daily             # personalized daily report from saved investment memory
 young news 3690.HK      # multi-source news only
 young stock AAPL --no-news
 young fund 161725 --no-news
@@ -73,6 +76,7 @@ It is also a foundation for analysis pipelines: every subcommand maps to a Pytho
 - **Multiple public quote sources** — Tencent Finance, Sina Finance, and Eastmoney are tried in sequence so temporary source failures can be filled by another no-login endpoint.
 - **Single-stock lookup** — `young stock 600519`, `young stock 0700.HK`, or `young stock AAPL` prints a compact quote snapshot with source, trade date, price, change, volume, turnover when available, and optional news.
 - **Fund holding lookup** — `young fund 161725` prints the fund's same-day estimated change, latest NAV date, top holdings, holding-stock quotes, rough contribution estimate, and same-day holding-stock news. Official fund NAVs usually update at night, so intraday/close values are clearly labeled as estimates.
+- **Personal daily report** — `young daily` reads your local investment memory from `~/.young_stock/profile.json`, then prints saved stock/ETF trends, fund estimates, global indices, A-share sentiment, and risk-oriented suggestions. First use: add symbols with `young profile add-stock 600519` and `young profile add-fund 161725`.
 - **Single-stock news** — `young news 3690.HK` prints only the news/momentum view, with each item showing source and link status.
 - **Smart caching** — `~/.young_stock/cache/`, 7-day TTL, auto-pruned. Pass `--refresh` to skip.
 - **Trade-day awareness** — nearest-trade-day resolution including weekends and (best-effort) holidays.

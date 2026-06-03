@@ -1,8 +1,11 @@
 """young-stock-cli command line interface."""
 from __future__ import annotations
 
+import json
+import os
 import subprocess
 import sys
+from pathlib import Path
 
 import click
 
@@ -38,6 +41,54 @@ def _run(market: str, date: str | None, refresh: bool, include_news: bool = True
 
 _date_opt = click.option("--date", "-d", default=None, help="Trade date YYYYMMDD (default: nearest trade day).")
 _refresh_opt = click.option("--refresh", is_flag=True, help="Skip cache and force re-fetch.")
+
+
+def _profile_path() -> Path:
+    override = os.environ.get("YOUNG_STOCK_PROFILE")
+    if override:
+        return Path(override).expanduser()
+    return Path.home() / ".young_stock" / "profile.json"
+
+
+def _load_profile() -> dict[str, list[str]]:
+    path = _profile_path()
+    if not path.exists():
+        return {"stocks": [], "funds": []}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"stocks": [], "funds": []}
+    return {
+        "stocks": [str(v) for v in data.get("stocks", []) if str(v).strip()],
+        "funds": [str(v) for v in data.get("funds", []) if str(v).strip()],
+    }
+
+
+def _save_profile(profile: dict[str, list[str]]) -> None:
+    path = _profile_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(profile, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _add_profile_item(kind: str, value: str) -> dict[str, list[str]]:
+    profile = _load_profile()
+    items = profile.setdefault(kind, [])
+    normalized = value.strip()
+    if normalized and normalized not in items:
+        items.append(normalized)
+    _save_profile(profile)
+    return profile
+
+
+def _print_first_use_guide() -> None:
+    click.echo("# 每日行情日报")
+    click.echo()
+    click.echo("尚未设置投资记忆。首次使用请先添加你关注的股票、ETF 或基金：")
+    click.echo("  young profile add-stock 600519")
+    click.echo("  young profile add-stock 0700.HK")
+    click.echo("  young profile add-fund 161725")
+    click.echo()
+    click.echo(f"配置会保存到: {_profile_path()}")
 
 
 @cli.command(help="A-share dashboard: indices, ZT/DT pool, verified A-share fund flow, boards.")
@@ -162,6 +213,50 @@ def news(parts: tuple[str, ...], date: str | None, refresh: bool, limit: int) ->
     date_str = date or _core.nearest_trade_date()
     symbol = parts[-1] if len(parts) > 1 and parts[0].lower() == "stock" else parts[0]
     _core.run_stock_news(symbol, date_str, size=limit)
+
+
+@cli.command(help="Personal daily report from your saved watchlist.")
+@_date_opt
+@_refresh_opt
+@click.option("--no-news", is_flag=True, help="Only show market data, skip news lookup.")
+def daily(date: str | None, refresh: bool, no_news: bool) -> None:
+    if refresh:
+        _core.NO_CACHE = True
+    _core.cache_clear_old(days=7)
+    date_str = date or _core.nearest_trade_date()
+    profile = _load_profile()
+    if not profile.get("stocks") and not profile.get("funds"):
+        _print_first_use_guide()
+        return
+    _core.run_daily_report(date_str, profile, include_news=not no_news)
+
+
+@cli.group(help="Manage local investment memory for daily reports.")
+def profile() -> None:
+    pass
+
+
+@profile.command("add-stock", help="Add a stock/ETF symbol to your daily watchlist.")
+@click.argument("symbol")
+def profile_add_stock(symbol: str) -> None:
+    data = _add_profile_item("stocks", symbol)
+    click.echo(f"Added stock: {symbol.strip()}")
+    click.echo(f"Stocks: {', '.join(data.get('stocks', [])) or '-'}")
+
+
+@profile.command("add-fund", help="Add a fund code to your daily watchlist.")
+@click.argument("code")
+def profile_add_fund(code: str) -> None:
+    data = _add_profile_item("funds", code)
+    click.echo(f"Added fund: {code.strip()}")
+    click.echo(f"Funds: {', '.join(data.get('funds', [])) or '-'}")
+
+
+@profile.command("show", help="Show saved daily-report investment memory.")
+def profile_show() -> None:
+    data = _load_profile()
+    click.echo(f"Stocks: {', '.join(data.get('stocks', [])) or '-'}")
+    click.echo(f"Funds: {', '.join(data.get('funds', [])) or '-'}")
 
 
 @cli.command(help="Clear cached responses older than N days.")

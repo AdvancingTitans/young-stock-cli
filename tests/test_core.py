@@ -634,6 +634,37 @@ def test_print_single_stock_report_hides_completeness(capsys):
     assert "100%" not in output
 
 
+def test_run_daily_report_prints_watchlist_and_market_sections(monkeypatch, capsys):
+    calls = []
+
+    monkeypatch.setattr(
+        _core,
+        "get_single_stock_quote",
+        lambda symbol, date: _core.QuoteData(
+            symbol=symbol,
+            name="测试股票",
+            market="cn_market",
+            date="2026-05-29",
+            price=10,
+            change_pct=1.2,
+            source="test",
+        ),
+    )
+    monkeypatch.setattr(_core, "run_fund_report", lambda code, date, include_news=True: calls.append(("fund", code, date, include_news)))
+    monkeypatch.setattr(_core, "run_global_market", lambda date: calls.append(("global", date)))
+    monkeypatch.setattr(_core, "run_a_share", lambda date, include_news=True: calls.append(("a", date, include_news)))
+    monkeypatch.setattr(_core, "print_report_footer", lambda: None)
+
+    _core.run_daily_report("20260529", {"stocks": ["600519"], "funds": ["161725"]}, include_news=False)
+
+    output = capsys.readouterr().out
+    assert "每日行情日报" in output
+    assert "一、关注标的" in output
+    assert "测试股票 (600519)" in output
+    assert "四、投资建议" in output
+    assert calls == [("fund", "161725", "20260529", False), ("global", "20260529"), ("a", "20260529", False)]
+
+
 def test_diagnostic_summary_is_quiet_by_default(capsys):
     _core.DIAGNOSTICS[:] = ["Sina missing AAPL"]
 

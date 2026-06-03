@@ -184,6 +184,8 @@ def test_print_fund_report_shows_estimate_and_holdings(capsys):
     assert "当日估算" in output
     assert "贵州茅台(600519)" in output
     assert "估算贡献" in output
+    assert "持仓时效" in output
+    assert "可能已调仓" in output
 
 
 def test_print_single_stock_unavailable_is_clear(capsys):

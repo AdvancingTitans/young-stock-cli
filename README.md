@@ -35,8 +35,15 @@ young stock 600519      # one stock snapshot (A-share / HK / US)
 young fund 161725       # fund estimate + top holdings quote/news
 young profile add-stock 600519
 young profile add-fund 161725
-young daily             # personalized daily report from saved investment memory
+young profile list
+young daily --format summary      # concise personalized daily report
+young daily --format key-points   # short report with trend/risk points
+young daily --format full         # full personalized daily report
+young daily --only 基金,A股 --quick
 young news 3690.HK      # multi-source news only
+young diagnose          # network/source diagnostic
+young note add "today I reduced chasing"
+young alert create 600519 "涨跌幅>5%"
 young stock AAPL --no-news
 young fund 161725 --no-news
 young us --no-news      # market data only, skip news links
@@ -79,6 +86,10 @@ The internals are being split into focused modules: `young_stock.calendar` handl
 - **Single-stock lookup** — `young stock 600519`, `young stock 0700.HK`, or `young stock AAPL` prints a compact quote snapshot with source, trade date, price, change, volume, turnover when available, and optional news.
 - **Fund holding lookup** — `young fund 161725` prints the fund's same-day estimated change, latest NAV date, top holdings, holding-stock quotes, rough contribution estimate, and same-day holding-stock news. Official fund NAVs usually update at night, so intraday/close values are clearly labeled as estimates.
 - **Personal daily report** — `young daily` reads your local investment memory from `~/.young_stock/profile.json`, then prints saved stock/ETF trends, fund estimates, global indices, A-share sentiment, and risk-oriented suggestions. First use: add symbols with `young profile add-stock 600519` and `young profile add-fund 161725`.
+- **Short report modes** — `young daily --format summary` keeps terminal output compact; `--format key-points` adds a few trend/risk bullets; `--only`, `--order`, and `--quick` trim slower or irrelevant sections.
+- **Investment memory management** — list, remove, clear, and group saved stocks/funds with `young profile list`, `remove-stock`, `remove-fund`, `clear`, and `profile group create/add`.
+- **Local workflow helpers** — lightweight `portfolio`, `alert`, `note`, and `diary` commands store local records for portfolio experiments, reminder rules, investment notes, and saved daily-report text.
+- **Diagnostics** — `young diagnose` summarizes recent source health and suggests cache/quick-mode fallbacks when public APIs are unstable.
 - **Single-stock news** — `young news 3690.HK` prints only the news/momentum view, with each item showing source and link status.
 - **Smart caching** — `~/.young_stock/cache/`, 7-day TTL, auto-pruned. Pass `--refresh` to skip.
 - **Trade-day awareness** — nearest-trade-day resolution including weekends and (best-effort) holidays.

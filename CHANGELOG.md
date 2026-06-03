@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.13] - 2026-06-03
+
+### Added
+- Added `young daily --format summary|key-points|full`, plus `--only`, `--order`, and `--quick` for shorter daily reports and configurable report sections.
+- Added profile management commands: `young profile list`, `remove-stock`, `remove-fund`, `clear`, and `profile group create/add`.
+- Added local productivity commands for staged workflows: `young portfolio`, `young alert`, `young note`, and `young diary`.
+- Added `young diagnose`, `young guide`, and `young example` for friendlier troubleshooting and onboarding.
+
+### Changed
+- Fund holding reports now show the holding as-of date age and warn when stale quarterly holdings may have changed.
+- Daily report summary/key-points modes avoid long news and full market sections by default.
+
 ## [0.1.12] - 2026-06-03
 
 ### Added

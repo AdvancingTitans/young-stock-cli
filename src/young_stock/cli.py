@@ -7,7 +7,16 @@ import sys
 import click
 
 from . import __version__, _core
-from .profile import add_profile_item, load_profile, profile_path
+from .local_store import load_store, now_label, save_store
+from .profile import (
+    add_group,
+    add_group_item,
+    add_profile_item,
+    clear_profile,
+    load_profile,
+    profile_path,
+    remove_profile_item,
+)
 
 
 @click.group(
@@ -180,7 +189,11 @@ def news(parts: tuple[str, ...], date: str | None, refresh: bool, limit: int) ->
 @_date_opt
 @_refresh_opt
 @click.option("--no-news", is_flag=True, help="Only show market data, skip news lookup.")
-def daily(date: str | None, refresh: bool, no_news: bool) -> None:
+@click.option("--format", "report_format", type=click.Choice(["full", "summary", "key-points"]), default="full", show_default=True, help="Output style.")
+@click.option("--only", default=None, help="Only show selected parts, e.g. funds,stocks,a or 基金,A股.")
+@click.option("--order", default=None, help="Custom full-report order, e.g. 基金,A股,港股,美股.")
+@click.option("--quick", is_flag=True, help="Fast mode: skip slower global/news sections.")
+def daily(date: str | None, refresh: bool, no_news: bool, report_format: str, only: str | None, order: str | None, quick: bool) -> None:
     if refresh:
         _core.NO_CACHE = True
     _core.cache_clear_old(days=7)
@@ -189,7 +202,7 @@ def daily(date: str | None, refresh: bool, no_news: bool) -> None:
     if not profile.get("stocks") and not profile.get("funds"):
         _print_first_use_guide()
         return
-    _core.run_daily_report(date_str, profile, include_news=not no_news)
+    _core.run_daily_report(date_str, profile, include_news=not no_news, report_format=report_format, only=only, order=order, quick=quick)
 
 
 @cli.group(help="Manage local investment memory for daily reports.")
@@ -213,11 +226,214 @@ def profile_add_fund(code: str) -> None:
     click.echo(f"Funds: {', '.join(data.get('funds', [])) or '-'}")
 
 
-@profile.command("show", help="Show saved daily-report investment memory.")
+@profile.command("list", help="Show saved daily-report investment memory.")
 def profile_show() -> None:
     data = load_profile()
     click.echo(f"Stocks: {', '.join(data.get('stocks', [])) or '-'}")
     click.echo(f"Funds: {', '.join(data.get('funds', [])) or '-'}")
+    groups = data.get("groups", {})
+    if groups:
+        click.echo("Groups:")
+        for name, group in groups.items():
+            stocks = ", ".join(group.get("stocks", [])) or "-"
+            funds = ", ".join(group.get("funds", [])) or "-"
+            click.echo(f"  {name}: stocks={stocks}; funds={funds}")
+
+
+profile.add_command(profile_show, name="show")
+
+
+@profile.command("remove-stock", help="Remove a stock/ETF symbol from your watchlist.")
+@click.argument("symbol")
+def profile_remove_stock(symbol: str) -> None:
+    data = remove_profile_item("stocks", symbol)
+    click.echo(f"Removed stock: {symbol.strip()}")
+    click.echo(f"Stocks: {', '.join(data.get('stocks', [])) or '-'}")
+
+
+@profile.command("remove-fund", help="Remove a fund code from your watchlist.")
+@click.argument("code")
+def profile_remove_fund(code: str) -> None:
+    data = remove_profile_item("funds", code)
+    click.echo(f"Removed fund: {code.strip()}")
+    click.echo(f"Funds: {', '.join(data.get('funds', [])) or '-'}")
+
+
+@profile.command("clear", help="Clear stocks, funds, and groups from investment memory.")
+def profile_clear() -> None:
+    clear_profile()
+    click.echo("Cleared investment memory.")
+
+
+@profile.group("group", help="Manage investment-memory groups.")
+def profile_group() -> None:
+    pass
+
+
+@profile_group.command("create", help="Create a named watchlist group.")
+@click.argument("name")
+def profile_group_create(name: str) -> None:
+    add_group(name)
+    click.echo(f"Created group: {name}")
+
+
+@profile_group.command("add", help="Add a symbol/code to a group.")
+@click.argument("name")
+@click.argument("code")
+def profile_group_add(name: str, code: str) -> None:
+    add_group_item(name, code)
+    click.echo(f"Added {code} to group: {name}")
+
+
+@cli.command(help="Run a lightweight network/source diagnostic.")
+def diagnose() -> None:
+    click.echo("# 网络诊断")
+    for name in ["eastmoney", "sina", "tencent", "ths", "futu"]:
+        snap = _core.SOURCE_HEALTH.snapshot(name)
+        state = "建议暂缓使用" if snap.should_skip else "可用/未发现近期异常"
+        click.echo(f"{name}: 成功率 {snap.success_rate:.0%}, 平均延迟 {snap.average_latency_ms:.0f}ms, {state}")
+    click.echo("建议: 若接口失败，可先使用缓存、加 --quick/--format summary，或稍后运行 --refresh 重试。")
+
+
+@cli.command(help="New-user guide.")
+def guide() -> None:
+    click.echo("1. young profile add-stock 600519")
+    click.echo("2. young profile add-fund 161725")
+    click.echo("3. young daily --format summary")
+    click.echo("4. young profile list / young diagnose")
+
+
+@cli.command(help="Show common examples.")
+def example() -> None:
+    click.echo("young daily --format summary --quick")
+    click.echo("young daily --format key-points --only 基金,A股")
+    click.echo("young profile group create 稳健型")
+    click.echo("young alert create 600519 '涨跌幅>5%'")
+
+
+@cli.group(help="Manage local portfolios.")
+def portfolio() -> None:
+    pass
+
+
+@portfolio.command("create")
+@click.argument("name")
+def portfolio_create(name: str) -> None:
+    data = load_store("portfolios", {})
+    data.setdefault(name, [])
+    save_store("portfolios", data)
+    click.echo(f"Created portfolio: {name}")
+
+
+@portfolio.command("add")
+@click.argument("name")
+@click.argument("code")
+@click.argument("shares", type=float)
+def portfolio_add(name: str, code: str, shares: float) -> None:
+    data = load_store("portfolios", {})
+    items = data.setdefault(name, [])
+    items.append({"code": code, "shares": shares})
+    save_store("portfolios", data)
+    click.echo(f"Added {code} x {shares:g} to {name}")
+
+
+@portfolio.command("show")
+@click.argument("name")
+def portfolio_show(name: str) -> None:
+    data = load_store("portfolios", {})
+    items = data.get(name, [])
+    click.echo(f"# Portfolio: {name}")
+    if not items:
+        click.echo("  empty")
+    for item in items:
+        click.echo(f"  {item.get('code')} x {item.get('shares')}")
+
+
+@portfolio.command("compare")
+@click.argument("code1")
+@click.argument("code2")
+def portfolio_compare(code1: str, code2: str) -> None:
+    click.echo(f"{code1} vs {code2}: use young stock <code> for detail; historical comparison is on the roadmap.")
+
+
+@cli.group(help="Manage local price/change alerts.")
+def alert() -> None:
+    pass
+
+
+@alert.command("create")
+@click.argument("code")
+@click.argument("condition")
+def alert_create(code: str, condition: str) -> None:
+    data = load_store("alerts", [])
+    data.append({"code": code, "condition": condition, "created_at": now_label()})
+    save_store("alerts", data)
+    click.echo(f"Created alert: {code} {condition}")
+
+
+@alert.command("list")
+def alert_list() -> None:
+    data = load_store("alerts", [])
+    if not data:
+        click.echo("No alerts.")
+    for item in data:
+        click.echo(f"{item.get('code')}: {item.get('condition')} ({item.get('created_at')})")
+
+
+@alert.command("check")
+def alert_check() -> None:
+    data = load_store("alerts", [])
+    click.echo(f"Checked {len(data)} alerts. Realtime trigger evaluation is best-effort and will expand in a later release.")
+
+
+@cli.group(help="Manage investment notes.")
+def note() -> None:
+    pass
+
+
+@note.command("add")
+@click.argument("content", nargs=-1, required=True)
+def note_add(content: tuple[str, ...]) -> None:
+    data = load_store("notes", [])
+    text = " ".join(content)
+    data.append({"content": text, "created_at": now_label()})
+    save_store("notes", data)
+    click.echo("Added note.")
+
+
+@note.command("list")
+def note_list() -> None:
+    data = load_store("notes", [])
+    if not data:
+        click.echo("No notes.")
+    for item in data:
+        click.echo(f"{item.get('created_at')}: {item.get('content')}")
+
+
+@cli.group(help="Save and read local daily-report snapshots.")
+def diary() -> None:
+    pass
+
+
+@diary.command("save")
+@click.argument("date")
+@click.option("--text", default="", help="Diary text to save.")
+def diary_save(date: str, text: str) -> None:
+    data = load_store("diaries", {})
+    data[date] = {"text": text, "saved_at": now_label()}
+    save_store("diaries", data)
+    click.echo(f"Saved diary: {date}")
+
+
+@diary.command("show")
+@click.argument("date")
+def diary_show(date: str) -> None:
+    data = load_store("diaries", {})
+    item = data.get(date)
+    if not item:
+        click.echo("Diary not found.")
+        return
+    click.echo(item.get("text") or "")
 
 
 @cli.command(help="Clear cached responses older than N days.")

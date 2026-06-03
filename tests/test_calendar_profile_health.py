@@ -2,7 +2,15 @@ from datetime import datetime
 
 from young_stock import calendar as trade_calendar
 from young_stock.health import SourceHealthBook
-from young_stock.profile import add_profile_item, load_profile, profile_path
+from young_stock.profile import (
+    add_group,
+    add_group_item,
+    add_profile_item,
+    clear_profile,
+    load_profile,
+    profile_path,
+    remove_profile_item,
+)
 
 
 def test_nearest_trade_date_skips_a_share_holiday():
@@ -22,7 +30,19 @@ def test_profile_read_write_uses_env_override(monkeypatch, tmp_path):
     add_profile_item("stocks", "600519")
 
     assert profile_path() == tmp_path / "profile.json"
-    assert load_profile() == {"stocks": ["600519"], "funds": ["161725"]}
+    assert load_profile() == {"stocks": ["600519"], "funds": ["161725"], "groups": {}}
+
+    add_group("稳健型")
+    add_group_item("稳健型", "021528")
+    remove_profile_item("stocks", "600519")
+    assert load_profile() == {
+        "stocks": [],
+        "funds": ["161725"],
+        "groups": {"稳健型": {"stocks": [], "funds": ["021528"]}},
+    }
+
+    clear_profile()
+    assert load_profile() == {"stocks": [], "funds": [], "groups": {}}
 
 
 def test_source_health_book_tracks_recent_failures():

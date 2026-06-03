@@ -2819,6 +2819,10 @@ def print_fund_report(
 
     asof = holdings_data.get("asof") or "-"
     print(f"## 持仓股行情（前{min(len(holdings), 10)}，持仓截止 {asof}）\n")
+    stale_note = _fund_holding_staleness_note(asof, requested_date)
+    if stale_note:
+        print(stale_note)
+        print()
     print(f"{'股票':<14} {'占净值':>8} {'最新价':>10} {'涨跌幅':>10} {'估算贡献':>10} {'来源':>8}")
     print("-" * 72)
     contribution = 0.0
@@ -2848,6 +2852,18 @@ def print_fund_report(
         print(f"前{contribution_count}只可取行情持仓股对净值的估算贡献: {contribution:+.2f}%")
         print("说明: 该贡献只按公开季报持仓和当日股价粗略估算，未包含调仓、仓位变化、现金、债券等影响。")
         print()
+
+
+def _fund_holding_staleness_note(asof: str, requested_date: str) -> str:
+    try:
+        asof_dt = datetime.strptime(str(asof), "%Y-%m-%d")
+        req_dt = datetime.strptime(requested_date, "%Y%m%d")
+    except (TypeError, ValueError):
+        return ""
+    days = max(0, (req_dt - asof_dt).days)
+    if days < 30:
+        return f"持仓时效: {asof}（距请求日 {days} 天）。"
+    return f"持仓时效: {asof}（距请求日 {days} 天，季报持仓可能已调仓；建议结合基金公告和实时估值变化。）"
 
 
 def print_fund_holding_news(
@@ -2985,10 +3001,23 @@ def run_daily_report(
     date_str: str,
     watchlist: dict[str, list[str]] | None = None,
     include_news: bool = True,
+    report_format: str = "full",
+    only: str | None = None,
+    order: str | None = None,
+    quick: bool = False,
 ) -> None:
     from .reports import run_daily_report as _run_daily_report
 
-    _run_daily_report(sys.modules[__name__], date_str, watchlist, include_news=include_news)
+    _run_daily_report(
+        sys.modules[__name__],
+        date_str,
+        watchlist,
+        include_news=include_news,
+        report_format=report_format,
+        only=only,
+        order=order,
+        quick=quick,
+    )
 
 
 def print_futu_news(news_data: dict, keyword: str, limit: int = 5) -> None:

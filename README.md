@@ -71,6 +71,8 @@ Most A-share data libraries either (a) require paid accounts, (b) break the mome
 
 It is also a foundation for analysis pipelines: every subcommand maps to a Python function in `young_stock._core`, so you can `from young_stock._core import get_zt_pool, get_fund_flow` and feed the dicts into your own notebook or LLM prompt.
 
+The internals are being split into focused modules: `young_stock.calendar` handles holiday-aware trade dates, `young_stock.profile` handles local investment memory, `young_stock.reports` composes daily reports, and `young_stock.health` tracks lightweight public-source health. Compatibility wrappers remain in `_core` for existing users.
+
 ## What's in the box
 
 - **Multiple public quote sources** — Tencent Finance, Sina Finance, and Eastmoney are tried in sequence so temporary source failures can be filled by another no-login endpoint.
@@ -80,6 +82,8 @@ It is also a foundation for analysis pipelines: every subcommand maps to a Pytho
 - **Single-stock news** — `young news 3690.HK` prints only the news/momentum view, with each item showing source and link status.
 - **Smart caching** — `~/.young_stock/cache/`, 7-day TTL, auto-pruned. Pass `--refresh` to skip.
 - **Trade-day awareness** — nearest-trade-day resolution including weekends and (best-effort) holidays.
+- **Formal calendar layer** — A-share/HK/US holiday sets are separated into `young_stock.calendar`, so trading-day rules can evolve without touching data-source code.
+- **Source health tracking** — common JSON fetches update `young_stock._core.SOURCE_HEALTH`, giving downstream agents a recent success-rate/latency signal for public sources.
 - **Rich terminal tables** — readable on dark and light terminals.
 - **Verified A-share fund flow** — `young flow` uses Tonghuashun concept-board fund flow only when both net-inflow and net-outflow rankings are available, then falls back to Eastmoney main-capital flow/page indicators, Sina Finance sector fund-flow, Sina/Tencent market-activity references, and finally the most recent locally cached good record. Non-equivalent fallbacks are clearly labeled instead of being presented as whole-market main-capital net inflow.
 - **News heat ranking** — HK/US focus stocks can be ranked by filtered news heat from multiple no-login sources: Futu, Sina Finance, and Eastmoney fast news. Xueqiu/THS are intentionally not hardwired unless a stable no-login interface is available.

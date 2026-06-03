@@ -11,9 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `young profile add-stock`, `young profile add-fund`, and `young profile show` to maintain local investment memory in `~/.young_stock/profile.json`.
 - Added `young daily`, a personalized daily market report that combines saved stock/fund watchlists, global indices, A-share sentiment, fund flow, and risk-oriented suggestions.
 - Exposed `run_daily_report()` in `young_stock._core` so agent skills can depend on the PyPI package instead of copying the core script.
+- Added focused `calendar`, `profile`, `reports`, and `health` modules as the first step of the v2 architecture split.
+- Added an explicit 2026 market-calendar layer for A-share, HK, and US holiday-aware nearest-trade-day resolution.
+- Added lightweight data-source health snapshots that track recent success rate and latency for public quote/news APIs.
 
 ### Changed
 - The daily report uses the existing nearest-trade-date logic, so pre-close weekday runs still review the latest settled trading day.
+- CLI investment-memory logic moved out of `cli.py`; `_core.run_daily_report()` and `_core.nearest_trade_date()` remain compatibility wrappers over the new modules.
 
 ## [0.1.11] - 2026-06-02
 

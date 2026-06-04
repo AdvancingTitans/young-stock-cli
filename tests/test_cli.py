@@ -6,6 +6,34 @@ from young_stock import __version__
 from young_stock.cli import cli
 
 
+def _patch_profile_validation(monkeypatch):
+    monkeypatch.setattr(cli_module._core, "nearest_trade_date", lambda: "20260529")
+    monkeypatch.setattr(
+        cli_module._core,
+        "get_single_stock_quote",
+        lambda symbol, date: cli_module._core.QuoteData(
+            symbol=symbol,
+            name="测试股票",
+            market="cn_market",
+            date=date,
+            price=10.0,
+            change_pct=1.0,
+            source="test",
+        ),
+    )
+    monkeypatch.setattr(
+        cli_module._core,
+        "fetch_fund_estimate",
+        lambda code, date: {
+            "fundcode": code,
+            "name": "测试基金",
+            "estimate_nav": "1.00",
+            "estimate_change_pct": "0.10",
+            "date": date,
+        },
+    )
+
+
 def test_version_string():
     assert isinstance(__version__, str)
     assert __version__.count(".") >= 2
@@ -189,8 +217,8 @@ def test_cli_daily_guides_first_use_when_profile_empty(monkeypatch, tmp_path):
 
     assert result.exit_code == 0
     assert "尚未设置投资记忆" in result.output
-    assert "young profile add-stock 600519" in result.output
-    assert "young profile add-fund 161725" in result.output
+    assert "young profile add-stock 600519 --buy-date" in result.output
+    assert "young profile add-fund 161725 --buy-date" in result.output
 
 
 def test_cli_profile_add_stock_and_fund_then_daily_uses_memory(monkeypatch, tmp_path):
@@ -200,6 +228,7 @@ def test_cli_profile_add_stock_and_fund_then_daily_uses_memory(monkeypatch, tmp_
     monkeypatch.setenv("YOUNG_STOCK_PROFILE", str(profile_path))
     monkeypatch.setattr(cli_module._core, "nearest_trade_date", lambda: "20260529")
     monkeypatch.setattr(cli_module._core, "cache_clear_old", lambda days: None)
+    _patch_profile_validation(monkeypatch)
 
     calls = []
     monkeypatch.setattr(
@@ -240,10 +269,11 @@ def test_cli_profile_remove_clear_and_groups(monkeypatch, tmp_path):
     from click.testing import CliRunner
 
     monkeypatch.setenv("YOUNG_STOCK_PROFILE", str(tmp_path / "profile.json"))
+    _patch_profile_validation(monkeypatch)
     runner = CliRunner()
 
-    assert runner.invoke(cli, ["profile", "add-stock", "600519"]).exit_code == 0
-    assert runner.invoke(cli, ["profile", "add-fund", "161725"]).exit_code == 0
+    assert runner.invoke(cli, ["profile", "add-stock", "600519", "--buy-date", "2026-01-15", "--quantity", "100"]).exit_code == 0
+    assert runner.invoke(cli, ["profile", "add-fund", "161725", "--buy-date", "2026-02-01", "--quantity", "1000"]).exit_code == 0
     assert runner.invoke(cli, ["profile", "group", "create", "成长型"]).exit_code == 0
     assert runner.invoke(cli, ["profile", "group", "add", "成长型", "600519"]).exit_code == 0
 
@@ -256,7 +286,7 @@ def test_cli_profile_remove_clear_and_groups(monkeypatch, tmp_path):
     after_remove = runner.invoke(cli, ["profile", "list"])
     assert "Stocks: -" in after_remove.output
 
-    assert runner.invoke(cli, ["profile", "add-stock", "000001"]).exit_code == 0
+    assert runner.invoke(cli, ["profile", "add-stock", "000001", "--buy-date", "2026-01-20", "--quantity", "200"]).exit_code == 0
     assert runner.invoke(cli, ["profile", "group", "add", "成长型", "000001"]).exit_code == 0
     assert runner.invoke(cli, ["profile", "clear-stocks"]).exit_code == 0
     after_clear_stocks = runner.invoke(cli, ["profile", "list"])
@@ -268,10 +298,79 @@ def test_cli_profile_remove_clear_and_groups(monkeypatch, tmp_path):
     after_clear_funds = runner.invoke(cli, ["profile", "list"])
     assert "Funds: -" in after_clear_funds.output
 
-    assert runner.invoke(cli, ["profile", "add-fund", "161725"]).exit_code == 0
+    assert runner.invoke(cli, ["profile", "add-fund", "161725", "--buy-date", "2026-02-01", "--quantity", "1000"]).exit_code == 0
     assert runner.invoke(cli, ["profile", "clear"]).exit_code == 0
     after_clear = runner.invoke(cli, ["profile", "list"])
     assert "Funds: -" in after_clear.output
+
+
+def test_cli_profile_add_requires_position_details(monkeypatch, tmp_path):
+    from click.testing import CliRunner
+
+    monkeypatch.setenv("YOUNG_STOCK_PROFILE", str(tmp_path / "profile.json"))
+    runner = CliRunner()
+
+    result = runner.invoke(cli, ["profile", "add-stock", "600519"])
+
+    assert result.exit_code != 0
+    assert "Missing option '--buy-date'" in result.output
+    assert cli_module.load_profile()["stocks"] == []
+
+
+def test_cli_profile_add_validates_stock_before_writing(monkeypatch, tmp_path):
+    from click.testing import CliRunner
+
+    monkeypatch.setenv("YOUNG_STOCK_PROFILE", str(tmp_path / "profile.json"))
+    monkeypatch.setattr(cli_module._core, "nearest_trade_date", lambda: "20260529")
+
+    def fake_quote(symbol, date):
+        if symbol == "bad-code":
+            raise ValueError("invalid")
+        return cli_module._core.QuoteData(
+            symbol="600519",
+            name="贵州茅台",
+            market="cn_market",
+            date=date,
+            price=1600.0,
+            change_pct=0.5,
+            source="test",
+        )
+
+    monkeypatch.setattr(cli_module._core, "get_single_stock_quote", fake_quote)
+    runner = CliRunner()
+
+    invalid = runner.invoke(cli, ["profile", "add-stock", "bad-code", "--buy-date", "2026-01-15", "--quantity", "100"])
+    assert invalid.exit_code != 0
+    assert "bad-code 不是有效的股票代码" in invalid.output
+    assert cli_module.load_profile()["stocks"] == []
+
+    valid = runner.invoke(cli, ["profile", "add-stock", "600519", "--buy-date", "2026-01-15", "--quantity", "100"])
+    assert valid.exit_code == 0
+    assert "您的投资记忆已添加：贵州茅台（600519）" in valid.output
+    assert cli_module.load_profile()["stocks"] == ["600519"]
+
+
+def test_cli_profile_add_validates_fund_before_writing(monkeypatch, tmp_path):
+    from click.testing import CliRunner
+
+    monkeypatch.setenv("YOUNG_STOCK_PROFILE", str(tmp_path / "profile.json"))
+    monkeypatch.setattr(cli_module._core, "nearest_trade_date", lambda: "20260529")
+    monkeypatch.setattr(
+        cli_module._core,
+        "fetch_fund_estimate",
+        lambda code, date: {"_error": "not found"} if code == "000000" else {"fundcode": code, "name": "招商中证白酒", "estimate_nav": "1.0"},
+    )
+    runner = CliRunner()
+
+    invalid = runner.invoke(cli, ["profile", "add-fund", "000000", "--buy-date", "2026-01-15", "--quantity", "1000"])
+    assert invalid.exit_code != 0
+    assert "000000 不是有效的基金代码" in invalid.output
+    assert cli_module.load_profile()["funds"] == []
+
+    valid = runner.invoke(cli, ["profile", "add-fund", "161725", "--buy-date", "2026-01-15", "--quantity", "1000"])
+    assert valid.exit_code == 0
+    assert "您的投资记忆已添加：招商中证白酒（161725）" in valid.output
+    assert cli_module.load_profile()["funds"] == ["161725"]
 
 
 def test_cli_local_productivity_commands(monkeypatch, tmp_path):

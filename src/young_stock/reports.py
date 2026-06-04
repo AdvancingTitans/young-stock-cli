@@ -116,15 +116,10 @@ def run_daily_report(
     if _include_section("watchlist", only, sections):
         print_daily_watchlist(core, watchlist, date_str, include_news=include_news and not quick)
 
-    if not quick and _include_section("global", only, sections):
-        print("## 二、全球指数与大盘概览\n")
-        core.run_global_market(date_str)
+    if not quick and _include_section("markets", only, sections):
+        print_relevant_markets(core, watchlist, date_str, include_news=include_news)
 
-    if _include_section("a", only, sections):
-        print("## 三、A股大盘与市场情绪\n")
-        core.run_a_share(date_str, include_news=include_news and not quick)
-
-    print("## 四、投资建议\n")
+    print("## 三、投资建议\n")
     for note in _portfolio_advice(core, watchlist, date_str, include_news=include_news and not quick):
         print(f"- {note}")
     print()
@@ -132,6 +127,48 @@ def run_daily_report(
     if core.DIAGNOSTICS:
         core.print_diagnostic_summary()
     core.print_report_footer()
+
+
+def print_relevant_markets(core: Any, watchlist: dict[str, list[str]] | None, date_str: str, include_news: bool = True) -> None:
+    markets = _relevant_markets(core, watchlist, date_str)
+    if not markets:
+        return
+    print("## 二、相关市场概览\n")
+    print("说明: 仅展示与用户持仓股票或基金 top10 持仓相关的市场，不再默认展开全球市场。\n")
+    if "cn_market" in markets:
+        print("### A股相关市场\n")
+        core.run_a_share(date_str, include_news=include_news)
+    if "hk_market" in markets:
+        print("### 港股相关市场\n")
+        core.run_hk_market(date_str, include_news=include_news)
+    if "us_market" in markets:
+        print("### 美股相关市场\n")
+        core.run_us_market(date_str, include_news=include_news)
+
+
+def _relevant_markets(core: Any, watchlist: dict[str, list[str]] | None, date_str: str) -> set[str]:
+    markets: set[str] = set()
+    for symbol in _daily_watchlist_items(watchlist, "stocks"):
+        try:
+            _, market = core.normalize_stock_symbol(symbol)
+        except ValueError:
+            continue
+        if market in {"cn_market", "hk_market", "us_market"}:
+            markets.add(market)
+    for code in _daily_watchlist_items(watchlist, "funds"):
+        try:
+            holdings = core.fetch_fund_holdings(code, date_str, limit=10)
+        except Exception:
+            holdings = {}
+        for item in holdings.get("holdings", []) if isinstance(holdings, dict) else []:
+            raw_code = str(item.get("code") or "")
+            try:
+                _, market = core.normalize_stock_symbol(raw_code)
+            except ValueError:
+                continue
+            if market in {"cn_market", "hk_market", "us_market"}:
+                markets.add(market)
+    return markets
 
 
 def print_daily_summary(
@@ -391,14 +428,18 @@ def _fund_position_notes(core: Any, context: dict[str, Any], compact: bool = Fal
         current_nav = _to_float(fund.get("estimate_nav")) or _to_float(fund.get("nav"))
         pnl = _position_return(current_nav, buy_nav.get("nav"), position.get("quantity"))
         pnl_text = _pnl_text(core, pnl)
-        stance = "持有观察" if pct is None or pct >= -2 else "谨慎观察"
+        name = str(fund.get("name") or code)
+        stance, reason = _fund_manager_stance(pct, pnl)
+        asof = str(fund.get("holding_asof") or fund.get("asof") or "")
         if compact:
-            notes.append(f"{code}{core.fmt_pct(pct)}，{pnl_text}，建议“{stance}”。")
+            notes.append(f"{name}({code}) {core.fmt_pct(pct)}，{pnl_text}，建议“{stance}”。")
         else:
-            base = f"{code} 今日估值 {core.fmt_pct(pct)}，{pnl_text}，建议“{stance}”。"
+            base = f"{name}({code}) 今日估值 {core.fmt_pct(pct)}，{pnl_text}，建议“{stance}”。{reason}"
             if position.get("buy_date"):
                 base += f"买入日 {position.get('buy_date')}，买入净值采用 {buy_nav.get('date', '待获取')} 附近可用净值。"
-            base += "重点跟踪基金持仓时效、基金经理风格漂移，以及与自选个股是否重复暴露。"
+            if asof:
+                base += f"重仓股披露截止 {asof}，若距今较久，需把实时估值作为调仓后的补充信号。"
+            base += "跟踪重点：基金风格是否仍匹配买入逻辑、top10 持仓是否与自选股重复暴露、回撤是否超过自己的承受阈值。"
             notes.append(base)
     return notes
 
@@ -415,8 +456,8 @@ def _stock_position_notes(core: Any, context: dict[str, Any], compact: bool = Fa
         position = positions.get(symbol) or positions.get(symbol.upper()) or {}
         buy_price = buy_prices.get(symbol) or buy_prices.get(symbol.upper()) or {}
         news_label, news_reason, news_score = _news_signal(news_titles.get(symbol, []))
-        stance, action_reason = _manager_stance(qd.change_pct, news_score)
         pnl = _position_return(qd.price, buy_price.get("close"), position.get("quantity"))
+        stance, action_reason = _manager_stance(qd.change_pct, news_score, pnl)
         pnl_text = _pnl_text(core, pnl)
         if compact:
             notes.append(f"{name}({symbol}) {core.fmt_pct(qd.change_pct)}，{news_label}，{pnl_text}，建议“{stance}”。")
@@ -516,8 +557,35 @@ def _news_signal(headlines: list[str]) -> tuple[str, str, int]:
     return "新闻偏中性", f"（{headlines[0]}）", score
 
 
-def _manager_stance(change_pct: float | None, news_score: int) -> tuple[str, str]:
+def _fund_manager_stance(change_pct: float | None, pnl: dict[str, float] | None) -> tuple[str, str]:
     pct = change_pct or 0
+    pnl_pct = pnl["pct"] if pnl else None
+    if pnl_pct is not None and pnl_pct >= 15:
+        if pct >= 1:
+            return "继续持有但分批锁定收益", "买入以来收益较厚且当日估值仍偏强，适合把止盈线从成本转向回撤阈值。"
+        return "持有并保护收益", "买入以来收益较厚但短线动能一般，重点看净值回撤和重仓方向是否转弱。"
+    if pnl_pct is not None and pnl_pct <= -10:
+        if pct <= -1:
+            return "降低加仓冲动", "买入以来回撤较大且当日估值偏弱，先确认基金风格是否失效。"
+        return "修复观察", "买入以来仍亏损但当日估值修复，可继续观察连续性，暂不因单日反弹追高。"
+    if pct <= -2:
+        return "谨慎观察", "当日估值明显走弱，优先检查重仓行业是否出现系统性负面信号。"
+    if pct >= 2:
+        return "持有观察", "当日估值较强，可跟踪上涨是否来自核心持仓贡献而非短线情绪。"
+    return "中性持有", "收益和日内估值都未给出强动作信号，适合按原定配置纪律跟踪。"
+
+
+def _manager_stance(change_pct: float | None, news_score: int, pnl: dict[str, float] | None = None) -> tuple[str, str]:
+    pct = change_pct or 0
+    pnl_pct = pnl["pct"] if pnl else None
+    if pnl_pct is not None and pnl_pct >= 20 and news_score < 0:
+        return "保护收益", "买入以来收益较厚但新闻边际转弱，先上移止盈/回撤线，避免好仓位回吐成普通波动。"
+    if pnl_pct is not None and pnl_pct >= 20 and pct >= 2:
+        return "持有但不追高", "买入以来已有较大安全垫，当日继续走强时更适合让利润奔跑而不是追加风险。"
+    if pnl_pct is not None and pnl_pct <= -12 and news_score < 0:
+        return "降低仓位观察", "买入以来亏损叠加负面新闻，需重新验证买入逻辑，避免用补仓掩盖判断错误。"
+    if pnl_pct is not None and pnl_pct <= -12 and news_score >= 0:
+        return "修复观察", "买入以来仍处亏损，但消息面未明显恶化，可等待价格重新站稳后再决定是否补仓。"
     if pct >= 3 and news_score >= 0:
         return "持有观察", "趋势和消息面同向，但上涨后更要防止为好消息支付过高价格。"
     if pct >= 3 and news_score < 0:
@@ -542,8 +610,19 @@ def _to_float(value: Any) -> float | None:
 
 def _section_order(order: str | None) -> list[str]:
     if not order:
-        return ["watchlist", "global", "a"]
-    mapping = {"基金": "watchlist", "个股": "watchlist", "关注": "watchlist", "A股": "a", "a": "a", "港股": "global", "美股": "global", "global": "global"}
+        return ["watchlist", "markets"]
+    mapping = {
+        "基金": "watchlist",
+        "个股": "watchlist",
+        "关注": "watchlist",
+        "A股": "markets",
+        "a": "markets",
+        "港股": "markets",
+        "美股": "markets",
+        "markets": "markets",
+        "相关市场": "markets",
+        "global": "markets",
+    }
     return [mapping.get(part.strip(), part.strip()) for part in order.split(",") if part.strip()]
 
 
@@ -554,6 +633,7 @@ def _include_only(section: str, only: str | None) -> bool:
         "funds": {"funds", "基金"},
         "stocks": {"stocks", "stock", "个股", "股票"},
         "a": {"a", "A股", "a股"},
+        "markets": {"markets", "相关市场", "A股", "a股", "a", "港股", "美股", "hk", "us"},
         "news": {"news", "新闻"},
     }
     requested = {part.strip() for part in only.split(",") if part.strip()}

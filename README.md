@@ -33,9 +33,9 @@ young us                # US indices snapshot
 young global            # A + HK + US in one view
 young stock 600519      # one stock snapshot (A-share / HK / US)
 young fund 161725       # fund estimate + top holdings quote/news
-young profile add-stock 600519
+young profile add-stock 600519 --buy-date 2026-01-15 --quantity 100
 young profile add-stock NVDA --buy-date 2026-01-15 --quantity 10
-young profile add-fund 161725
+young profile add-fund 161725 --buy-date 2026-01-10 --quantity 1000
 young profile add-fund 021528 --buy-date 2026-01-10 --quantity 1000
 young profile list
 young profile clear-stocks  # clear all saved stocks/ETFs only
@@ -90,7 +90,7 @@ The internals are being split into focused modules: `young_stock.calendar` handl
 - **Multiple public quote sources** — Tencent Finance, Sina Finance, and Eastmoney are tried in sequence so temporary source failures can be filled by another no-login endpoint.
 - **Single-stock lookup** — `young stock 600519`, `young stock 0700.HK`, or `young stock AAPL` prints a compact quote snapshot with source, trade date, price, change, volume, turnover when available, and optional news.
 - **Fund holding lookup** — `young fund 161725` prints the fund's same-day estimated change, latest NAV date, top holdings, holding-stock quotes, rough contribution estimate, and same-day holding-stock news. Official fund NAVs usually update at night, so intraday/close values are clearly labeled as estimates.
-- **Personal daily report** — `young daily` reads your local investment memory from `~/.young_stock/profile.json`, then prints saved stock/ETF trends, fund estimates, global indices, A-share sentiment, and portfolio-style suggestions grounded in your funds, stocks, holding dates, quantities, and available news. First use: add symbols with `young profile add-stock 600519` and `young profile add-fund 161725`; add `--buy-date` and `--quantity` to estimate return since purchase.
+- **Personal daily report** — `young daily` reads your local investment memory from `~/.young_stock/profile.json`, then prints saved stock/ETF trends, fund estimates, only the markets relevant to your stocks and fund top holdings, and portfolio-style suggestions grounded in your funds, stocks, holding dates, quantities, and available news. First use requires a verified symbol plus `--buy-date` and `--quantity`, for example `young profile add-stock 600519 --buy-date 2026-01-15 --quantity 100` or `young profile add-fund 161725 --buy-date 2026-01-10 --quantity 1000`.
 - **Short report modes** — `young daily --format summary` keeps terminal output compact; `--format key-points` adds a few trend/risk bullets; `--only`, `--order`, and `--quick` trim slower or irrelevant sections.
 - **Investment memory management** — list, remove, clear, and group saved stocks/funds with `young profile list`, `remove-stock`, `remove-fund`, `clear`, `clear-stocks`, `clear-funds`, and `profile group create/add`.
 - **Local workflow helpers** — lightweight `portfolio`, `alert`, `note`, and `diary` commands store local records for portfolio experiments, reminder rules, investment notes, and saved daily-report text.

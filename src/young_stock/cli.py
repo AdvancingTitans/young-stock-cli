@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from datetime import datetime
 
 import click
 
@@ -54,10 +55,10 @@ _refresh_opt = click.option("--refresh", is_flag=True, help="Skip cache and forc
 def _print_first_use_guide() -> None:
     click.echo("# 每日行情日报")
     click.echo()
-    click.echo("尚未设置投资记忆。首次使用请先添加你关注的股票、ETF 或基金：")
-    click.echo("  young profile add-stock 600519")
-    click.echo("  young profile add-stock 0700.HK")
-    click.echo("  young profile add-fund 161725")
+    click.echo("尚未设置投资记忆。首次使用请先添加你关注的股票、ETF 或基金，并补充买入日期和数量：")
+    click.echo("  young profile add-stock 600519 --buy-date 2026-01-15 --quantity 100")
+    click.echo("  young profile add-stock 0700.HK --buy-date 2026-01-15 --quantity 200")
+    click.echo("  young profile add-fund 161725 --buy-date 2026-01-10 --quantity 1000")
     click.echo()
     click.echo(f"配置会保存到: {profile_path()}")
 
@@ -220,28 +221,66 @@ def profile() -> None:
     pass
 
 
+def _normalize_buy_date(value: str) -> str:
+    compact = _core._compact_date(value.strip())
+    try:
+        parsed = datetime.strptime(compact, "%Y%m%d")
+    except ValueError as exc:
+        raise click.ClickException("buy-date 必须是 YYYYMMDD 或 YYYY-MM-DD") from exc
+    return parsed.strftime("%Y-%m-%d")
+
+
+def _validate_quantity(value: float) -> float:
+    if value <= 0:
+        raise click.ClickException("quantity 必须大于 0")
+    return value
+
+
+def _stock_invalid_message(symbol: str) -> str:
+    return f"{symbol} 不是有效的股票代码，请删除重新输入"
+
+
+def _fund_invalid_message(code: str) -> str:
+    return f"{code} 不是有效的基金代码，请删除重新输入"
+
+
 @profile.command("add-stock", help="Add a stock/ETF symbol to your daily watchlist.")
 @click.argument("symbol")
-@click.option("--buy-date", default=None, help="Buy date YYYYMMDD or YYYY-MM-DD for return analysis.")
-@click.option("--quantity", type=float, default=None, help="Holding quantity/shares.")
-def profile_add_stock(symbol: str, buy_date: str | None, quantity: float | None) -> None:
-    data = add_profile_item("stocks", symbol, buy_date=buy_date, quantity=quantity)
-    click.echo(f"Added stock: {symbol.strip()}")
-    click.echo(f"Stocks: {', '.join(data.get('stocks', [])) or '-'}")
-    if buy_date or quantity is not None:
-        click.echo("Position: buy_date=" + (buy_date or "-") + f"; quantity={quantity:g}" if quantity is not None else "Position: buy_date=" + (buy_date or "-"))
+@click.option("--buy-date", required=True, help="Buy date YYYYMMDD or YYYY-MM-DD for return analysis.")
+@click.option("--quantity", required=True, type=float, help="Holding quantity/shares.")
+def profile_add_stock(symbol: str, buy_date: str, quantity: float) -> None:
+    normalized_date = _normalize_buy_date(buy_date)
+    normalized_quantity = _validate_quantity(quantity)
+    date_str = _core.nearest_trade_date()
+    try:
+        quote = _core.get_single_stock_quote(symbol, date_str)
+    except ValueError as exc:
+        raise click.ClickException(_stock_invalid_message(symbol)) from exc
+    if not quote or quote.price is None or quote.market not in {"cn_market", "hk_market", "us_market"}:
+        raise click.ClickException(_stock_invalid_message(symbol))
+    add_profile_item("stocks", quote.symbol, buy_date=normalized_date, quantity=normalized_quantity)
+    click.echo(f"您的投资记忆已添加：{quote.name or quote.symbol}（{quote.symbol}）")
+    click.echo(f"Position: buy_date={normalized_date}; quantity={normalized_quantity:g}")
 
 
 @profile.command("add-fund", help="Add a fund code to your daily watchlist.")
 @click.argument("code")
-@click.option("--buy-date", default=None, help="Buy date YYYYMMDD or YYYY-MM-DD for return analysis.")
-@click.option("--quantity", type=float, default=None, help="Holding shares/units.")
-def profile_add_fund(code: str, buy_date: str | None, quantity: float | None) -> None:
-    data = add_profile_item("funds", code, buy_date=buy_date, quantity=quantity)
-    click.echo(f"Added fund: {code.strip()}")
-    click.echo(f"Funds: {', '.join(data.get('funds', [])) or '-'}")
-    if buy_date or quantity is not None:
-        click.echo("Position: buy_date=" + (buy_date or "-") + f"; quantity={quantity:g}" if quantity is not None else "Position: buy_date=" + (buy_date or "-"))
+@click.option("--buy-date", required=True, help="Buy date YYYYMMDD or YYYY-MM-DD for return analysis.")
+@click.option("--quantity", required=True, type=float, help="Holding shares/units.")
+def profile_add_fund(code: str, buy_date: str, quantity: float) -> None:
+    normalized_date = _normalize_buy_date(buy_date)
+    normalized_quantity = _validate_quantity(quantity)
+    try:
+        fund_code = _core.normalize_fund_code(code)
+    except ValueError as exc:
+        raise click.ClickException(_fund_invalid_message(code)) from exc
+    data = _core.fetch_fund_estimate(fund_code, _core.nearest_trade_date())
+    if "_error" in data or not data.get("name"):
+        raise click.ClickException(_fund_invalid_message(code))
+    saved_code = str(data.get("fundcode") or fund_code)
+    add_profile_item("funds", saved_code, buy_date=normalized_date, quantity=normalized_quantity)
+    click.echo(f"您的投资记忆已添加：{data.get('name')}（{saved_code}）")
+    click.echo(f"Position: buy_date={normalized_date}; quantity={normalized_quantity:g}")
 
 
 @profile.command("list", help="Show saved daily-report investment memory.")
@@ -337,8 +376,8 @@ def diagnose() -> None:
 
 @cli.command(help="New-user guide.")
 def guide() -> None:
-    click.echo("1. young profile add-stock 600519")
-    click.echo("2. young profile add-fund 161725")
+    click.echo("1. young profile add-stock 600519 --buy-date 2026-01-15 --quantity 100")
+    click.echo("2. young profile add-fund 161725 --buy-date 2026-01-10 --quantity 1000")
     click.echo("3. young daily --format summary")
     click.echo("4. young profile list / young diagnose")
 

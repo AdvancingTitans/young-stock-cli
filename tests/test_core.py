@@ -653,7 +653,6 @@ def test_run_daily_report_prints_watchlist_and_market_sections(monkeypatch, caps
         ),
     )
     monkeypatch.setattr(_core, "run_fund_report", lambda code, date, include_news=True: calls.append(("fund", code, date, include_news)))
-    monkeypatch.setattr(_core, "run_global_market", lambda date: calls.append(("global", date)))
     monkeypatch.setattr(_core, "run_a_share", lambda date, include_news=True: calls.append(("a", date, include_news)))
     monkeypatch.setattr(_core, "print_report_footer", lambda: None)
 
@@ -663,8 +662,60 @@ def test_run_daily_report_prints_watchlist_and_market_sections(monkeypatch, caps
     assert "每日行情日报" in output
     assert "一、关注标的" in output
     assert "测试股票 (600519)" in output
-    assert "四、投资建议" in output
-    assert calls == [("fund", "161725", "20260529", False), ("global", "20260529"), ("a", "20260529", False)]
+    assert "三、投资建议" in output
+    assert "全球指数" not in output
+    assert calls == [("fund", "161725", "20260529", False), ("a", "20260529", False)]
+
+
+def test_run_daily_report_uses_only_relevant_stock_markets(monkeypatch, capsys):
+    calls = []
+
+    monkeypatch.setattr(
+        _core,
+        "get_single_stock_quote",
+        lambda symbol, date: _core.QuoteData(
+            symbol="0700.HK",
+            name="腾讯控股",
+            market="hk_market",
+            date="2026-05-29",
+            price=390,
+            change_pct=1.2,
+            source="test",
+        ),
+    )
+    monkeypatch.setattr(_core, "run_a_share", lambda date, include_news=True: calls.append(("a", date, include_news)))
+    monkeypatch.setattr(_core, "run_hk_market", lambda date, include_news=True: calls.append(("hk", date, include_news)))
+    monkeypatch.setattr(_core, "run_us_market", lambda date, include_news=True: calls.append(("us", date, include_news)))
+    monkeypatch.setattr(_core, "run_global_market", lambda date: calls.append(("global", date)))
+    monkeypatch.setattr(_core, "print_report_footer", lambda: None)
+
+    _core.run_daily_report("20260529", {"stocks": ["0700.HK"], "funds": []}, include_news=False)
+
+    output = capsys.readouterr().out
+    assert "相关市场概览" in output
+    assert "全球指数" not in output
+    assert calls == [("hk", "20260529", False)]
+
+
+def test_run_daily_report_uses_fund_top_holdings_market(monkeypatch, capsys):
+    calls = []
+
+    monkeypatch.setattr(_core, "run_fund_report", lambda code, date, include_news=True: calls.append(("fund", code, date, include_news)))
+    monkeypatch.setattr(
+        _core,
+        "fetch_fund_holdings",
+        lambda code, date, limit=10: {"holdings": [{"code": "600519", "name": "贵州茅台"}]},
+    )
+    monkeypatch.setattr(_core, "run_a_share", lambda date, include_news=True: calls.append(("a", date, include_news)))
+    monkeypatch.setattr(_core, "run_hk_market", lambda date, include_news=True: calls.append(("hk", date, include_news)))
+    monkeypatch.setattr(_core, "run_global_market", lambda date: calls.append(("global", date)))
+    monkeypatch.setattr(_core, "print_report_footer", lambda: None)
+
+    _core.run_daily_report("20260529", {"stocks": [], "funds": ["161725"]}, include_news=False)
+
+    output = capsys.readouterr().out
+    assert "相关市场概览" in output
+    assert calls == [("fund", "161725", "20260529", False), ("a", "20260529", False)]
 
 
 def test_daily_key_points_use_portfolio_specific_advice(monkeypatch, capsys):

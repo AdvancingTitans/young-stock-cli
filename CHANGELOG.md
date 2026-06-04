@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.16] - 2026-06-04
+
+### Changed
+- `young profile add-stock/add-fund` now requires `--buy-date` and `--quantity`, validates symbols/fund codes before writing memory, and confirms the resolved security name/code in Chinese.
+- Personalized daily reports now show only markets relevant to the user's direct stock holdings and fund top-10 holdings instead of defaulting to a global market section.
+- Fund and stock advice now varies by buy-date return, same-day move, and available news signal instead of repeating the same holding sentence.
+
 ## [0.1.15] - 2026-06-04
 
 ### Added

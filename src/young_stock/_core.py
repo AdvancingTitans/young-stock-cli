@@ -177,6 +177,16 @@ FUND_HOLDINGS_URL = (
     "https://fundf10.eastmoney.com/FundArchivesDatas.aspx"
     "?type=jjcc&code={code}&topline={topline}&year=&month=&rt={ts}"
 )
+FUND_NAV_HISTORY_URL = (
+    "https://api.fund.eastmoney.com/f10/lsjz"
+    "?fundCode={code}&pageIndex=1&pageSize=20&startDate={start}&endDate={end}&_={ts}"
+)
+EM_KLINE_URL = (
+    "https://push2his.eastmoney.com/api/qt/stock/kline/get"
+    "?secid={secid}&fields1=f1,f2,f3,f4,f5,f6"
+    "&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61"
+    "&klt=101&fqt=1&beg={beg}&end={end}&_={ts}"
+)
 
 # 新浪财经（免登录、GBK 编码、对美股/港股最稳，作为 stock/get 之外的主路径）
 SINA_HQ_URL = "https://hq.sinajs.cn/list={codes}"
@@ -2611,6 +2621,91 @@ def normalize_fund_code(code: str) -> str:
     if not re.fullmatch(r"\d{6}", code):
         raise ValueError("基金代码应为 6 位数字，例如 161725")
     return code
+
+
+def _compact_date(value: str) -> str:
+    return re.sub(r"\D", "", str(value or ""))[:8]
+
+
+def _date_plus_days(date_str: str, days: int) -> str:
+    return (datetime.strptime(_compact_date(date_str), "%Y%m%d") + timedelta(days=days)).strftime("%Y%m%d")
+
+
+def _stock_secid_for_history(symbol: str) -> tuple[str, str, str]:
+    normalized, market = normalize_stock_symbol(symbol)
+    if market == "cn_market":
+        return normalized, market, _cn_secid(normalized)
+    if market == "hk_market":
+        return normalized, market, _hk_secid(normalized)
+    secid = _us_secid(normalized)
+    if not secid:
+        raise ValueError(f"暂不支持自动回溯该美股历史价格: {symbol}")
+    return normalized, market, secid
+
+
+def fetch_stock_close_on_or_after(symbol: str, buy_date: str) -> dict[str, Any]:
+    """Fetch first available split-adjusted daily close on/after buy_date."""
+    compact = _compact_date(buy_date)
+    if not re.fullmatch(r"\d{8}", compact):
+        return {"_error": "买入日期应为 YYYYMMDD 或 YYYY-MM-DD"}
+    try:
+        normalized, market, secid = _stock_secid_for_history(symbol)
+    except ValueError as e:
+        return {"_error": str(e)}
+    end = _date_plus_days(compact, 10)
+    cached = cache_load(f"stock_buy_{normalized}", compact, "eastmoney_kline", ttl=86400)
+    if cached:
+        return cached
+    url = EM_KLINE_URL.format(secid=secid, beg=compact, end=end, ts=int(time.time() * 1000))
+    data = fetch_json(url, {"Referer": "https://quote.eastmoney.com/"})
+    if "_error" in data:
+        return data
+    klines = (data.get("data") or {}).get("klines") or []
+    for row in klines:
+        parts = str(row).split(",")
+        if len(parts) >= 3:
+            result = {
+                "symbol": normalized,
+                "market": market,
+                "date": parts[0],
+                "close": _safe_float(parts[2]),
+                "_source": "东方财富历史K线",
+            }
+            if result["close"] is not None:
+                cache_save(f"stock_buy_{normalized}", compact, "eastmoney_kline", result)
+                return result
+    return {"_error": "买入日附近未获取到可用股票收盘价"}
+
+
+def fetch_fund_nav_on_or_after(fund_code: str, buy_date: str) -> dict[str, Any]:
+    """Fetch first available fund NAV on/after buy_date."""
+    fund_code = normalize_fund_code(fund_code)
+    compact = _compact_date(buy_date)
+    if not re.fullmatch(r"\d{8}", compact):
+        return {"_error": "买入日期应为 YYYYMMDD 或 YYYY-MM-DD"}
+    start = datetime.strptime(compact, "%Y%m%d").strftime("%Y-%m-%d")
+    end = datetime.strptime(_date_plus_days(compact, 20), "%Y%m%d").strftime("%Y-%m-%d")
+    cached = cache_load(f"fund_buy_{fund_code}", compact, "eastmoney_fund_nav", ttl=86400)
+    if cached:
+        return cached
+    url = FUND_NAV_HISTORY_URL.format(code=fund_code, start=start, end=end, ts=int(time.time() * 1000))
+    data = fetch_json(url, {"Referer": f"https://fundf10.eastmoney.com/jjjz_{fund_code}.html"})
+    if "_error" in data:
+        return data
+    rows = ((data.get("Data") or {}).get("LSJZList") or [])
+    rows = sorted(rows, key=lambda row: str(row.get("FSRQ") or ""))
+    for row in rows:
+        nav = _safe_float(row.get("DWJZ"))
+        if nav is not None:
+            result = {
+                "fundcode": fund_code,
+                "date": row.get("FSRQ") or "",
+                "nav": nav,
+                "_source": "东方财富历史净值",
+            }
+            cache_save(f"fund_buy_{fund_code}", compact, "eastmoney_fund_nav", result)
+            return result
+    return {"_error": "买入日附近未获取到可用基金净值"}
 
 
 def fetch_fund_estimate(fund_code: str, date_str: str) -> dict[str, Any]:

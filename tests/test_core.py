@@ -667,7 +667,7 @@ def test_run_daily_report_prints_watchlist_and_market_sections(monkeypatch, caps
     assert calls == [("fund", "161725", "20260529", False), ("global", "20260529"), ("a", "20260529", False)]
 
 
-def test_daily_key_points_uses_buffett_specific_risk(monkeypatch, capsys):
+def test_daily_key_points_use_portfolio_specific_advice(monkeypatch, capsys):
     quotes = {
         "NVDA": _core.QuoteData(
             symbol="NVDA",
@@ -704,6 +704,8 @@ def test_daily_key_points_uses_buffett_specific_risk(monkeypatch, capsys):
     )
     monkeypatch.setattr(_core, "get_index", lambda date: [])
     monkeypatch.setattr(_core, "get_fund_flow", lambda date, strict_date=False: {})
+    monkeypatch.setattr(_core, "fetch_stock_close_on_or_after", lambda symbol, buy_date: {"symbol": symbol, "date": buy_date, "close": 120.0 if symbol == "NVDA" else 210.0})
+    monkeypatch.setattr(_core, "fetch_fund_nav_on_or_after", lambda code, buy_date: {"fundcode": code, "date": buy_date, "nav": 1.0})
     monkeypatch.setattr(
         _core,
         "combined_news_search",
@@ -717,7 +719,17 @@ def test_daily_key_points_uses_buffett_specific_risk(monkeypatch, capsys):
 
     _core.run_daily_report(
         "20260603",
-        {"stocks": ["NVDA", "AAPL"], "funds": ["021528"]},
+        {
+            "stocks": ["NVDA", "AAPL"],
+            "funds": ["021528"],
+            "positions": {
+                "stocks": {
+                    "NVDA": {"buy_date": "2026-01-15", "quantity": 10},
+                    "AAPL": {"buy_date": "2026-02-01", "quantity": 5},
+                },
+                "funds": {"021528": {"buy_date": "2026-01-10", "quantity": 1000}},
+            },
+        },
         include_news=True,
         report_format="key-points",
         only="stocks,funds",
@@ -725,10 +737,93 @@ def test_daily_key_points_uses_buffett_specific_risk(monkeypatch, capsys):
 
     output = capsys.readouterr().out
     assert "英伟达(NVDA)" in output
-    assert "能力圈" in output
-    assert "安全边际" in output
-    assert "护城河" in output
+    assert "基金分析" in output
+    assert "个股分析" in output
+    assert "综合持仓" in output
+    assert "新闻偏正面" in output
+    assert "持有观察" in output
+    assert "买入以来" in output
+    assert "组合买入以来估算收益" in output
     assert "021528" in output
+
+
+def test_daily_key_points_support_fund_only_positions(monkeypatch, capsys):
+    monkeypatch.setattr(
+        _core,
+        "fetch_fund_estimate",
+        lambda code, date: {
+            "fundcode": code,
+            "name": "测试基金",
+            "estimate_nav": "1.12",
+            "estimate_change_pct": "1.50",
+            "date": "2026-06-03",
+        },
+    )
+    monkeypatch.setattr(_core, "fetch_fund_nav_on_or_after", lambda code, buy_date: {"fundcode": code, "date": buy_date, "nav": 1.0})
+    monkeypatch.setattr(_core, "get_index", lambda date: [])
+    monkeypatch.setattr(_core, "get_fund_flow", lambda date, strict_date=False: {})
+
+    _core.run_daily_report(
+        "20260603",
+        {
+            "stocks": [],
+            "funds": ["021528"],
+            "positions": {"stocks": {}, "funds": {"021528": {"buy_date": "2026-01-10", "quantity": 1000}}},
+        },
+        include_news=False,
+        report_format="key-points",
+        only="funds",
+    )
+
+    output = capsys.readouterr().out
+    assert "基金分析" in output
+    assert "综合持仓" in output
+    assert "个股分析" not in output
+    assert "买入以来 +12.00%" in output
+    assert "当前以基金为主" in output
+
+
+def test_daily_key_points_support_stock_only_positions(monkeypatch, capsys):
+    monkeypatch.setattr(
+        _core,
+        "get_single_stock_quote",
+        lambda symbol, date: _core.QuoteData(
+            symbol=symbol,
+            name="测试股票",
+            market="cn_market",
+            date="2026-06-03",
+            price=12.0,
+            change_pct=-2.5,
+            currency="CNY",
+            source="test",
+        ),
+    )
+    monkeypatch.setattr(_core, "fetch_stock_close_on_or_after", lambda symbol, buy_date: {"symbol": symbol, "date": buy_date, "close": 10.0})
+    monkeypatch.setattr(
+        _core,
+        "combined_news_search",
+        lambda *args, **kwargs: {"data": [{"title": "测试股票需求放缓，短期风险上升"}]},
+    )
+
+    _core.run_daily_report(
+        "20260603",
+        {
+            "stocks": ["600519"],
+            "funds": [],
+            "positions": {"stocks": {"600519": {"buy_date": "2026-01-10", "quantity": 100}}, "funds": {}},
+        },
+        include_news=True,
+        report_format="key-points",
+        only="stocks",
+    )
+
+    output = capsys.readouterr().out
+    assert "个股分析" in output
+    assert "综合持仓" in output
+    assert "基金分析" not in output
+    assert "新闻偏负面" in output
+    assert "买入以来 +20.00%" in output
+    assert "当前以个股为主" in output
 
 
 def test_diagnostic_summary_is_quiet_by_default(capsys):

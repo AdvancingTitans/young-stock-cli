@@ -211,13 +211,29 @@ def test_cli_profile_add_stock_and_fund_then_daily_uses_memory(monkeypatch, tmp_
     )
 
     runner = CliRunner()
-    assert runner.invoke(cli, ["profile", "add-stock", "600519"]).exit_code == 0
-    assert runner.invoke(cli, ["profile", "add-fund", "161725"]).exit_code == 0
+    assert runner.invoke(cli, ["profile", "add-stock", "600519", "--buy-date", "2026-01-15", "--quantity", "100"]).exit_code == 0
+    assert runner.invoke(cli, ["profile", "add-fund", "161725", "--buy-date", "2026-02-01", "--quantity", "1000"]).exit_code == 0
 
     result = runner.invoke(cli, ["daily", "--no-news", "--format", "summary", "--only", "funds", "--quick"])
 
     assert result.exit_code == 0
-    assert calls == [("20260529", {"stocks": ["600519"], "funds": ["161725"], "groups": {}}, False, "summary", "funds", None, True)]
+    assert calls == [(
+        "20260529",
+        {
+            "stocks": ["600519"],
+            "funds": ["161725"],
+            "groups": {},
+            "positions": {
+                "stocks": {"600519": {"buy_date": "2026-01-15", "quantity": 100.0}},
+                "funds": {"161725": {"buy_date": "2026-02-01", "quantity": 1000.0}},
+            },
+        },
+        False,
+        "summary",
+        "funds",
+        None,
+        True,
+    )]
 
 
 def test_cli_profile_remove_clear_and_groups(monkeypatch, tmp_path):

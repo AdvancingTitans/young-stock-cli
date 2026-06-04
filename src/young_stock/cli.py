@@ -222,18 +222,26 @@ def profile() -> None:
 
 @profile.command("add-stock", help="Add a stock/ETF symbol to your daily watchlist.")
 @click.argument("symbol")
-def profile_add_stock(symbol: str) -> None:
-    data = add_profile_item("stocks", symbol)
+@click.option("--buy-date", default=None, help="Buy date YYYYMMDD or YYYY-MM-DD for return analysis.")
+@click.option("--quantity", type=float, default=None, help="Holding quantity/shares.")
+def profile_add_stock(symbol: str, buy_date: str | None, quantity: float | None) -> None:
+    data = add_profile_item("stocks", symbol, buy_date=buy_date, quantity=quantity)
     click.echo(f"Added stock: {symbol.strip()}")
     click.echo(f"Stocks: {', '.join(data.get('stocks', [])) or '-'}")
+    if buy_date or quantity is not None:
+        click.echo("Position: buy_date=" + (buy_date or "-") + f"; quantity={quantity:g}" if quantity is not None else "Position: buy_date=" + (buy_date or "-"))
 
 
 @profile.command("add-fund", help="Add a fund code to your daily watchlist.")
 @click.argument("code")
-def profile_add_fund(code: str) -> None:
-    data = add_profile_item("funds", code)
+@click.option("--buy-date", default=None, help="Buy date YYYYMMDD or YYYY-MM-DD for return analysis.")
+@click.option("--quantity", type=float, default=None, help="Holding shares/units.")
+def profile_add_fund(code: str, buy_date: str | None, quantity: float | None) -> None:
+    data = add_profile_item("funds", code, buy_date=buy_date, quantity=quantity)
     click.echo(f"Added fund: {code.strip()}")
     click.echo(f"Funds: {', '.join(data.get('funds', [])) or '-'}")
+    if buy_date or quantity is not None:
+        click.echo("Position: buy_date=" + (buy_date or "-") + f"; quantity={quantity:g}" if quantity is not None else "Position: buy_date=" + (buy_date or "-"))
 
 
 @profile.command("list", help="Show saved daily-report investment memory.")
@@ -241,6 +249,14 @@ def profile_show() -> None:
     data = load_profile()
     click.echo(f"Stocks: {', '.join(data.get('stocks', [])) or '-'}")
     click.echo(f"Funds: {', '.join(data.get('funds', [])) or '-'}")
+    positions = data.get("positions", {})
+    if positions.get("stocks") or positions.get("funds"):
+        click.echo("Positions:")
+        for kind, label in (("stocks", "stock"), ("funds", "fund")):
+            for code, position in positions.get(kind, {}).items():
+                buy_date = position.get("buy_date", "-")
+                quantity = position.get("quantity", "-")
+                click.echo(f"  {label} {code}: buy_date={buy_date}; quantity={quantity}")
     groups = data.get("groups", {})
     if groups:
         click.echo("Groups:")

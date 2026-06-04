@@ -10,6 +10,13 @@ THEME_KEYWORDS = {
     "新能源": ("新能源", "电池", "光伏", "储能", "汽车", "特斯拉", "Tesla"),
 }
 
+POSITIVE_NEWS_KEYWORDS = (
+    "增长", "新高", "超预期", "回购", "增持", "获批", "中标", "订单", "需求", "盈利", "现金流", "韧性", "突破", "上调"
+)
+NEGATIVE_NEWS_KEYWORDS = (
+    "下滑", "亏损", "减持", "调查", "处罚", "诉讼", "裁员", "降级", "放缓", "跌破", "风险", "监管", "召回", "违约"
+)
+
 
 def _daily_watchlist_items(watchlist: dict[str, list[str]] | None, key: str) -> list[str]:
     if not watchlist:
@@ -118,7 +125,7 @@ def run_daily_report(
         core.run_a_share(date_str, include_news=include_news and not quick)
 
     print("## 四、投资建议\n")
-    for note in _buffett_advice(core, watchlist, date_str, include_news=include_news and not quick):
+    for note in _portfolio_advice(core, watchlist, date_str, include_news=include_news and not quick):
         print(f"- {note}")
     print()
 
@@ -146,7 +153,7 @@ def print_daily_summary(
         print("热点/资金: " + _flow_summary(core, date_str))
     if include_news and _include_only("news", only):
         print("新闻: 摘要模式不展开长新闻；需要详情可用 --format full")
-    print("风险: " + _buffett_summary_risk(core, watchlist, date_str, include_news=include_news))
+    print("持仓建议: " + _portfolio_summary(core, watchlist, date_str, include_news=include_news))
 
 
 def print_daily_key_points(
@@ -160,8 +167,11 @@ def print_daily_key_points(
     print()
     print("关键要点:")
     print(f"- 趋势: {_trend_hint(core, watchlist, date_str)}")
-    for note in _buffett_key_points(core, watchlist, date_str, include_news=include_news):
-        print(f"- 风控: {note}")
+    key_points = _portfolio_key_points(core, watchlist, date_str, include_news=include_news)
+    for title, notes in key_points:
+        print(f"{title}:")
+        for note in notes:
+            print(f"- {note}")
     print("- 操作: 使用 young diagnose 排查数据源；使用 --format full 查看完整复盘。")
 
 
@@ -258,47 +268,55 @@ def _trend_hint(core: Any, watchlist: dict[str, list[str]] | None, date_str: str
     return "关注标的分化或震荡，等待更明确方向。"
 
 
-def _buffett_advice(
+def _portfolio_advice(
     core: Any,
     watchlist: dict[str, list[str]] | None,
     date_str: str,
     include_news: bool = True,
 ) -> list[str]:
-    context = _buffett_context(core, watchlist, date_str, include_news=include_news)
-    notes = _buffett_key_points_from_context(core, context)
+    sections = _portfolio_key_points(core, watchlist, date_str, include_news=include_news)
+    notes = [note for _, values in sections for note in values]
     if not notes:
         return ["先设置关注股票/基金后再生成个性化建议；没有标的时只适合做市场复盘，不适合给仓位动作。"]
-    return notes[:6]
+    return notes[:8]
 
 
-def _buffett_summary_risk(
+def _portfolio_summary(
     core: Any,
     watchlist: dict[str, list[str]] | None,
     date_str: str,
     include_news: bool = True,
 ) -> str:
-    context = _buffett_context(core, watchlist, date_str, include_news=include_news)
-    notes = _buffett_key_points_from_context(core, context)
-    if notes:
-        return notes[0]
-    funds = _daily_watchlist_items(watchlist, "funds")
-    if funds:
-        return f"{'、'.join(funds[:3])} 仅能看到净值/估值变化，先核对季报持仓时效，再决定是否调整仓位。"
-    return "暂无关注标的，先设置投资记忆后再做能力圈、安全边际和主题集中度检查。"
+    context = _portfolio_context(core, watchlist, date_str, include_news=include_news)
+    fund_notes = _fund_position_notes(core, context, compact=True)
+    stock_notes = _stock_position_notes(core, context, compact=True)
+    overall = _overall_position_notes(core, context, compact=True)
+    parts = []
+    if fund_notes:
+        parts.append("基金: " + fund_notes[0].rstrip("。"))
+    if stock_notes:
+        parts.append("个股: " + stock_notes[0].rstrip("。"))
+    if overall:
+        parts.append("综合: " + overall[0].rstrip("。"))
+    return "；".join(parts) if parts else "暂无关注标的，先设置投资记忆后再输出持仓建议。"
 
 
-def _buffett_key_points(
+def _portfolio_key_points(
     core: Any,
     watchlist: dict[str, list[str]] | None,
     date_str: str,
     include_news: bool = True,
-) -> list[str]:
-    context = _buffett_context(core, watchlist, date_str, include_news=include_news)
-    notes = _buffett_key_points_from_context(core, context)
-    return notes[:3] or ["暂无关注标的，先设置投资记忆后再输出个性化风险。"]
+) -> list[tuple[str, list[str]]]:
+    context = _portfolio_context(core, watchlist, date_str, include_news=include_news)
+    sections = [
+        ("基金分析", _fund_position_notes(core, context)),
+        ("个股分析", _stock_position_notes(core, context)),
+        ("综合持仓", _overall_position_notes(core, context)),
+    ]
+    return [(title, notes) for title, notes in sections if notes]
 
 
-def _buffett_context(
+def _portfolio_context(
     core: Any,
     watchlist: dict[str, list[str]] | None,
     date_str: str,
@@ -306,6 +324,11 @@ def _buffett_context(
 ) -> dict[str, Any]:
     quotes = []
     news_titles: dict[str, list[str]] = {}
+    positions = watchlist.get("positions", {}) if watchlist else {}
+    stock_positions = positions.get("stocks", {}) if isinstance(positions, dict) else {}
+    fund_positions = positions.get("funds", {}) if isinstance(positions, dict) else {}
+    stock_buy_prices: dict[str, dict[str, Any]] = {}
+    fund_buy_navs: dict[str, dict[str, Any]] = {}
     for symbol in _daily_watchlist_items(watchlist, "stocks")[:8]:
         try:
             qd = core.get_single_stock_quote(symbol, date_str)
@@ -329,6 +352,9 @@ def _buffett_context(
                     for item in items
                     if item.get("title")
                 ][:2]
+        position = stock_positions.get(symbol) or stock_positions.get(getattr(qd, "symbol", ""))
+        if isinstance(position, dict) and position.get("buy_date"):
+            stock_buy_prices[symbol] = core.fetch_stock_close_on_or_after(symbol, str(position["buy_date"]))
 
     funds = []
     for code in _daily_watchlist_items(watchlist, "funds")[:6]:
@@ -337,78 +363,132 @@ def _buffett_context(
             funds.append(data)
         else:
             funds.append({"fundcode": code, "_error": data.get("_error")})
-    return {"quotes": quotes, "funds": funds, "news_titles": news_titles}
+        position = fund_positions.get(code)
+        if isinstance(position, dict) and position.get("buy_date"):
+            fund_buy_navs[code] = core.fetch_fund_nav_on_or_after(code, str(position["buy_date"]))
+    return {
+        "quotes": quotes,
+        "funds": funds,
+        "news_titles": news_titles,
+        "positions": {"stocks": stock_positions, "funds": fund_positions},
+        "stock_buy_prices": stock_buy_prices,
+        "fund_buy_navs": fund_buy_navs,
+    }
 
 
-def _buffett_key_points_from_context(core: Any, context: dict[str, Any]) -> list[str]:
+def _fund_position_notes(core: Any, context: dict[str, Any], compact: bool = False) -> list[str]:
+    funds = context.get("funds", [])
+    positions = context.get("positions", {}).get("funds", {})
+    buy_navs = context.get("fund_buy_navs", {})
+    notes = []
+    for fund in funds:
+        code = str(fund.get("fundcode") or fund.get("code") or "")
+        if not code:
+            continue
+        pct = _to_float(fund.get("estimate_change_pct"))
+        position = positions.get(code, {}) if isinstance(positions, dict) else {}
+        buy_nav = buy_navs.get(code, {}) if isinstance(buy_navs, dict) else {}
+        current_nav = _to_float(fund.get("estimate_nav")) or _to_float(fund.get("nav"))
+        pnl = _position_return(current_nav, buy_nav.get("nav"), position.get("quantity"))
+        pnl_text = _pnl_text(core, pnl)
+        stance = "持有观察" if pct is None or pct >= -2 else "谨慎观察"
+        if compact:
+            notes.append(f"{code}{core.fmt_pct(pct)}，{pnl_text}，建议“{stance}”。")
+        else:
+            base = f"{code} 今日估值 {core.fmt_pct(pct)}，{pnl_text}，建议“{stance}”。"
+            if position.get("buy_date"):
+                base += f"买入日 {position.get('buy_date')}，买入净值采用 {buy_nav.get('date', '待获取')} 附近可用净值。"
+            base += "重点跟踪基金持仓时效、基金经理风格漂移，以及与自选个股是否重复暴露。"
+            notes.append(base)
+    return notes
+
+
+def _stock_position_notes(core: Any, context: dict[str, Any], compact: bool = False) -> list[str]:
+    quotes = context.get("quotes", [])
+    positions = context.get("positions", {}).get("stocks", {})
+    buy_prices = context.get("stock_buy_prices", {})
+    news_titles = context.get("news_titles", {})
+    notes = []
+    for qd in quotes:
+        symbol = qd.symbol
+        name = qd.name or symbol
+        position = positions.get(symbol) or positions.get(symbol.upper()) or {}
+        buy_price = buy_prices.get(symbol) or buy_prices.get(symbol.upper()) or {}
+        news_label, news_reason, news_score = _news_signal(news_titles.get(symbol, []))
+        stance, action_reason = _manager_stance(qd.change_pct, news_score)
+        pnl = _position_return(qd.price, buy_price.get("close"), position.get("quantity"))
+        pnl_text = _pnl_text(core, pnl)
+        if compact:
+            notes.append(f"{name}({symbol}) {core.fmt_pct(qd.change_pct)}，{news_label}，{pnl_text}，建议“{stance}”。")
+        else:
+            base = (
+                f"{name}({symbol}) 今日 {core.fmt_pct(qd.change_pct)}，{news_label}{news_reason}，{pnl_text}，"
+                f"建议“{stance}”。{action_reason}"
+            )
+            if position.get("buy_date"):
+                base += f"买入日 {position.get('buy_date')}，买入价采用 {buy_price.get('date', '待获取')} 附近可用收盘价。"
+            base += "持有跟踪项：新闻催化是否延续、成交/趋势是否确认、基本面数据是否支持当前估值；减仓条件：新闻转负、趋势跌破或组合单一主题过度集中。"
+            notes.append(base)
+    return notes
+
+
+def _overall_position_notes(core: Any, context: dict[str, Any], compact: bool = False) -> list[str]:
+    notes = []
     quotes = context.get("quotes", [])
     funds = context.get("funds", [])
-    news_titles = context.get("news_titles", {})
-    notes: list[str] = []
+    themes = _theme_exposure(quotes, context.get("news_titles", {}))
+    total_cost = total_value = 0.0
+    for qd in quotes:
+        position = context.get("positions", {}).get("stocks", {}).get(qd.symbol, {})
+        buy_price = context.get("stock_buy_prices", {}).get(qd.symbol, {})
+        pnl = _position_return(qd.price, buy_price.get("close"), position.get("quantity"))
+        if pnl:
+            total_cost += pnl["cost"]
+            total_value += pnl["value"]
+    for fund in funds:
+        code = str(fund.get("fundcode") or fund.get("code") or "")
+        position = context.get("positions", {}).get("funds", {}).get(code, {})
+        buy_nav = context.get("fund_buy_navs", {}).get(code, {})
+        current_nav = _to_float(fund.get("estimate_nav")) or _to_float(fund.get("nav"))
+        pnl = _position_return(current_nav, buy_nav.get("nav"), position.get("quantity"))
+        if pnl:
+            total_cost += pnl["cost"]
+            total_value += pnl["value"]
 
-    leaders = sorted(
-        [q for q in quotes if q.change_pct is not None],
-        key=lambda q: abs(q.change_pct or 0),
-        reverse=True,
-    )
-    if leaders:
-        qd = leaders[0]
-        name = qd.name or qd.symbol
-        headlines = news_titles.get(qd.symbol, [])
-        news_hint = f"；新闻线索：{headlines[0]}" if headlines else ""
-        if (qd.change_pct or 0) >= 3:
-            notes.append(
-                f"{name}({qd.symbol}) 今日 {core.fmt_pct(qd.change_pct)}，先用安全边际检查估值和盈利质量，不能把上涨直接当成内在价值提升{news_hint}。"
-            )
-        elif (qd.change_pct or 0) <= -3:
-            notes.append(
-                f"{name}({qd.symbol}) 今日 {core.fmt_pct(qd.change_pct)}，按 Buffett 框架区分价格波动和护城河受损；若新闻指向监管、需求或现金流恶化，再考虑降级{news_hint}。"
-            )
-        else:
-            notes.append(
-                f"{name}({qd.symbol}) 波动最大但仅 {core.fmt_pct(qd.change_pct)}，更适合观察业务质量与估值位置，不必因日内报价改变长期判断。"
-            )
+    if total_cost:
+        total_pct = (total_value / total_cost - 1) * 100
+        notes.append(f"组合买入以来估算收益 {core.fmt_pct(total_pct)}，成本约 {core.fmt_price(total_cost)}，现值约 {core.fmt_price(total_value)}。")
+    elif compact:
+        notes.append("组合收益待补买入日期和数量，系统将自动回溯买入日净值/价格。")
 
-    themes = _theme_exposure(quotes, news_titles)
     if themes:
         top_theme, names = max(themes.items(), key=lambda item: len(item[1]))
         if len(names) >= 2:
-            notes.append(
-                f"主题集中度偏高：{top_theme} 覆盖 {', '.join(names[:4])}；需要确认这些标的是可理解的能力圈和可持续护城河，而不是同一条景气线的重复押注。"
-            )
-        else:
-            notes.append(
-                f"能力圈检查：{names[0]} 暂归入 {top_theme}，后续建议补 PE/PB/ROE、自由现金流和竞争优势证据，再谈加仓。"
-            )
-
-    strong_funds = []
-    weak_funds = []
-    for fund in funds:
-        code = str(fund.get("fundcode") or fund.get("code") or "")
-        pct = _to_float(fund.get("estimate_change_pct"))
-        if pct is not None and pct >= 2:
-            strong_funds.append(f"{code}{core.fmt_pct(pct)}")
-        elif pct is not None and pct <= -2:
-            weak_funds.append(f"{code}{core.fmt_pct(pct)}")
-    if strong_funds:
-        notes.append(
-            f"基金 {', '.join(strong_funds[:3])} 估值偏强，但基金持仓来自季报且可能已调仓；把它当净值线索，不把估算涨幅当买入理由。"
-        )
-    elif weak_funds:
-        notes.append(
-            f"基金 {', '.join(weak_funds[:3])} 估值偏弱，先查重仓行业是否发生长期逻辑变化；若只是市场先生报价波动，仓位动作应服从原先配置上限。"
-        )
+            notes.append(f"主题集中度偏高：{top_theme} 覆盖 {', '.join(names[:4])}，基金与个股需避免重复押注同一景气线。")
+    if funds and quotes:
+        notes.append("综合建议：先把基金作为底仓/行业暴露工具，把个股作为增强仓；新增资金优先投向低相关、估值和新闻趋势更匹配的方向。")
     elif funds:
-        codes = [str(fund.get("fundcode") or fund.get("code") or "") for fund in funds if fund.get("fundcode") or fund.get("code")]
-        notes.append(
-            f"基金 {', '.join(codes[:3])} 暂无极端估值波动；重点看持仓时效、基金经理风格漂移和与已关注个股的重合度。"
-        )
+        notes.append("综合建议：当前以基金为主，重点看基金风格、持仓时效和回撤承受能力。")
+    elif quotes:
+        notes.append("综合建议：当前以个股为主，建议设置单票仓位上限，并补充低相关资产降低波动。")
+    return notes[:1] if compact and notes else notes
 
-    if quotes and not any("安全边际" in note for note in notes):
-        names = "、".join((q.name or q.symbol) for q in quotes[:3])
-        notes.append(f"{names} 的下一步不是追涨杀跌，而是补一张估值表：合理买入价、可承受回撤、退出条件和机会成本。")
 
-    return notes
+def _position_return(current_price: Any, buy_price: Any, quantity: Any) -> dict[str, float] | None:
+    current = _to_float(current_price)
+    buy = _to_float(buy_price)
+    qty = _to_float(quantity)
+    if current is None or buy is None or qty is None or buy <= 0 or qty <= 0:
+        return None
+    cost = buy * qty
+    value = current * qty
+    return {"cost": cost, "value": value, "amount": value - cost, "pct": (value / cost - 1) * 100}
+
+
+def _pnl_text(core: Any, pnl: dict[str, float] | None) -> str:
+    if not pnl:
+        return "买入以来收益待获取买入日价格/净值后估算"
+    return f"买入以来 {core.fmt_pct(pnl['pct'])}（约 {core.fmt_price(pnl['amount'])}）"
 
 
 def _theme_exposure(quotes: list[Any], news_titles: dict[str, list[str]]) -> dict[str, list[str]]:
@@ -420,6 +500,37 @@ def _theme_exposure(quotes: list[Any], news_titles: dict[str, list[str]]) -> dic
                 exposure.setdefault(theme, []).append(qd.name or qd.symbol)
                 break
     return exposure
+
+
+def _news_signal(headlines: list[str]) -> tuple[str, str, int]:
+    if not headlines:
+        return "新闻信号不足", "（未拿到可核验的当天高信号新闻）", 0
+    blob = " ".join(headlines)
+    positive = sum(1 for word in POSITIVE_NEWS_KEYWORDS if word.lower() in blob.lower())
+    negative = sum(1 for word in NEGATIVE_NEWS_KEYWORDS if word.lower() in blob.lower())
+    score = positive - negative
+    if score > 0:
+        return "新闻偏正面", f"（{headlines[0]}）", score
+    if score < 0:
+        return "新闻偏负面", f"（{headlines[0]}）", score
+    return "新闻偏中性", f"（{headlines[0]}）", score
+
+
+def _manager_stance(change_pct: float | None, news_score: int) -> tuple[str, str]:
+    pct = change_pct or 0
+    if pct >= 3 and news_score >= 0:
+        return "持有观察", "趋势和消息面同向，但上涨后更要防止为好消息支付过高价格。"
+    if pct >= 3 and news_score < 0:
+        return "冲高谨慎", "价格上涨但新闻质量不配合，优先保护已有收益。"
+    if pct <= -3 and news_score < 0:
+        return "降低仓位观察", "价格和消息面共振走弱，先控制组合回撤。"
+    if pct <= -3:
+        return "观察验证", "价格走弱但新闻未确认基本面恶化，不急于把波动等同于价值受损。"
+    if news_score > 0:
+        return "持有观察", "新闻边际偏正面但价格未充分确认，适合等待趋势延续证据。"
+    if news_score < 0:
+        return "谨慎观察", "新闻边际偏负面但价格未剧烈反应，适合先收紧风险预算。"
+    return "中性观察", "行情和新闻都未给出足够强的方向信号。"
 
 
 def _to_float(value: Any) -> float | None:

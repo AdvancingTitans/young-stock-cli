@@ -31,15 +31,24 @@ def test_profile_read_write_uses_env_override(monkeypatch, tmp_path):
     add_profile_item("stocks", "600519")
 
     assert profile_path() == tmp_path / "profile.json"
-    assert load_profile() == {"stocks": ["600519"], "funds": ["161725"], "groups": {}}
+    assert load_profile() == {
+        "stocks": ["600519"],
+        "funds": ["161725"],
+        "groups": {},
+        "positions": {"stocks": {}, "funds": {}},
+    }
+
+    add_profile_item("stocks", "NVDA", buy_date="2026-01-15", quantity=10)
+    assert load_profile()["positions"]["stocks"]["NVDA"] == {"buy_date": "2026-01-15", "quantity": 10.0}
 
     add_group("稳健型")
     add_group_item("稳健型", "021528")
     remove_profile_item("stocks", "600519")
     assert load_profile() == {
-        "stocks": [],
+        "stocks": ["NVDA"],
         "funds": ["161725"],
         "groups": {"稳健型": {"stocks": [], "funds": ["021528"]}},
+        "positions": {"stocks": {"NVDA": {"buy_date": "2026-01-15", "quantity": 10.0}}, "funds": {}},
     }
 
     add_profile_item("stocks", "600000")
@@ -49,6 +58,7 @@ def test_profile_read_write_uses_env_override(monkeypatch, tmp_path):
         "stocks": [],
         "funds": ["161725"],
         "groups": {"稳健型": {"stocks": [], "funds": ["021528"]}},
+        "positions": {"stocks": {}, "funds": {}},
     }
 
     clear_profile_kind("funds")
@@ -56,10 +66,11 @@ def test_profile_read_write_uses_env_override(monkeypatch, tmp_path):
         "stocks": [],
         "funds": [],
         "groups": {"稳健型": {"stocks": [], "funds": []}},
+        "positions": {"stocks": {}, "funds": {}},
     }
 
     clear_profile()
-    assert load_profile() == {"stocks": [], "funds": [], "groups": {}}
+    assert load_profile() == {"stocks": [], "funds": [], "groups": {}, "positions": {"stocks": {}, "funds": {}}}
 
 
 def test_source_health_book_tracks_recent_failures():

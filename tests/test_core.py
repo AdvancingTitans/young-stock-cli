@@ -37,6 +37,23 @@ def test_cache_key_deterministic():
     assert a == b
 
 
+def test_cache_load_missing_entry_does_not_create_directory(monkeypatch, tmp_path):
+    cache_dir = tmp_path / "cache"
+    monkeypatch.setattr(_core, "CACHE_DIR", cache_dir)
+
+    assert _core.cache_load("index_all", "20260612", "eastmoney") is None
+    assert not cache_dir.exists()
+
+
+def test_get_index_ignores_invalid_cached_shape(monkeypatch):
+    monkeypatch.setattr(_core, "cache_load", lambda *args, **kwargs: {"data": {"diff": "bad-shape"}})
+    monkeypatch.setattr(_core, "fetch_json", lambda *args, **kwargs: {"_error": "blocked"})
+    monkeypatch.setattr(_core, "_fetch_a_indices_sina", lambda: [])
+    monkeypatch.setattr(_core, "_fetch_a_indices_tencent", lambda: [])
+
+    assert _core.get_index("20260612") == []
+
+
 def test_hk_indices_use_full_hsi_quote_with_volume(monkeypatch):
     def fake_fetch_sina_batch(codes):
         assert "hkHSI" in codes

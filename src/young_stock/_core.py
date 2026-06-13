@@ -252,6 +252,10 @@ def _cache_key(symbol: str, date_str: str, source: str) -> str:
 
 
 def _cache_path(symbol: str, date_str: str, source: str) -> Path:
+    return CACHE_DIR / date_str / _cache_key(symbol, date_str, source)
+
+
+def _cache_write_path(symbol: str, date_str: str, source: str) -> Path:
     d = CACHE_DIR / date_str
     d.mkdir(parents=True, exist_ok=True)
     return d / _cache_key(symbol, date_str, source)
@@ -280,7 +284,7 @@ def cache_save(symbol: str, date_str: str, source: str, data: dict[str, Any]) ->
     payload = data.get("data") if isinstance(data, dict) else None
     if payload is not None and not payload:  # data: [] / data: {}
         return
-    p = _cache_path(symbol, date_str, source)
+    p = _cache_write_path(symbol, date_str, source)
     try:
         with open(p, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, default=str)
@@ -1603,13 +1607,17 @@ def normalize_stock_symbol(symbol: str) -> tuple[str, str]:
 def get_index(date_str: str) -> list[dict[str, Any]]:
     cached = cache_load("index_all", date_str, "eastmoney")
     if cached:
-        return cached.get("data", [])
+        cached_rows = cached.get("data")
+        if isinstance(cached_rows, list):
+            return cached_rows
+        diag("Ignored cached A-share index because data is not a list")
 
     url = INDEX_URL.format(secids=INDEX_SECIDS, fields=INDEX_FIELDS, ts=datetime.now().timestamp())
     data = fetch_json(url, {"Referer": "https://quote.eastmoney.com/"})
     if "_error" in data:
         diag(f"Eastmoney index: {data['_error']}")
-    result = data.get("data", {}).get("diff", []) if "_error" not in data else []
+    diff = data.get("data", {}).get("diff", []) if "_error" not in data else []
+    result = diff if isinstance(diff, list) else []
     # 东财失败时降级到新浪
     if not result:
         result = _fetch_a_indices_sina()

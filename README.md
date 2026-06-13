@@ -18,10 +18,18 @@ Born out of a real workflow: every trading day after close I wanted the same fiv
 ## Install
 
 ```bash
-pip install young-stock-cli
+python3 -m pip install young-stock-cli
 ```
 
-Requires Python 3.10+.
+Requires Python 3.9+.
+
+If `pip3 install young-stock-cli` reports that every release requires a different Python version, your
+`pip3` is attached to an older Python. Check with `python3 --version`, then install or upgrade with a
+Python 3.9+ interpreter:
+
+```bash
+python3 -m pip install --upgrade young-stock-cli
+```
 
 ## Usage
 
@@ -46,6 +54,7 @@ young daily --format full         # full personalized daily report
 young daily --only 基金,A股 --quick
 young news 3690.HK      # multi-source news only
 young diagnose          # network/source diagnostic
+young diagnose --json   # machine-readable support diagnostic
 young note add "today I reduced chasing"
 young alert create 600519 "涨跌幅>5%"
 young stock AAPL --no-news
@@ -94,7 +103,7 @@ The internals are being split into focused modules: `young_stock.calendar` handl
 - **Short report modes** — `young daily --format summary` keeps terminal output compact; `--format key-points` adds a few trend/risk bullets; `--only`, `--order`, and `--quick` trim slower or irrelevant sections.
 - **Investment memory management** — list, remove, clear, and group saved stocks/funds with `young profile list`, `remove-stock`, `remove-fund`, `clear`, `clear-stocks`, `clear-funds`, and `profile group create/add`.
 - **Local workflow helpers** — lightweight `portfolio`, `alert`, `note`, and `diary` commands store local records for portfolio experiments, reminder rules, investment notes, and saved daily-report text.
-- **Diagnostics** — `young diagnose` summarizes recent source health and suggests cache/quick-mode fallbacks when public APIs are unstable.
+- **Diagnostics** — `young diagnose` summarizes recent source health and suggests cache/quick-mode fallbacks when public APIs are unstable; `young diagnose --json` prints read-only, machine-readable support info with Python/version/path/source-health details.
 - **Single-stock news** — `young news 3690.HK` prints only the news/momentum view, with each item showing source and link status.
 - **Smart caching** — `~/.young_stock/cache/`, 7-day TTL, auto-pruned. Pass `--refresh` to skip.
 - **Trade-day awareness** — nearest-trade-day resolution including weekends and (best-effort) holidays.
@@ -123,7 +132,7 @@ print(get_zt_pool(date))
 ```bash
 git clone https://github.com/AdvancingTitans/young-stock-cli.git
 cd young-stock-cli
-pip install -e ".[dev]"
+python3 -m pip install -e ".[dev]"
 pytest
 ruff check .
 ```
@@ -148,7 +157,7 @@ MIT — see [LICENSE](LICENSE).
 A 股盘后行情命令行工具。免登录、免 API key、免反爬技巧 — 一行命令把当日涨跌、涨停板、可核验的 A 股资金流向、板块榜全部打到终端。同时支持港股、美股指数和全球快照视图。
 
 ```bash
-pip install young-stock-cli
+python3 -m pip install young-stock-cli
 young a            # A 股盘后总览（主命令）
 young a --no-news  # 只看 A 股行情与情绪，跳过新闻
 young stock 600519 # 单只股票速览（A股 / 港股 / 美股）

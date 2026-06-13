@@ -1,6 +1,8 @@
 """young-stock-cli command line interface."""
 from __future__ import annotations
 
+import json
+import platform
 import subprocess
 import sys
 from datetime import datetime
@@ -8,7 +10,7 @@ from datetime import datetime
 import click
 
 from . import __version__, _core
-from .local_store import load_store, now_label, save_store
+from .local_store import load_store, now_label, save_store, young_home
 from .profile import (
     add_group,
     add_group_item,
@@ -107,7 +109,12 @@ def update(pre: bool, user_install: bool) -> None:
     click.echo("Running: " + " ".join(cmd))
     result = subprocess.run(cmd, check=False)
     if result.returncode != 0:
-        raise click.ClickException(f"update failed with exit code {result.returncode}")
+        raise click.ClickException(
+            "update failed with exit code "
+            f"{result.returncode}. young-stock-cli requires Python 3.9+. "
+            "Check `python3 --version`, then retry with "
+            "`python3 -m pip install --upgrade young-stock-cli`."
+        )
 
 
 @cli.command(help="Uninstall young-stock-cli from the current Python environment.")
@@ -364,10 +371,42 @@ def profile_group_add(name: str, code: str) -> None:
     click.echo(f"Added {code} to group: {name}")
 
 
-@cli.command(help="Run a lightweight network/source diagnostic.")
-def diagnose() -> None:
-    click.echo("# 网络诊断")
+def _diagnostic_payload() -> dict:
+    sources = []
     for name in ["eastmoney", "sina", "tencent", "ths", "futu"]:
+        snap = _core.SOURCE_HEALTH.snapshot(name)
+        sources.append({
+            "name": name,
+            "success_rate": snap.success_rate,
+            "average_latency_ms": snap.average_latency_ms,
+            "should_skip": snap.should_skip,
+        })
+    return {
+        "command": "young diagnose",
+        "version": __version__,
+        "python": {
+            "version": platform.python_version(),
+            "executable": sys.executable,
+        },
+        "paths": {
+            "profile": str(profile_path()),
+            "home": str(young_home()),
+            "cache": str(_core.CACHE_DIR),
+        },
+        "sources": sources,
+        "read_only": True,
+    }
+
+
+@cli.command(help="Run a lightweight network/source diagnostic.")
+@click.option("--json", "as_json", is_flag=True, help="Print machine-readable diagnostics.")
+def diagnose(as_json: bool) -> None:
+    if as_json:
+        click.echo(json.dumps(_diagnostic_payload(), ensure_ascii=False, indent=2))
+        return
+    click.echo("# 网络诊断")
+    for source in _diagnostic_payload()["sources"]:
+        name = source["name"]
         snap = _core.SOURCE_HEALTH.snapshot(name)
         state = "建议暂缓使用" if snap.should_skip else "可用/未发现近期异常"
         click.echo(f"{name}: 成功率 {snap.success_rate:.0%}, 平均延迟 {snap.average_latency_ms:.0f}ms, {state}")

@@ -1,3 +1,4 @@
+import json
 import sys
 from types import SimpleNamespace
 
@@ -65,6 +66,22 @@ def test_cli_subcommands_registered():
         "cache-clear", "update", "uninstall",
     ]:
         assert sub in result.output, f"subcommand `{sub}` missing from help"
+
+
+def test_cli_top_level_command_help_is_available():
+    from click.testing import CliRunner
+
+    runner = CliRunner()
+    commands = [
+        "a", "hk", "us", "global", "indices", "zt-pool", "flow", "stock", "fund", "news",
+        "daily", "profile", "portfolio", "alert", "note", "diary", "diagnose", "guide", "example",
+        "cache-clear", "update", "uninstall",
+    ]
+
+    for command in commands:
+        result = runner.invoke(cli, [command, "--help"])
+        assert result.exit_code == 0, f"{command} --help failed: {result.output}"
+        assert "Usage:" in result.output
 
 
 def test_cli_stock_runs_single_stock_quote(monkeypatch):
@@ -185,6 +202,22 @@ def test_cli_update_runs_pip_upgrade(monkeypatch):
         [sys.executable, "-m", "pip", "install", "--upgrade", "young-stock-cli", "--pre", "--user"],
         False,
     )]
+
+
+def test_cli_update_failure_mentions_python_version(monkeypatch):
+    from click.testing import CliRunner
+
+    def fake_run(cmd, check):
+        return SimpleNamespace(returncode=1)
+
+    monkeypatch.setattr(cli_module.subprocess, "run", fake_run)
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["update"])
+
+    assert result.exit_code != 0
+    assert "Python 3.9+" in result.output
+    assert "python3 -m pip install --upgrade young-stock-cli" in result.output
 
 
 def test_cli_uninstall_runs_pip_uninstall(monkeypatch):
@@ -403,3 +436,28 @@ def test_cli_diagnose_outputs_network_guidance(monkeypatch):
     assert result.exit_code == 0
     assert "网络诊断" in result.output
     assert "建议" in result.output
+
+
+def test_cli_diagnose_json_outputs_machine_readable_support_info(monkeypatch, tmp_path):
+    from click.testing import CliRunner
+
+    monkeypatch.setenv("YOUNG_STOCK_PROFILE", str(tmp_path / "profile.json"))
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path / "home"))
+    monkeypatch.setattr(
+        cli_module._core,
+        "SOURCE_HEALTH",
+        SimpleNamespace(snapshot=lambda name: SimpleNamespace(success_rate=1.0, average_latency_ms=0.0, should_skip=False)),
+    )
+
+    result = CliRunner().invoke(cli, ["diagnose", "--json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["command"] == "young diagnose"
+    assert payload["version"] == __version__
+    assert payload["python"]["executable"] == sys.executable
+    assert payload["paths"]["profile"].endswith("profile.json")
+    assert payload["paths"]["home"].endswith("home")
+    assert payload["paths"]["cache"]
+    assert payload["read_only"] is True
+    assert {source["name"] for source in payload["sources"]} >= {"eastmoney", "sina", "tencent", "ths", "futu"}

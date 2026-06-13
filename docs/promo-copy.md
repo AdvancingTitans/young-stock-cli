@@ -1,6 +1,6 @@
 # 推广文案 — young-stock-cli
 
-发布时机建议：v0.1.0 在 PyPI 上线后再发，文案里的 `pip install` 才有效。
+发布时机建议：v0.1.0 在 PyPI 上线后再发，文案里的 `python3 -m pip install` 才有效。
 
 ---
 
@@ -16,7 +16,7 @@
 每天 15:01 都要刷一遍上证、深成指、创业板、涨停板、北向资金…开网页太慢，付费终端没必要，干脆自己写了个命令行。
 
 ```
-pip install young-stock-cli
+python3 -m pip install young-stock-cli
 young a
 ```
 
@@ -53,7 +53,7 @@ GitHub: github.com/AdvancingTitans/young-stock-cli
 每天盘后想看的几个数据：四大指数、涨停板数 / 连板天梯、北向资金、板块热点。开 5 个网页太慢，akshare 装一次拖 200MB 依赖，tushare 要 token 还限流。一气之下自己撸。
 
 ### 设计目标
-1. `pip install` 装完就能用，无需任何账号配置
+1. `python3 -m pip install` 装完就能用，无需任何账号配置
 2. 三个运行时依赖：`requests` + `click` + `rich`
 3. 数据源单一可控：东方财富公开行情接口
 4. 输出对终端友好：rich Table，深浅色都好看
@@ -85,7 +85,7 @@ github.com/AdvancingTitans/young-stock-cli — 欢迎 star。
 **正文**：
 
 ```
-pip install young-stock-cli
+python3 -m pip install young-stock-cli
 young a            # A 股盘后总览
 young zt-pool      # 涨停 / 跌停 / 炸板分析
 young flow         # 北向资金 + 主力资金

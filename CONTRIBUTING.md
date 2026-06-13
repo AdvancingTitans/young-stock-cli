@@ -7,7 +7,7 @@ Thanks for considering a contribution! This project welcomes pull requests, bug 
 ```bash
 git clone https://github.com/AdvancingTitans/young-stock-cli.git
 cd young-stock-cli
-pip install -e ".[dev]"
+python3 -m pip install -e ".[dev]"
 pytest
 ruff check .
 ```

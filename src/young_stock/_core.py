@@ -762,7 +762,7 @@ def fetch_sina_sector_money_flow_snapshot(date_str: str) -> dict[str, str]:
     xml = str(data.get("xml") or "")
     labels = re.findall(r"<category label='([^']+)'", xml)
     values = [_safe_float(v) for v in re.findall(r"<set value='([^']+)'", xml)]
-    pairs = [(label, value) for label, value in zip(labels, values, strict=False) if value is not None]
+    pairs = [(label, value) for label, value in zip(labels, values) if value is not None]
     if not pairs:
         diag("Sina sector money-flow snapshot: empty sector values")
         return {}
@@ -1750,7 +1750,7 @@ def get_fund_flow(date_str: str, *, strict_date: bool = True) -> dict[str, str]:
         if klines:
             for row in klines:
                 vals = row.split(",")
-                result = dict(zip(FUND_FLOW_COLS, vals, strict=False))
+                result = dict(zip(FUND_FLOW_COLS, vals))
                 result["_source"] = display_source
                 result["_scope"] = "A股"
                 if latest_result is None:
@@ -1784,7 +1784,7 @@ def get_fund_flow(date_str: str, *, strict_date: bool = True) -> dict[str, str]:
         if klines:
             for row in klines:
                 vals = row.split(",")
-                result = dict(zip(FUND_FLOW_COLS, vals, strict=False))
+                result = dict(zip(FUND_FLOW_COLS, vals))
                 result["_source"] = "东财历史日线资金流"
                 result["_scope"] = "A股"
                 if latest_result is None:

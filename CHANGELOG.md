@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.17] - 2026-06-14
+
+### Fixed
+- Lowered package metadata to Python 3.9+ after verifying the source compiles on Python 3.9, so macOS system `pip3 install young-stock-cli` no longer rejects every release as Python 3.10-only.
+- `young update` now prints a concrete Python-version and `python3 -m pip` retry hint when pip fails.
+- Removed Python 3.10-only `zip(strict=False)` calls so fund-flow parsing works under Python 3.9.
+
+### Changed
+- Install docs now prefer `python3 -m pip install young-stock-cli` and CI covers Python 3.9.
+- `young diagnose --json` now prints read-only machine-readable support diagnostics, and tests cover every top-level command's `--help`.
+
 ## [0.1.16] - 2026-06-04
 
 ### Changed

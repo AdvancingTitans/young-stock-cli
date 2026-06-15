@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.21] - 2026-06-15
+
+### Added
+- `young a` now includes Tonghuashun northbound intraday cumulative flow, so A-share dashboards pick up the stable northbound source directly.
+- `young a` now fetches Eastmoney industry/concept board rankings through a lightweight clist request before falling back to the optional browser board page.
+
+### Changed
+- Completed the command-wide upstream review: Yahoo-backed K-line/options/holders/news, iwencai, mootdx, and high-frequency Eastmoney push2 paths remain outside the default CLI path because they add login/API-key/dependency or stability risk.
+
 ## [0.1.20] - 2026-06-15
 
 ### Added

@@ -207,6 +207,44 @@ def test_fetch_block_trades_parses_datacenter_rows(monkeypatch):
     assert data["rows"][0]["buyer"] == "买方席位"
 
 
+def test_fetch_eastmoney_board_list_parses_industry_rows(monkeypatch):
+    monkeypatch.setattr(_core, "cache_load", lambda *args, **kwargs: None)
+    monkeypatch.setattr(_core, "cache_save", lambda *args, **kwargs: None)
+    seen = {}
+
+    def fake_fetch_json(url, headers=None):
+        seen["url"] = url
+        return {
+            "data": {
+                "diff": [
+                    {"f14": "半导体", "f12": "BK1036", "f3": 2.34, "f104": 80, "f105": 12, "f140": "测试龙头", "f136": 8.8},
+                ]
+            }
+        }
+
+    monkeypatch.setattr(_core, "fetch_json", fake_fetch_json)
+
+    data = _core.fetch_eastmoney_board_list("industry", "20260612")
+
+    assert "fs=m%3A90%2Bt%3A2" in seen["url"]
+    assert data["rows"][0]["name"] == "半导体"
+    assert data["rows"][0]["change_pct"] == 2.34
+    assert data["rows"][0]["up_count"] == 80
+    assert data["rows"][0]["leader"] == "测试龙头"
+
+
+def test_print_boards_supports_structured_rows(capsys):
+    _core.print_boards(
+        {"rows": [{"name": "半导体", "change_pct": 2.34, "up_count": 80, "down_count": 12, "leader": "测试龙头"}]},
+        "行业板块涨幅",
+    )
+
+    output = capsys.readouterr().out
+    assert "行业板块涨幅" in output
+    assert "半导体" in output
+    assert "测试龙头" in output
+
+
 def test_tencent_hk_stock_quote_adds_valuation_fields():
     fields = (
         "100~腾讯控股~00700~466.000~463.600~475.000~5205932.0~0~0~466.000~0~0~0~0~0~0~0~0~0~466.000~0~0~0~0~0~0~0~0~0~"

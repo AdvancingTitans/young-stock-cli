@@ -114,6 +114,7 @@ The internals are being split into focused modules: `young_stock.calendar` handl
 - **Source health tracking** — common JSON fetches update `young_stock._core.SOURCE_HEALTH`, giving downstream agents a recent success-rate/latency signal for public sources.
 - **Rich terminal tables** — readable on dark and light terminals.
 - **Verified A-share fund flow** — `young flow` uses Tonghuashun concept-board fund flow only when both net-inflow and net-outflow rankings are available, then falls back to Eastmoney main-capital flow/page indicators, Sina Finance sector fund-flow, Sina/Tencent market-activity references, and finally the most recent locally cached good record. Non-equivalent fallbacks are clearly labeled instead of being presented as whole-market main-capital net inflow.
+- **A-share dashboard flow and boards** — `young a` now also prints Tonghuashun northbound intraday flow and Eastmoney industry/concept board rankings; if the lightweight board API is unavailable, the optional browser fallback is still used.
 - **One-stock fund flow** — `young flow --stock 600519`, `young flow --stock 0700.HK`, and `young flow --stock AAPL` show daily main/small/mid/big/super-big order net flow from Eastmoney `push2his`. This is an on-demand supplement, not a replacement for the primary quote path, because the source can occasionally be network/IP rate-limited.
 - **Northbound flow** — `young flow --northbound` uses Tonghuashun `hsgtApi` minute cumulative northbound flow, avoiding the Eastmoney northbound path that stopped being reliable after 2024.
 - **A-share block trades** — `young block-trades 600519` shows recent block-trade records from Eastmoney datacenter, including trade date, deal price, discount/premium, amount, buyer, and seller seats.
@@ -181,6 +182,6 @@ young a -d 20260530 --refresh    # 指定日期 + 强制刷新
 young update       # 在当前 Python 环境中更新 CLI
 ```
 
-数据来源：同花顺概念资金流页面（仅在同时拿到净流入/净流出榜时采用）、同花顺北向 `hsgtApi`、腾讯财经、新浪财经、东方财富公开行情/快讯/个股资金流/大宗交易接口（`data.10jqka.com.cn` / `qt.gtimg.cn` / `hq.sinajs.cn` / `push2his.eastmoney.com` / `push2.eastmoney.com` / `push2ex.eastmoney.com` / `datacenter-web.eastmoney.com` / `np-listapi.eastmoney.com`），多源自动切换。单只股票和基金持仓股会用腾讯财经补充成交额、换手率、市值、PE/PB、52 周高低等字段；价格主口径仍优先使用当前验证更稳的新浪/腾讯/东财链路。Yahoo 相关数据源未内置为主链路；东财个股资金流只作为按需补充，并在输出中标注来源。本地缓存 7 天，目录 `~/.young_stock/cache/`，可用 `young cache-clear` 清理。命令会标注当前阶段：上午盘、午间、下午盘或盘后；若展示的是非请求日的最新可用数据，会标注为该交易日盘后数据。普通输出不展示完整度和数据源诊断，排查问题时可设置 `YOUNG_STOCK_DEBUG=1` 查看详细切换记录。
+数据来源：同花顺概念资金流页面（仅在同时拿到净流入/净流出榜时采用）、同花顺北向 `hsgtApi`、腾讯财经、新浪财经、东方财富公开行情/快讯/板块榜/个股资金流/大宗交易接口（`data.10jqka.com.cn` / `qt.gtimg.cn` / `hq.sinajs.cn` / `push2his.eastmoney.com` / `push2.eastmoney.com` / `push2ex.eastmoney.com` / `datacenter-web.eastmoney.com` / `np-listapi.eastmoney.com`），多源自动切换。单只股票和基金持仓股会用腾讯财经补充成交额、换手率、市值、PE/PB、52 周高低等字段；价格主口径仍优先使用当前验证更稳的新浪/腾讯/东财链路。Yahoo 相关数据源未内置为主链路；mootdx/iwencai 等需要新增依赖或 API key 的能力暂不并入默认 CLI；东财个股资金流只作为按需补充，并在输出中标注来源。本地缓存 7 天，目录 `~/.young_stock/cache/`，可用 `young cache-clear` 清理。命令会标注当前阶段：上午盘、午间、下午盘或盘后；若展示的是非请求日的最新可用数据，会标注为该交易日盘后数据。普通输出不展示完整度和数据源诊断，排查问题时可设置 `YOUNG_STOCK_DEBUG=1` 查看详细切换记录。
 
 适用人群：每天盘后想用一条命令看完五张图的开发者 / 量化研究者 / 自动化爱好者。欢迎 issue / PR。

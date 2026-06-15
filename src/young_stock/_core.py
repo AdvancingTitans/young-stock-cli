@@ -2121,6 +2121,55 @@ def fetch_northbound_flow_snapshot(date_str: str) -> dict[str, Any]:
 
 
 @retry_on_recoverable(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
+def fetch_eastmoney_board_list(board_type: str, date_str: str, limit: int = 100) -> dict[str, Any]:
+    """Fetch A-share industry/concept board ranking via Eastmoney clist."""
+    normalized_type = "concept" if board_type == "concept" else "industry"
+    cached = cache_load("board_list", f"{date_str}_{normalized_type}", "eastmoney_clist")
+    if cached:
+        return cached
+    fs = "m:90+t:3" if normalized_type == "concept" else "m:90+t:2"
+    params = {
+        "pn": 1,
+        "pz": max(1, min(int(limit or 100), 200)),
+        "po": 1,
+        "np": 1,
+        "fltt": 2,
+        "invt": 2,
+        "fid": "f3",
+        "fs": fs,
+        "fields": "f2,f3,f4,f12,f13,f14,f104,f105,f128,f136,f140,f141,f207",
+        "_": int(datetime.now().timestamp() * 1000),
+    }
+    url = f"https://push2.eastmoney.com/api/qt/clist/get?{urllib.parse.urlencode(params)}"
+    data = fetch_json(url, {"Referer": "https://quote.eastmoney.com/"})
+    if "_error" in data:
+        return {"board_type": normalized_type, "rows": [], "_error": data["_error"], "_source": "东方财富行业/概念板块"}
+    diff = (data.get("data") or {}).get("diff") or []
+    items = diff.values() if isinstance(diff, dict) else diff
+    rows = []
+    for i, item in enumerate(items, 1):
+        rows.append({
+            "rank": i,
+            "name": item.get("f14") or "",
+            "code": item.get("f12") or "",
+            "change_pct": _safe_float(item.get("f3")),
+            "up_count": _safe_int(item.get("f104")),
+            "down_count": _safe_int(item.get("f105")),
+            "leader": item.get("f140") or item.get("f128") or "",
+            "leader_change_pct": _safe_float(item.get("f136")),
+        })
+    result = {
+        "board_type": normalized_type,
+        "rows": rows,
+        "count": len(rows),
+        "_source": "东方财富行业/概念板块",
+        "_source_note": "东财 clist 板块排名；轻量单请求，失败时回退到浏览器板块页。",
+    }
+    cache_save("board_list", f"{date_str}_{normalized_type}", "eastmoney_clist", result)
+    return result
+
+
+@retry_on_recoverable(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
 def eastmoney_datacenter(
     report_name: str,
     *,
@@ -2983,6 +3032,18 @@ def print_boards(board_data: dict[str, Any], title: str) -> None:
     if not rows:
         return
     print(f"## {title}（前15）\n")
+    if isinstance(rows[0], dict):
+        print(f"{'排名':<4} {'板块':<12} {'涨跌幅':>8} {'涨/跌':>10} {'领涨股':>12}")
+        print("-" * 58)
+        for i, row in enumerate(rows[:15], 1):
+            name = str(row.get("name") or "-")
+            breadth = "-"
+            if row.get("up_count") is not None and row.get("down_count") is not None:
+                breadth = f"{row.get('up_count')}/{row.get('down_count')}"
+            leader = str(row.get("leader") or "-")
+            print(f"{i:<4} {name:<12} {fmt_pct(row.get('change_pct')):>8} {breadth:>10} {leader:>12}")
+        print()
+        return
     print(f"{'排名':<4} {'板块':<12} {'涨跌幅':>8}")
     print("-" * 30)
     for i, r in enumerate(rows[:15], 1):
@@ -3859,13 +3920,20 @@ def run_a_share(date_str: str, include_news: bool = True) -> None:
     flow = get_fund_flow(date_str)
     print_fund_flow(flow)
 
+    northbound = fetch_northbound_flow_snapshot(date_str)
+    print_northbound_flow_report(northbound)
+
     print_sentiment_summary(zt, dt, zb, flow)
 
     if include_news:
         print_a_share_news(date_str, zt)
 
-    industry = camofox_board_list("industry")
-    concept = camofox_board_list("concept")
+    industry = fetch_eastmoney_board_list("industry", date_str)
+    if not industry.get("rows"):
+        industry = camofox_board_list("industry")
+    concept = fetch_eastmoney_board_list("concept", date_str)
+    if not concept.get("rows"):
+        concept = camofox_board_list("concept")
     print_boards(industry, "行业板块涨幅")
     print_boards(concept, "概念板块涨幅")
 

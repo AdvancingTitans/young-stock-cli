@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.22] - 2026-06-15
+
+### Changed
+- README and package long description now match the current stable-source strategy: Sina/Tencent are the default quote path, while Eastmoney-style interfaces stay behind explicit supplemental commands or CLI-managed fallback layers.
+- Default multi-source news heat aggregation now prioritizes stable no-login sources (Futu + Sina) instead of treating Eastmoney fast news as a standard ranking input.
+- Market headers and user-facing copy now describe the current source policy more accurately, reducing confusion between default main sources and on-demand supplemental sources.
+
 ## [0.1.21] - 2026-06-15
 
 ### Added

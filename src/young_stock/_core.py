@@ -89,6 +89,13 @@ FFLOW_HIS_URL = (
     "&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f62,f63,f64,f65"
     "&klt=101&lmt=1&_={ts}"
 )
+STOCK_FUND_FLOW_DAILY_URL = (
+    "https://push2his.eastmoney.com/api/qt/stock/fflow/daykline/get"
+    "?secid={secid}&fields1=f1,f2,f3,f7"
+    "&fields2=f51,f52,f53,f54,f55,f56,f57&klt=101&lmt={limit}&_={ts}"
+)
+THS_NORTHBOUND_FLOW_URL = "https://data.hexin.cn/market/hsgtApi/method/dayChart/"
+EASTMONEY_DATACENTER_URL = "https://datacenter-web.eastmoney.com/api/data/v1/get"
 FUND_FLOW_COLS = "date,主力净流入,小单净流入,中单净流入,大单净流入,超大单净流入,主力净流入占比,小单净流入占比,中单净流入占比,大单净流入占比,超大单净流入占比,收盘价,涨跌幅,总成交额".split(",")
 FFLOW_MARKET_FIELDS = "f62,f184,f66,f69,f72,f75,f78,f81,f84,f87,f124,f6"
 FFLOW_MARKET_URL = (
@@ -1024,6 +1031,20 @@ def _us_secid(symbol: str) -> str | None:
     """美股 secid: 优先查表，否则返回 None（让上层尝试 105/106 探测）。"""
     s = symbol.upper().lstrip("^")
     return EM_US_SECID.get(s)
+
+
+def _stock_flow_secid_candidates(symbol: str, market: str) -> list[str]:
+    if market == "cn_market":
+        return [_cn_secid(symbol)]
+    if market == "hk_market":
+        return [_hk_secid(symbol)]
+    if market == "us_market":
+        mapped = _us_secid(symbol)
+        raw = symbol.upper()
+        candidates = [mapped] if mapped else []
+        candidates.extend([f"105.{raw}", f"106.{raw}", f"107.{raw}"])
+        return [secid for secid in dict.fromkeys(candidates) if secid]
+    raise ValueError(f"暂不支持该市场的资金流: {market}")
 
 
 @retry_on_recoverable(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
@@ -1990,6 +2011,193 @@ def get_fund_flow(date_str: str, *, strict_date: bool = True) -> dict[str, str]:
     }
 
 
+def _parse_stock_flow_rows(klines: list[str]) -> list[dict[str, Any]]:
+    rows = []
+    for line in klines:
+        parts = str(line).split(",")
+        if len(parts) < 6:
+            continue
+        rows.append({
+            "date": parts[0],
+            "main_net": _safe_float(parts[1]) or 0.0,
+            "small_net": _safe_float(parts[2]) or 0.0,
+            "mid_net": _safe_float(parts[3]) or 0.0,
+            "big_net": _safe_float(parts[4]) or 0.0,
+            "super_big_net": _safe_float(parts[5]) or 0.0,
+            "main_pct": _safe_float(parts[6]) if len(parts) > 6 else None,
+        })
+    return rows
+
+
+@retry_on_recoverable(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
+def fetch_stock_fund_flow_daily(symbol: str, date_str: str, limit: int = 20) -> dict[str, Any]:
+    """Fetch per-stock daily fund flow for A/HK/US from Eastmoney push2his."""
+    normalized, market = normalize_stock_symbol(symbol)
+    limit = max(1, min(int(limit or 20), 120))
+    cache_date = f"{date_str}_{normalized}_{limit}"
+    cached = cache_load("stock_fund_flow", cache_date, "eastmoney_push2his")
+    if cached:
+        return cached
+
+    last_error = ""
+    for secid in _stock_flow_secid_candidates(normalized, market):
+        url = STOCK_FUND_FLOW_DAILY_URL.format(
+            secid=secid, limit=limit, ts=int(datetime.now().timestamp() * 1000)
+        )
+        data = fetch_json(url, {"Referer": "https://quote.eastmoney.com/"})
+        if "_error" in data:
+            last_error = data["_error"]
+            continue
+        payload = data.get("data") or {}
+        rows = _parse_stock_flow_rows(payload.get("klines") or [])
+        if not rows:
+            last_error = f"{secid}: empty klines"
+            continue
+        result = {
+            "symbol": normalized,
+            "market": market,
+            "secid": secid,
+            "name": payload.get("name") or normalized,
+            "rows": rows,
+            "latest_date": rows[-1]["date"],
+            "_requested_date": _display_date(date_str),
+            "_source": "东方财富 push2his 个股日级资金流",
+            "_source_note": "按单只股票查询；该接口偶发受网络/IP风控影响，失败时不会替代默认行情源。",
+        }
+        if not any(str(row.get("date", "")).replace("-", "") == date_str for row in rows):
+            result["_date_note"] = "latest_available"
+        cache_save("stock_fund_flow", cache_date, "eastmoney_push2his", result)
+        return result
+
+    return {
+        "symbol": normalized,
+        "market": market,
+        "rows": [],
+        "_error": last_error or "empty stock fund flow",
+        "_source": "东方财富 push2his 个股日级资金流",
+    }
+
+
+@retry_on_recoverable(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
+def fetch_northbound_flow_snapshot(date_str: str) -> dict[str, Any]:
+    """Fetch intraday northbound flow from THS hsgtApi, unit: 亿元."""
+    cached = cache_load("northbound_flow", date_str, "ths")
+    if cached:
+        return cached
+    try:
+        raw = _fetch_raw(
+            THS_NORTHBOUND_FLOW_URL,
+            {
+                "Host": "data.hexin.cn",
+                "Referer": "https://data.hexin.cn/",
+                "Accept": "application/json,text/plain,*/*",
+            },
+        )
+        data = _parse_json_text(raw)
+    except Exception as exc:
+        return {"_error": str(exc), "_source": "同花顺北向资金 hsgtApi"}
+
+    times = data.get("time") or []
+    hgt = data.get("hgt") or []
+    sgt = data.get("sgt") or []
+    if not times or not hgt or not sgt:
+        return {"_error": "empty northbound flow", "_source": "同花顺北向资金 hsgtApi"}
+    idx = min(len(times), len(hgt), len(sgt)) - 1
+    hgt_yi = _safe_float(hgt[idx]) or 0.0
+    sgt_yi = _safe_float(sgt[idx]) or 0.0
+    result = {
+        "date": _display_date(date_str),
+        "latest_time": str(times[idx]),
+        "hgt_yi": hgt_yi,
+        "sgt_yi": sgt_yi,
+        "total_yi": round(hgt_yi + sgt_yi, 2),
+        "points": idx + 1,
+        "series": [{"time": str(times[i]), "hgt_yi": _safe_float(hgt[i]) or 0.0, "sgt_yi": _safe_float(sgt[i]) or 0.0} for i in range(idx + 1)],
+        "_source": "同花顺北向资金 hsgtApi",
+        "_source_note": "分钟累计流向，单位亿元；用于替代已失效的东财北向口径。",
+    }
+    cache_save("northbound_flow", date_str, "ths", result)
+    return result
+
+
+@retry_on_recoverable(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
+def eastmoney_datacenter(
+    report_name: str,
+    *,
+    columns: str = "ALL",
+    filter_str: str = "",
+    page_size: int = 100,
+    page_number: int = 1,
+    sort_columns: str = "",
+    sort_types: str = "-1",
+) -> list[dict[str, Any]]:
+    params = {
+        "reportName": report_name,
+        "columns": columns,
+        "filter": filter_str,
+        "pageSize": max(1, min(int(page_size or 100), 500)),
+        "pageNumber": max(1, int(page_number or 1)),
+        "sortColumns": sort_columns,
+        "sortTypes": sort_types,
+        "source": "WEB",
+        "client": "WEB",
+    }
+    url = f"{EASTMONEY_DATACENTER_URL}?{urllib.parse.urlencode(params)}"
+    data = fetch_json(url, {"Referer": "https://data.eastmoney.com/"})
+    if "_error" in data:
+        diag(f"Eastmoney datacenter {report_name}: {data['_error']}")
+        return []
+    return ((data.get("result") or {}).get("data") or []) if data.get("success", True) else []
+
+
+@retry_on_recoverable(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
+def fetch_block_trades(symbol: str, date_str: str, limit: int = 10) -> dict[str, Any]:
+    normalized, market = normalize_stock_symbol(symbol)
+    if market != "cn_market":
+        return {"symbol": normalized, "rows": [], "_error": "大宗交易目前仅支持 A 股", "_source": "东方财富 datacenter"}
+    limit = max(1, min(int(limit or 10), 100))
+    cached = cache_load("block_trades", f"{date_str}_{normalized}_{limit}", "eastmoney_datacenter")
+    if cached:
+        return cached
+
+    data = eastmoney_datacenter(
+        "RPT_DATA_BLOCKTRADE",
+        filter_str=f'(SECURITY_CODE="{normalized}")',
+        page_size=limit,
+        sort_columns="TRADE_DATE",
+        sort_types="-1",
+    )
+    rows = []
+    name = normalized
+    for row in data:
+        close = _safe_float(row.get("CLOSE_PRICE")) or 0.0
+        price = _safe_float(row.get("DEAL_PRICE")) or 0.0
+        premium = ((price / close - 1) * 100) if close else 0.0
+        name = str(row.get("SECURITY_NAME_ABBR") or name)
+        rows.append({
+            "date": str(row.get("TRADE_DATE", ""))[:10],
+            "price": price,
+            "close": close,
+            "premium_pct": round(premium, 2),
+            "vol": _safe_float(row.get("DEAL_VOLUME")) or 0.0,
+            "amount": _safe_float(row.get("DEAL_AMT")) or 0.0,
+            "buyer": row.get("BUYER_NAME") or "",
+            "seller": row.get("SELLER_NAME") or "",
+        })
+    result = {
+        "symbol": normalized,
+        "market": market,
+        "name": name,
+        "rows": rows,
+        "latest_date": rows[0]["date"] if rows else "",
+        "_requested_date": _display_date(date_str),
+        "_source": "东方财富 datacenter 大宗交易",
+        "_source_note": "交易所披露类低频数据，经东财 datacenter 聚合。",
+    }
+    cache_save("block_trades", f"{date_str}_{normalized}_{limit}", "eastmoney_datacenter", result)
+    return result
+
+
 # ------------------------------------------------------------------
 # 富途数据获取
 # ------------------------------------------------------------------
@@ -2673,6 +2881,101 @@ def print_fund_flow(flow_data: dict[str, str]) -> None:
     print()
 
 
+def fmt_signed_amount(v) -> str:
+    try:
+        value = float(v)
+    except (TypeError, ValueError):
+        return "-"
+    sign = "+" if value > 0 else ""
+    abs_value = abs(value)
+    if abs_value >= 1e8:
+        return f"{sign}{value / 1e8:.2f}亿"
+    if abs_value >= 1e4:
+        return f"{sign}{value / 1e4:.2f}万"
+    return f"{sign}{value:.0f}"
+
+
+def print_stock_fund_flow_report(data: dict[str, Any]) -> None:
+    title = f"{data.get('name') or data.get('symbol')}({data.get('symbol', '-')})"
+    print(f"## 个股资金流向：{title}\n")
+    if not data or data.get("_error") or not data.get("rows"):
+        print(f"  暂未获取到个股资金流：{data.get('_error', 'empty data') if data else 'empty data'}")
+        print()
+        return
+    print(f"  来源: {data.get('_source', '-')}")
+    if data.get("_source_note"):
+        print(f"  说明: {data['_source_note']}")
+    if data.get("_date_note") == "latest_available":
+        print(f"  提醒: 当前展示来源最新可用数据，本次请求日期为 {data.get('_requested_date', '-')}")
+    latest = data["rows"][-1]
+    print(f"  最新交易日: {latest.get('date', '-')}")
+    print(
+        "  最新主力: "
+        f"{fmt_signed_amount(latest.get('main_net'))} "
+        f"({fmt_pct(latest.get('main_pct'))})，"
+        f"超大单 {fmt_signed_amount(latest.get('super_big_net'))}，"
+        f"大单 {fmt_signed_amount(latest.get('big_net'))}"
+    )
+    recent = data["rows"][-5:]
+    total_main = sum(float(row.get("main_net") or 0) for row in recent)
+    print(f"  近{len(recent)}日主力合计: {fmt_signed_amount(total_main)}")
+    print()
+    print("  最近记录:")
+    for row in reversed(recent):
+        print(
+            f"    {row.get('date', '-')}: 主力 {fmt_signed_amount(row.get('main_net')):>10} "
+            f"超大 {fmt_signed_amount(row.get('super_big_net')):>10} "
+            f"大单 {fmt_signed_amount(row.get('big_net')):>10} "
+            f"小单 {fmt_signed_amount(row.get('small_net')):>10}"
+        )
+    print()
+
+
+def print_northbound_flow_report(data: dict[str, Any]) -> None:
+    print("## 北向资金流向\n")
+    if not data or data.get("_error"):
+        print(f"  暂未获取到北向资金流：{data.get('_error', 'empty data') if data else 'empty data'}")
+        print()
+        return
+    print(f"  日期: {data.get('date', '-')}")
+    print(f"  时间: {data.get('latest_time', '-')}")
+    print(f"  来源: {data.get('_source', '-')}")
+    if data.get("_source_note"):
+        print(f"  说明: {data['_source_note']}")
+    print(f"  沪股通: {data.get('hgt_yi', 0):+.2f}亿")
+    print(f"  深股通: {data.get('sgt_yi', 0):+.2f}亿")
+    print(f"  合计:   {data.get('total_yi', 0):+.2f}亿")
+    print()
+
+
+def print_block_trades_report(data: dict[str, Any]) -> None:
+    title = f"{data.get('name') or data.get('symbol')}({data.get('symbol', '-')})"
+    print(f"## A股大宗交易：{title}\n")
+    if not data or data.get("_error"):
+        print(f"  暂未获取到大宗交易：{data.get('_error', 'empty data') if data else 'empty data'}")
+        print()
+        return
+    if not data.get("rows"):
+        print("  近期未查询到大宗交易记录。")
+        print()
+        return
+    print(f"  来源: {data.get('_source', '-')}")
+    if data.get("_source_note"):
+        print(f"  说明: {data['_source_note']}")
+    print()
+    for row in data.get("rows", [])[:10]:
+        print(
+            f"  {row.get('date', '-')}: 价 {fmt_price(row.get('price'))} "
+            f"折溢价 {fmt_pct(row.get('premium_pct'))} "
+            f"成交 {fmt_amount(row.get('amount'))}"
+        )
+        buyer = row.get("buyer") or "-"
+        seller = row.get("seller") or "-"
+        print(f"    买方: {buyer}")
+        print(f"    卖方: {seller}")
+    print()
+
+
 def print_boards(board_data: dict[str, Any], title: str) -> None:
     if "_skipped" in board_data or "_error" in board_data:
         return
@@ -3207,6 +3510,39 @@ def print_fund_holding_news(
     if shown == 0:
         print("  目前暂未获取到有效新闻信息。")
     print()
+
+
+def run_stock_fund_flow_report(symbol: str, date_str: str, limit: int = 20) -> None:
+    DIAGNOSTICS.clear()
+    try:
+        data = fetch_stock_fund_flow_daily(symbol, date_str, limit=limit)
+    except ValueError as exc:
+        data = {"symbol": symbol, "rows": [], "_error": str(exc)}
+    print_stock_fund_flow_report(data)
+    if DIAGNOSTICS:
+        print_diagnostic_summary()
+    print_report_footer()
+
+
+def run_northbound_flow_report(date_str: str) -> None:
+    DIAGNOSTICS.clear()
+    data = fetch_northbound_flow_snapshot(date_str)
+    print_northbound_flow_report(data)
+    if DIAGNOSTICS:
+        print_diagnostic_summary()
+    print_report_footer()
+
+
+def run_block_trades_report(symbol: str, date_str: str, limit: int = 10) -> None:
+    DIAGNOSTICS.clear()
+    try:
+        data = fetch_block_trades(symbol, date_str, limit=limit)
+    except ValueError as exc:
+        data = {"symbol": symbol, "rows": [], "_error": str(exc)}
+    print_block_trades_report(data)
+    if DIAGNOSTICS:
+        print_diagnostic_summary()
+    print_report_footer()
 
 
 def run_fund_report(fund_code: str, date_str: str, include_news: bool = True) -> None:

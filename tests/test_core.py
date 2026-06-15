@@ -127,6 +127,86 @@ def test_get_single_stock_quote_uses_hk_fallback_chain(monkeypatch):
     assert qd.source == "eastmoney_stock_get"
 
 
+def test_fetch_stock_fund_flow_daily_parses_hk_push2his(monkeypatch):
+    monkeypatch.setattr(_core, "cache_load", lambda *args, **kwargs: None)
+    monkeypatch.setattr(_core, "cache_save", lambda *args, **kwargs: None)
+    seen = {}
+
+    def fake_fetch_json(url, headers=None):
+        seen["url"] = url
+        return {
+            "data": {
+                "code": "00700",
+                "market": 116,
+                "name": "腾讯控股",
+                "klines": ["2026-06-12,-447621104.0,323693584.0,-80154432.0,-291691920.0,-155929184.0,-4.33"],
+            }
+        }
+
+    monkeypatch.setattr(_core, "fetch_json", fake_fetch_json)
+
+    data = _core.fetch_stock_fund_flow_daily("0700.HK", "20260612", limit=3)
+
+    assert "secid=116.00700" in seen["url"]
+    assert data["symbol"] == "0700.HK"
+    assert data["market"] == "hk_market"
+    assert data["name"] == "腾讯控股"
+    assert data["rows"][0]["date"] == "2026-06-12"
+    assert data["rows"][0]["main_net"] == -447621104.0
+    assert data["rows"][0]["main_pct"] == -4.33
+
+
+def test_fetch_northbound_flow_snapshot_parses_ths(monkeypatch):
+    monkeypatch.setattr(_core, "cache_load", lambda *args, **kwargs: None)
+    monkeypatch.setattr(_core, "cache_save", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        _core,
+        "_fetch_raw",
+        lambda *args, **kwargs: '{"time":["09:30","15:00"],"hgt":[1.2,3.4],"sgt":[0.8,1.1]}',
+    )
+
+    data = _core.fetch_northbound_flow_snapshot("20260612")
+
+    assert data["latest_time"] == "15:00"
+    assert data["hgt_yi"] == 3.4
+    assert data["sgt_yi"] == 1.1
+    assert data["total_yi"] == 4.5
+    assert data["points"] == 2
+
+
+def test_fetch_block_trades_parses_datacenter_rows(monkeypatch):
+    monkeypatch.setattr(_core, "cache_load", lambda *args, **kwargs: None)
+    monkeypatch.setattr(_core, "cache_save", lambda *args, **kwargs: None)
+
+    def fake_datacenter(report_name, **kwargs):
+        assert report_name == "RPT_DATA_BLOCKTRADE"
+        assert kwargs["filter_str"] == '(SECURITY_CODE="600519")'
+        return [
+            {
+                "SECURITY_CODE": "600519",
+                "SECURITY_NAME_ABBR": "贵州茅台",
+                "TRADE_DATE": "2026-06-12 00:00:00",
+                "DEAL_PRICE": 1227.32,
+                "CLOSE_PRICE": 1291.91,
+                "DEAL_VOLUME": 143200,
+                "DEAL_AMT": 175721500,
+                "BUYER_NAME": "买方席位",
+                "SELLER_NAME": "卖方席位",
+            }
+        ]
+
+    monkeypatch.setattr(_core, "eastmoney_datacenter", fake_datacenter)
+
+    data = _core.fetch_block_trades("600519", "20260612", limit=5)
+
+    assert data["symbol"] == "600519"
+    assert data["name"] == "贵州茅台"
+    assert data["rows"][0]["date"] == "2026-06-12"
+    assert data["rows"][0]["price"] == 1227.32
+    assert data["rows"][0]["premium_pct"] == -5.0
+    assert data["rows"][0]["buyer"] == "买方席位"
+
+
 def test_tencent_hk_stock_quote_adds_valuation_fields():
     fields = (
         "100~腾讯控股~00700~466.000~463.600~475.000~5205932.0~0~0~466.000~0~0~0~0~0~0~0~0~0~466.000~0~0~0~0~0~0~0~0~0~"

@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.20] - 2026-06-15
+
+### Added
+- Added `young flow --stock <symbol>` for on-demand A-share/HK/US single-stock daily fund flow from Eastmoney `push2his`, including main/small/mid/big/super-big order net flow.
+- Added `young flow --northbound` for Tonghuashun northbound intraday cumulative flow, avoiding the previously unreliable Eastmoney northbound path.
+- Added `young block-trades <symbol>` for recent A-share block-trade records from Eastmoney datacenter, including deal price, discount/premium, amount, buyer, and seller seats.
+
+### Changed
+- Yahoo-backed upstream data remains excluded from the primary CLI path; Eastmoney `push2his` fund flow is used only for explicit per-stock requests and is labeled as a supplemental source.
+
 ## [0.1.19] - 2026-06-15
 
 ### Added

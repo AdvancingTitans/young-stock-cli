@@ -152,15 +152,35 @@ def zt_pool(date: str | None, refresh: bool) -> None:
     _core.print_zt_analysis(zt, dt, zb)
 
 
-@cli.command(help="Show latest verified A-share fund flow.")
+@cli.command(help="Show market fund flow, northbound flow, or one-stock daily fund flow.")
 @_date_opt
 @_refresh_opt
-def flow(date: str | None, refresh: bool) -> None:
+@click.option("--stock", "symbol", default=None, help="Show one-stock daily fund flow, e.g. 600519, 0700.HK, AAPL.")
+@click.option("--northbound", is_flag=True, help="Show A-share northbound intraday flow from THS.")
+@click.option("--limit", default=20, show_default=True, type=int, help="Rows for --stock daily fund flow.")
+def flow(date: str | None, refresh: bool, symbol: str | None, northbound: bool, limit: int) -> None:
     if refresh:
         _core.NO_CACHE = True
     date_str = date or _core.nearest_trade_date()
-    flow_data = _core.get_fund_flow(date_str, strict_date=False)
-    _core.print_fund_flow(flow_data)
+    if northbound:
+        _core.run_northbound_flow_report(date_str)
+    elif symbol:
+        _core.run_stock_fund_flow_report(symbol, date_str, limit=limit)
+    else:
+        flow_data = _core.get_fund_flow(date_str, strict_date=False)
+        _core.print_fund_flow(flow_data)
+
+
+@cli.command(name="block-trades", help="Show A-share block trade records for one stock.")
+@click.argument("symbol")
+@_date_opt
+@_refresh_opt
+@click.option("--limit", default=10, show_default=True, type=int, help="Maximum records to show.")
+def block_trades(symbol: str, date: str | None, refresh: bool, limit: int) -> None:
+    if refresh:
+        _core.NO_CACHE = True
+    date_str = date or _core.nearest_trade_date()
+    _core.run_block_trades_report(symbol, date_str, limit=limit)
 
 
 @cli.command(help="Show one stock by code, e.g. 600519, 0700.HK, AAPL.")

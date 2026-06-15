@@ -61,7 +61,7 @@ def test_cli_subcommands_registered():
     runner = CliRunner()
     result = runner.invoke(cli, ["--help"])
     for sub in [
-        "a", "hk", "us", "global", "indices", "zt-pool", "flow", "stock", "fund", "news",
+        "a", "hk", "us", "global", "indices", "zt-pool", "flow", "block-trades", "stock", "fund", "news",
         "daily", "profile", "portfolio", "alert", "note", "diary", "diagnose", "guide", "example",
         "cache-clear", "update", "uninstall",
     ]:
@@ -73,7 +73,7 @@ def test_cli_top_level_command_help_is_available():
 
     runner = CliRunner()
     commands = [
-        "a", "hk", "us", "global", "indices", "zt-pool", "flow", "stock", "fund", "news",
+        "a", "hk", "us", "global", "indices", "zt-pool", "flow", "block-trades", "stock", "fund", "news",
         "daily", "profile", "portfolio", "alert", "note", "diary", "diagnose", "guide", "example",
         "cache-clear", "update", "uninstall",
     ]
@@ -166,6 +166,48 @@ def test_cli_news_runs_stock_news(monkeypatch):
 
     assert result.exit_code == 0
     assert calls == [("0700.HK", "20260529", 6)]
+
+
+def test_cli_flow_stock_runs_single_stock_flow(monkeypatch):
+    from click.testing import CliRunner
+
+    calls = []
+    monkeypatch.setattr(cli_module._core, "nearest_trade_date", lambda: "20260529")
+    monkeypatch.setattr(cli_module._core, "run_stock_fund_flow_report", lambda symbol, date_str, limit=20: calls.append((symbol, date_str, limit)))
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["flow", "--stock", "AAPL", "--limit", "3"])
+
+    assert result.exit_code == 0
+    assert calls == [("AAPL", "20260529", 3)]
+
+
+def test_cli_flow_northbound_runs_northbound_flow(monkeypatch):
+    from click.testing import CliRunner
+
+    calls = []
+    monkeypatch.setattr(cli_module._core, "nearest_trade_date", lambda: "20260529")
+    monkeypatch.setattr(cli_module._core, "run_northbound_flow_report", lambda date_str: calls.append(date_str))
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["flow", "--northbound"])
+
+    assert result.exit_code == 0
+    assert calls == ["20260529"]
+
+
+def test_cli_block_trades_runs_report(monkeypatch):
+    from click.testing import CliRunner
+
+    calls = []
+    monkeypatch.setattr(cli_module._core, "nearest_trade_date", lambda: "20260529")
+    monkeypatch.setattr(cli_module._core, "run_block_trades_report", lambda symbol, date_str, limit=10: calls.append((symbol, date_str, limit)))
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["block-trades", "600519", "--limit", "5"])
+
+    assert result.exit_code == 0
+    assert calls == [("600519", "20260529", 5)]
 
 
 def test_cli_hk_no_news(monkeypatch):

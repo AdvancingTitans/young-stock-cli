@@ -99,7 +99,7 @@ The internals are being split into focused modules: `young_stock.calendar` handl
 
 ## What's in the box
 
-- **Multiple public quote sources** — Tencent Finance, Sina Finance, and Eastmoney are tried in sequence so temporary source failures can be filled by another no-login endpoint.
+- **Multiple public quote sources** — Sina Finance and Tencent Finance are the default stable quote path; market-specific public interfaces stay behind the CLI fallback layer when no better source is available.
 - **Single-stock lookup** — `young stock 600519`, `young stock 0700.HK`, or `young stock AAPL` prints a compact quote snapshot with source, trade date, price, change, volume, turnover, market cap, PE/PB, 52-week range when available, and optional news.
 - **Fund holding lookup** — `young fund 161725` prints the fund's same-day estimated change, latest NAV date, top holdings, holding-stock quotes, rough contribution estimate, and same-day holding-stock news. Official fund NAVs usually update at night, so intraday/close values are clearly labeled as estimates.
 - **Personal daily report** — `young daily` reads your local investment memory from `~/.young_stock/profile.json`, then prints saved stock/ETF trends, fund estimates, only the markets relevant to your stocks and fund top holdings, and portfolio-style suggestions grounded in your funds, stocks, holding dates, quantities, and available news. First use requires a verified symbol plus `--buy-date` and `--quantity`, for example `young profile add-stock 600519 --buy-date 2026-01-15 --quantity 100` or `young profile add-fund 161725 --buy-date 2026-01-10 --quantity 1000`.
@@ -118,7 +118,7 @@ The internals are being split into focused modules: `young_stock.calendar` handl
 - **One-stock fund flow** — `young flow --stock 600519`, `young flow --stock 0700.HK`, and `young flow --stock AAPL` show daily main/small/mid/big/super-big order net flow from Eastmoney `push2his`. This is an on-demand supplement, not a replacement for the primary quote path, because the source can occasionally be network/IP rate-limited.
 - **Northbound flow** — `young flow --northbound` uses Tonghuashun `hsgtApi` minute cumulative northbound flow, avoiding the Eastmoney northbound path that stopped being reliable after 2024.
 - **A-share block trades** — `young block-trades 600519` shows recent block-trade records from Eastmoney datacenter, including trade date, deal price, discount/premium, amount, buyer, and seller seats.
-- **News heat ranking** — HK/US focus stocks can be ranked by filtered news heat from multiple no-login sources: Futu, Sina Finance, and Eastmoney fast news. Xueqiu/THS are intentionally not hardwired unless a stable no-login interface is available.
+- **News heat ranking** — HK/US focus stocks can be ranked by filtered news heat from stable no-login sources: Futu and Sina Finance. Xueqiu/THS/Eastmoney news are intentionally not hardwired as default hotness inputs unless a stable public interface is verified.
 - **Same-day news discipline** — news sections only show items published on the requested trading date, up to five items, with a clear empty-state message when nothing valid is available.
 - **Readable news links** — linked news items are checked for obvious empty/404/no-content pages and replaced by other same-day news when possible.
 - **Sector boards via browser fallback** — when Eastmoney's board API rate-limits, falls back to rendering the public web page (optional, requires a local browser engine).
@@ -182,6 +182,6 @@ young a -d 20260530 --refresh    # 指定日期 + 强制刷新
 young update       # 在当前 Python 环境中更新 CLI
 ```
 
-数据来源：同花顺概念资金流页面（仅在同时拿到净流入/净流出榜时采用）、同花顺北向 `hsgtApi`、腾讯财经、新浪财经、东方财富公开行情/快讯/板块榜/个股资金流/大宗交易接口（`data.10jqka.com.cn` / `qt.gtimg.cn` / `hq.sinajs.cn` / `push2his.eastmoney.com` / `push2.eastmoney.com` / `push2ex.eastmoney.com` / `datacenter-web.eastmoney.com` / `np-listapi.eastmoney.com`），多源自动切换。单只股票和基金持仓股会用腾讯财经补充成交额、换手率、市值、PE/PB、52 周高低等字段；价格主口径仍优先使用当前验证更稳的新浪/腾讯/东财链路。Yahoo 相关数据源未内置为主链路；mootdx/iwencai 等需要新增依赖或 API key 的能力暂不并入默认 CLI；东财个股资金流只作为按需补充，并在输出中标注来源。本地缓存 7 天，目录 `~/.young_stock/cache/`，可用 `young cache-clear` 清理。命令会标注当前阶段：上午盘、午间、下午盘或盘后；若展示的是非请求日的最新可用数据，会标注为该交易日盘后数据。普通输出不展示完整度和数据源诊断，排查问题时可设置 `YOUNG_STOCK_DEBUG=1` 查看详细切换记录。
+数据来源：同花顺概念资金流页面（仅在同时拿到净流入/净流出榜时采用）、同花顺北向 `hsgtApi`、腾讯财经、新浪财经，以及 A 股专项能力所需的公开接口（板块榜、涨跌停池、个股资金流、大宗交易、基金估值/持仓等）。单只股票和基金持仓股会用腾讯财经补充成交额、换手率、市值、PE/PB、52 周高低等字段；价格主口径优先使用当前验证更稳的新浪/腾讯链路，东财相关接口仅在缺口补洞或专项命令中按需调用，并在输出中标注来源。Yahoo 相关数据源未内置为主链路；mootdx/iwencai 等需要新增依赖或 API key 的能力暂不并入默认 CLI。本地缓存 7 天，目录 `~/.young_stock/cache/`，可用 `young cache-clear` 清理。命令会标注当前阶段：上午盘、午间、下午盘或盘后；若展示的是非请求日的最新可用数据，会标注为该交易日盘后数据。普通输出不展示完整度和数据源诊断，排查问题时可设置 `YOUNG_STOCK_DEBUG=1` 查看详细切换记录。
 
 适用人群：每天盘后想用一条命令看完五张图的开发者 / 量化研究者 / 自动化爱好者。欢迎 issue / PR。

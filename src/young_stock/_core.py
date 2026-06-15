@@ -2622,7 +2622,7 @@ def combined_news_search(
     aliases: list[str] | None = None,
     date_str: str | None = None,
 ) -> dict[str, Any]:
-    """聚合免登录新闻源，用于热度排序和展示。"""
+    """聚合稳定免登录新闻源，用于热度排序和展示。"""
     per_source_size = max(size, 5)
     sources = [
         futu_news_search(keyword, size=per_source_size, lang=lang),
@@ -2633,7 +2633,6 @@ def combined_news_search(
             aliases=aliases,
         ),
         sina_roll_news(keyword, size=per_source_size, aliases=aliases),
-        eastmoney_fast_news(keyword, size=per_source_size, aliases=aliases),
     ]
     seen: set[str] = set()
     items: list[dict[str, Any]] = []
@@ -2642,7 +2641,7 @@ def combined_news_search(
     for idx, source in enumerate(sources):
         if not source.get("data"):
             continue
-        fallback_name = ("futu_news", "futu_feed", "sina_roll", "eastmoney_fast")[idx]
+        fallback_name = ("futu_news", "futu_feed", "sina_roll")[idx]
         source_name = str(source.get("source") or fallback_name)
         used_sources.append(source_name)
         for item in source.get("data", []):
@@ -3905,7 +3904,7 @@ def run_a_share(date_str: str, include_news: bool = True) -> None:
     display_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
     session = _session_label()
     print(f"# A 股{session}复盘（{display_date}）\n")
-    print(f"数据来源: 东方财富免登录 API | 采集时间: {datetime.now().strftime('%H:%M:%S')}\n")
+    print(f"数据来源: 新浪/腾讯/同花顺优先，A股专项能力按需调用公开接口 | 采集时间: {datetime.now().strftime('%H:%M:%S')}\n")
     print("=" * 60 + "\n")
 
     index_data = get_index(date_str)
@@ -3947,7 +3946,7 @@ def run_us_market(date_str: str, include_news: bool = True) -> None:
     DIAGNOSTICS.clear()
     print("# 美股市场复盘\n")
     print_stage_line(date_str)
-    print(f"数据来源: 新浪财经 + 腾讯财经 + 东方财富，多源自动切换 | 采集时间: {datetime.now().strftime('%H:%M:%S')}\n")
+    print(f"数据来源: 新浪财经 + 腾讯财经，资讯优先富途/新浪 | 采集时间: {datetime.now().strftime('%H:%M:%S')}\n")
     print("=" * 60 + "\n")
 
     us_indices_map = {
@@ -4017,7 +4016,7 @@ def run_hk_market(date_str: str, include_news: bool = True) -> None:
     DIAGNOSTICS.clear()
     print("# 港股市场复盘\n")
     print_stage_line(date_str)
-    print(f"数据来源: 腾讯财经 + 新浪财经 + 东方财富，多源自动切换 | 采集时间: {datetime.now().strftime('%H:%M:%S')}\n")
+    print(f"数据来源: 腾讯财经 + 新浪财经，资讯优先富途/新浪 | 采集时间: {datetime.now().strftime('%H:%M:%S')}\n")
     print("=" * 60 + "\n")
 
     hk_indices_map = {
@@ -4097,7 +4096,7 @@ def run_global_market(date_str: str) -> None:
     DIAGNOSTICS.clear()
     print("# 全球市场概览\n")
     print_stage_line(date_str)
-    print(f"数据来源: 腾讯财经 + 新浪财经 + 东方财富，多源自动切换 | 采集时间: {datetime.now().strftime('%H:%M:%S')}\n")
+    print(f"数据来源: 腾讯财经 + 新浪财经，多源自动切换 | 采集时间: {datetime.now().strftime('%H:%M:%S')}\n")
     print("=" * 60 + "\n")
 
     # 美股

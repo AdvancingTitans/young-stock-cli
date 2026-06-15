@@ -223,6 +223,14 @@ class QuoteData:
     low: float | None = None
     volume: int | None = None
     turnover: float | None = None
+    turnover_rate: float | None = None
+    market_cap: float | None = None
+    float_market_cap: float | None = None
+    pe: float | None = None
+    pb: float | None = None
+    high_52w: float | None = None
+    low_52w: float | None = None
+    amplitude_pct: float | None = None
     currency: str = "USD"
     source: str = ""
     quality_flags: list[str] = field(default_factory=list)
@@ -798,6 +806,19 @@ def _source_date(value: str | None) -> str:
     value = str(value).strip().replace("/", "-")
     m = re.match(r"(\d{4}-\d{2}-\d{2})", value)
     return m.group(1) if m else value
+
+
+def _tencent_source_date(value: str | None, date_str: str) -> str:
+    value = str(value or "").strip()
+    if not value:
+        return _display_date(date_str)
+    if re.match(r"\d{4}/\d{2}/\d{2}", value):
+        return _source_date(value)
+    if re.match(r"\d{4}-\d{2}-\d{2}", value):
+        return _source_date(value)
+    if re.match(r"\d{14}$", value):
+        return f"{value[:4]}-{value[4:6]}-{value[6:8]}"
+    return _display_date(date_str)
 
 
 def session_stage_label(dt: datetime | None = None, *, data_date: str | None = None, requested_date: str | None = None) -> str:
@@ -1471,6 +1492,109 @@ def fetch_us_indices_tencent(symbols_map: dict[str, str], date_str: str) -> list
     return results
 
 
+def _tencent_cn_code(symbol: str) -> str:
+    raw = symbol.upper().replace(".SH", "").replace(".SZ", "").replace(".BJ", "")
+    if raw.startswith(("5", "6", "9")):
+        return f"sh{raw}"
+    if raw.startswith(("4", "8")):
+        return f"bj{raw}"
+    return f"sz{raw}"
+
+
+def _tencent_hk_code(symbol: str) -> str:
+    raw = symbol.upper().replace(".HK", "").lstrip("0") or "0"
+    return f"r_hk{raw.zfill(5)}"
+
+
+def _tencent_us_code(symbol: str) -> str:
+    return f"us{symbol.upper().lstrip('^')}"
+
+
+def _tencent_stock_to_quote(fields: list[str], symbol: str, market: str, date_str: str) -> QuoteData | None:
+    if len(fields) < 45:
+        return None
+    currency = {"cn_market": "CNY", "hk_market": "HKD", "us_market": "USD"}.get(market, "USD")
+    turnover = _safe_float(fields[37] if len(fields) > 37 else None)
+    if market == "cn_market" and turnover is not None:
+        turnover *= 1e4  # A股腾讯字段为万元
+    qd = QuoteData(
+        symbol=symbol,
+        name=str(fields[1] or symbol),
+        market=market,
+        date=_tencent_source_date(fields[30] if len(fields) > 30 else "", date_str),
+        price=_safe_float(fields[3]),
+        prev_close=_safe_float(fields[4]),
+        change=_safe_float(fields[31] if len(fields) > 31 else None),
+        change_pct=_safe_float(fields[32] if len(fields) > 32 else None),
+        open_price=_safe_float(fields[5]),
+        high=_safe_float(fields[33] if len(fields) > 33 else None),
+        low=_safe_float(fields[34] if len(fields) > 34 else None),
+        volume=_safe_int(fields[6]),
+        turnover=turnover,
+        turnover_rate=_safe_float(fields[38] if len(fields) > 38 else None),
+        market_cap=_safe_float(fields[44] if len(fields) > 44 else None),
+        float_market_cap=_safe_float(fields[45] if len(fields) > 45 else None),
+        pe=_safe_float(fields[39] if len(fields) > 39 else None),
+        high_52w=_safe_float(fields[48] if len(fields) > 48 else None),
+        low_52w=_safe_float(fields[49] if len(fields) > 49 else None),
+        amplitude_pct=_safe_float(fields[43] if len(fields) > 43 else None),
+        currency=currency,
+        source="tencent",
+    )
+    if market == "cn_market":
+        qd.pb = _safe_float(fields[46] if len(fields) > 46 else None)
+        qd.high_52w = _safe_float(fields[47] if len(fields) > 47 else None)
+        qd.low_52w = _safe_float(fields[48] if len(fields) > 48 else None)
+    elif market == "hk_market":
+        # 港股腾讯字段 58 为 PB；56/57 可能随标的含义变化，不作为 PB。
+        qd.pb = _safe_float(fields[58] if len(fields) > 58 else None)
+        if qd.turnover_rate == 0:
+            qd.turnover_rate = None
+    return validate_quote(qd)
+
+
+def fetch_cn_stocks_tencent(symbols: list[str], date_str: str) -> list[QuoteData]:
+    raw_map = _parse_tencent_batch(fetch_tencent_batch([_tencent_cn_code(s) for s in symbols]))
+    results: list[QuoteData] = []
+    for sym in symbols:
+        fields = raw_map.get(_tencent_cn_code(sym))
+        if not fields:
+            diag(f"Tencent missing A-share: {sym}")
+            continue
+        qd = _tencent_stock_to_quote(fields, sym, "cn_market", date_str)
+        if qd:
+            results.append(qd)
+    return results
+
+
+def fetch_hk_stocks_tencent(symbols: list[str], date_str: str) -> list[QuoteData]:
+    raw_map = _parse_tencent_batch(fetch_tencent_batch([_tencent_hk_code(s) for s in symbols]))
+    results: list[QuoteData] = []
+    for sym in symbols:
+        fields = raw_map.get(_tencent_hk_code(sym))
+        if not fields:
+            diag(f"Tencent missing HK: {sym}")
+            continue
+        qd = _tencent_stock_to_quote(fields, sym, "hk_market", date_str)
+        if qd:
+            results.append(qd)
+    return results
+
+
+def fetch_us_stocks_tencent(symbols: list[str], date_str: str) -> list[QuoteData]:
+    raw_map = _parse_tencent_batch(fetch_tencent_batch([_tencent_us_code(s) for s in symbols]))
+    results: list[QuoteData] = []
+    for sym in symbols:
+        fields = raw_map.get(_tencent_us_code(sym))
+        if not fields:
+            diag(f"Tencent missing US: {sym}")
+            continue
+        qd = _tencent_stock_to_quote(fields, sym, "us_market", date_str)
+        if qd:
+            results.append(qd)
+    return results
+
+
 def _fetch_a_indices_tencent() -> list[dict[str, Any]]:
     raw_map = _parse_tencent_batch(fetch_tencent_batch(list(TENCENT_A_INDEX_MAP.keys())))
     result = []
@@ -1496,6 +1620,41 @@ def merge_quotes_by_symbol(primary: list[QuoteData], fallback: list[QuoteData], 
     lookup: dict[str, QuoteData] = {q.symbol.upper(): q for q in fallback}
     lookup.update({q.symbol.upper(): q for q in primary})
     return [lookup[s.upper()] for s in order if s.upper() in lookup]
+
+
+def enrich_quotes_by_symbol(primary: list[QuoteData], supplemental: list[QuoteData], order: list[str]) -> list[QuoteData]:
+    """保留主源价格口径，用补充源填充成交额、估值、市值等扩展字段。"""
+    fallback = {q.symbol.upper(): q for q in supplemental}
+    primary_lookup = {q.symbol.upper(): q for q in primary}
+    enriched: list[QuoteData] = []
+    enrich_fields = (
+        "turnover",
+        "turnover_rate",
+        "market_cap",
+        "float_market_cap",
+        "pe",
+        "pb",
+        "high_52w",
+        "low_52w",
+        "amplitude_pct",
+    )
+    for sym in order:
+        key = sym.upper()
+        qd = primary_lookup.get(key) or fallback.get(key)
+        if not qd:
+            continue
+        extra = fallback.get(key)
+        if extra and qd is not extra:
+            changed = False
+            for field_name in enrich_fields:
+                if getattr(qd, field_name, None) is None and getattr(extra, field_name, None) is not None:
+                    setattr(qd, field_name, getattr(extra, field_name))
+                    changed = True
+            if changed:
+                qd.notes.append("腾讯财经补充成交额/估值字段")
+                validate_quote(qd)
+        enriched.append(qd)
+    return enriched
 
 
 def _has_all_quotes(quotes: list[QuoteData], order: list[str]) -> bool:
@@ -2586,6 +2745,21 @@ def print_global_stock(qd: QuoteData) -> None:
     if any(f in qd.quality_flags for f in ["volume_zero", "volume_anomaly"]):
         vol_str += " *"
     print(f"  成交量: {vol_str}")
+    if qd.turnover is not None:
+        print(f"  成交额: {fmt_amount(qd.turnover)}")
+    if qd.turnover_rate is not None and qd.turnover_rate > 0:
+        print(f"  换手率: {fmt_pct(qd.turnover_rate)}")
+    if qd.market_cap is not None:
+        print(f"  总市值: {fmt_amount(qd.market_cap * 1e8)}")
+    valuation = []
+    if qd.pe is not None and qd.pe > 0:
+        valuation.append(f"PE {qd.pe:.2f}")
+    if qd.pb is not None and qd.pb > 0:
+        valuation.append(f"PB {qd.pb:.2f}")
+    if valuation:
+        print(f"  估值:   {' | '.join(valuation)}")
+    if qd.high_52w is not None or qd.low_52w is not None:
+        print(f"  52周:   {fmt_price(qd.low_52w)} - {fmt_price(qd.high_52w)}")
     print(f"  货币:   {qd.currency}")
     if qd.change is not None and qd.change_pct is not None:
         print(f"  涨跌:   {qd.change:+.2f} ({qd.change_pct:+.2f}%)")
@@ -2819,6 +2993,10 @@ def fetch_fund_holding_quotes(holdings: list[dict[str, Any]], date_str: str) -> 
     if not codes:
         return {}
     quotes = fetch_cn_stocks_sina(codes, date_str)
+    tencent_quotes = fetch_cn_stocks_tencent(codes, date_str)
+    if not _has_all_quotes(quotes, codes):
+        quotes = merge_quotes_by_symbol(quotes, tencent_quotes, codes)
+    quotes = enrich_quotes_by_symbol(quotes, tencent_quotes, codes)
     if not _has_all_quotes(quotes, codes):
         quotes = merge_quotes_by_symbol(quotes, fetch_cn_stocks_direct(codes, date_str), codes)
     return {q.symbol: q for q in quotes if _is_usable_quote(q)}
@@ -2833,16 +3011,28 @@ def get_single_stock_quote(symbol: str, date_str: str) -> QuoteData | None:
     quotes: list[QuoteData] = []
     if market == "cn_market":
         quotes = fetch_cn_stocks_sina([normalized], date_str)
+        tencent_quotes = fetch_cn_stocks_tencent([normalized], date_str)
+        if not _has_all_quotes(quotes, [normalized]):
+            quotes = merge_quotes_by_symbol(quotes, tencent_quotes, [normalized])
+        quotes = enrich_quotes_by_symbol(quotes, tencent_quotes, [normalized])
         if not _has_all_quotes(quotes, [normalized]):
             quotes = merge_quotes_by_symbol(quotes, fetch_cn_stocks_direct([normalized], date_str), [normalized])
     elif market == "hk_market":
         quotes = fetch_hk_stocks_sina([normalized], date_str)
+        tencent_quotes = fetch_hk_stocks_tencent([normalized], date_str)
+        if not _has_all_quotes(quotes, [normalized]):
+            quotes = merge_quotes_by_symbol(quotes, tencent_quotes, [normalized])
+        quotes = enrich_quotes_by_symbol(quotes, tencent_quotes, [normalized])
         if not _has_all_quotes(quotes, [normalized]):
             quotes = merge_quotes_by_symbol(quotes, fetch_hk_stocks_direct([normalized], date_str), [normalized])
         if not _has_all_quotes(quotes, [normalized]):
             quotes = merge_quotes_by_symbol(quotes, fetch_em_stocks([normalized], date_str, EM_FS["hk_stock"]), [normalized])
     elif market == "us_market":
         quotes = fetch_us_stocks_sina([normalized], date_str)
+        tencent_quotes = fetch_us_stocks_tencent([normalized], date_str)
+        if not _has_all_quotes(quotes, [normalized]):
+            quotes = merge_quotes_by_symbol(quotes, tencent_quotes, [normalized])
+        quotes = enrich_quotes_by_symbol(quotes, tencent_quotes, [normalized])
         if not _has_all_quotes(quotes, [normalized]):
             quotes = merge_quotes_by_symbol(quotes, fetch_us_stocks_direct([normalized], date_str), [normalized])
         if not _has_all_quotes(quotes, [normalized]):
@@ -2881,6 +3071,19 @@ def print_single_stock_report(qd: QuoteData, requested_date: str) -> None:
     if qd.turnover is not None:
         print(f"  成交额: {fmt_amount(qd.turnover)}")
     print(f"  成交量: {fmt_volume(qd.volume)}")
+    if qd.turnover_rate is not None and qd.turnover_rate > 0:
+        print(f"  换手率: {fmt_pct(qd.turnover_rate)}")
+    if qd.market_cap is not None:
+        print(f"  总市值: {fmt_amount(qd.market_cap * 1e8)}")
+    valuation = []
+    if qd.pe is not None and qd.pe > 0:
+        valuation.append(f"PE {qd.pe:.2f}")
+    if qd.pb is not None and qd.pb > 0:
+        valuation.append(f"PB {qd.pb:.2f}")
+    if valuation:
+        print(f"  估值:   {' | '.join(valuation)}")
+    if qd.high_52w is not None or qd.low_52w is not None:
+        print(f"  52周:   {fmt_price(qd.low_52w)} - {fmt_price(qd.high_52w)}")
     if qd.notes:
         print(f"  提醒:   {'；'.join(qd.notes)}")
     print()
@@ -3372,6 +3575,10 @@ def run_us_market(date_str: str, include_news: bool = True) -> None:
         hot_stocks = list(dict.fromkeys([*ranked_news, *default_hot_stocks]))[:5]
     print("## 重点个股行情\n")
     stocks = fetch_us_stocks_sina(hot_stocks, date_str)
+    tencent_stocks = fetch_us_stocks_tencent(hot_stocks, date_str)
+    if not _has_all_quotes(stocks, hot_stocks):
+        stocks = merge_quotes_by_symbol(stocks, tencent_stocks, hot_stocks)
+    stocks = enrich_quotes_by_symbol(stocks, tencent_stocks, hot_stocks)
     if not _has_all_quotes(stocks, hot_stocks):
         stocks = merge_quotes_by_symbol(stocks, fetch_us_stocks_direct(hot_stocks, date_str), hot_stocks)
     if not _has_all_quotes(stocks, hot_stocks):
@@ -3448,6 +3655,10 @@ def run_hk_market(date_str: str, include_news: bool = True) -> None:
         hot_stocks = list(dict.fromkeys([*ranked_news, *default_hot_stocks]))[:5]
     print("## 重点个股行情\n")
     stocks = fetch_hk_stocks_sina(hot_stocks, date_str)
+    tencent_stocks = fetch_hk_stocks_tencent(hot_stocks, date_str)
+    if not _has_all_quotes(stocks, hot_stocks):
+        stocks = merge_quotes_by_symbol(stocks, tencent_stocks, hot_stocks)
+    stocks = enrich_quotes_by_symbol(stocks, tencent_stocks, hot_stocks)
     if not _has_all_quotes(stocks, hot_stocks):
         stocks = merge_quotes_by_symbol(stocks, fetch_hk_stocks_direct(hot_stocks, date_str), hot_stocks)
     if not _has_all_quotes(stocks, hot_stocks):

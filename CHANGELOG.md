@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.19] - 2026-06-15
+
+### Added
+- Added Tencent Finance stock quotes as a verified enrichment source for A-share, Hong Kong, and US single-stock snapshots, market focus-stock sections, and fund holding quotes.
+- Single-stock output now shows turnover, turnover rate when available, market cap, PE/PB, and 52-week range when a validated no-login source provides those fields.
+
+### Changed
+- Sina Finance remains the primary quote path for HK/US focus stocks, while Tencent now supplements missing valuation/liquidity fields before Eastmoney `stock/get`/`clist` fallback is used.
+
 ## [0.1.18] - 2026-06-14
 
 ### Fixed

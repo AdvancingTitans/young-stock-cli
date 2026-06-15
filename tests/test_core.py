@@ -100,6 +100,7 @@ def test_get_single_stock_quote_uses_hk_fallback_chain(monkeypatch):
     monkeypatch.setattr(_core, "cache_load", lambda *args, **kwargs: None)
     monkeypatch.setattr(_core, "cache_save", lambda *args, **kwargs: None)
     monkeypatch.setattr(_core, "fetch_hk_stocks_sina", lambda symbols, date: [])
+    monkeypatch.setattr(_core, "fetch_hk_stocks_tencent", lambda symbols, date: [])
 
     fallback = _core.QuoteData(
         symbol="0700.HK",
@@ -124,6 +125,59 @@ def test_get_single_stock_quote_uses_hk_fallback_chain(monkeypatch):
     assert qd.symbol == "0700.HK"
     assert qd.name == "腾讯控股"
     assert qd.source == "eastmoney_stock_get"
+
+
+def test_tencent_hk_stock_quote_adds_valuation_fields():
+    fields = (
+        "100~腾讯控股~00700~466.000~463.600~475.000~5205932.0~0~0~466.000~0~0~0~0~0~0~0~0~0~466.000~0~0~0~0~0~0~0~0~0~"
+        "5205932.0~2026/06/15 09:51:44~2.400~0.52~476.800~465.600~466.000~5205932.0~2452275137.198~0~17.05~~0~0~2.42~"
+        "42443.4358~42443.4358~TENCENT~1.14~677.700~420.400~2.67~9.09~0~0~0~0~0~15.94~3.35~0.06~100~-21.51~4.39~"
+        "GP~20.59~11.53~6.88~2.10~-15.76~9108033432.00~9108033432.00~16.13~5.306~471.054~-27.15~HKD~1~30"
+    ).split("~")
+
+    qd = _core._tencent_stock_to_quote(fields, "0700.HK", "hk_market", "20260615")
+
+    assert qd is not None
+    assert qd.name == "腾讯控股"
+    assert qd.date == "2026-06-15"
+    assert qd.turnover == 2452275137.198
+    assert qd.market_cap == 42443.4358
+    assert qd.pe == 17.05
+    assert qd.pb == 3.35
+    assert qd.high_52w == 677.7
+    assert qd.low_52w == 420.4
+
+
+def test_enrich_quotes_by_symbol_keeps_primary_source_and_adds_details():
+    primary = _core.QuoteData(
+        symbol="AAPL",
+        name="Apple",
+        market="us_market",
+        date="2026-06-12",
+        price=291.13,
+        source="sina",
+        completeness=100,
+    )
+    extra = _core.QuoteData(
+        symbol="AAPL",
+        name="Apple",
+        market="us_market",
+        date="2026-06-12",
+        price=291.13,
+        turnover=11308608965,
+        market_cap=42759.29952,
+        pe=35.25,
+        source="tencent",
+        completeness=100,
+    )
+
+    result = _core.enrich_quotes_by_symbol([primary], [extra], ["AAPL"])
+
+    assert result[0].source == "sina"
+    assert result[0].turnover == 11308608965
+    assert result[0].market_cap == 42759.29952
+    assert result[0].pe == 35.25
+    assert any("腾讯财经补充" in note for note in result[0].notes)
 
 
 def test_fetch_fund_estimate_parses_jsonp(monkeypatch):

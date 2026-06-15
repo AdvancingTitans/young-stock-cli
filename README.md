@@ -31,6 +31,25 @@ Python 3.9+ interpreter:
 python3 -m pip install --upgrade young-stock-cli
 ```
 
+If you installed `young` with `uv tool`, upgrade that tool-managed environment instead of `pip`:
+
+```bash
+uv tool install --upgrade young-stock-cli
+```
+
+If `python3 -m pip install --upgrade young-stock-cli` succeeds but `young --version` still shows an older release,
+you are probably running a different executable entrypoint than the interpreter you just upgraded. A quick check:
+
+```bash
+which -a young
+young --version
+uv tool list
+python3 -m pip show young-stock-cli
+```
+
+If `which young` points to `~/.local/bin/young`, that command is usually coming from `uv tool`, not from the
+`python3 -m pip` environment.
+
 ## Usage
 
 ```bash

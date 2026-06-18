@@ -69,6 +69,22 @@ def test_llm_report_output_removes_engineering_language():
     ):
         assert forbidden not in markdown
     assert "本模块证据暂缺" in markdown
-    assert "科创板与创业板活跃样本 14 家" in markdown
+    assert "科创板与创业板活跃样本数为 14 家" in markdown
     assert "相关指标以已披露口径为准" in markdown
     assert "备用路径" not in markdown
+
+
+def test_llm_methodology_context_is_research_only():
+    client = RecordingClient("# 复盘\n\n据公开市场数据，市场震荡。")
+
+    generate_llm_daily_report(
+        {"modules": {}, "_meta": {}},
+        client,
+        methodology="报告固定顺序。\nfallback 写入 evidence。\n运行 tools/a.py 脚本采集。",
+    )
+
+    system_text = "\n".join(message["content"] for message in client.messages if message["role"] == "system")
+    assert "报告固定顺序" in system_text
+    assert "fallback" not in system_text
+    assert "脚本" not in system_text
+    assert ".py" not in system_text

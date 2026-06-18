@@ -3,12 +3,37 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from .local_store import young_home
+
+
+def market_session(now: datetime | None = None) -> str:
+    now = now or datetime.now()
+    minute = now.hour * 60 + now.minute
+    if 9 * 60 <= minute < 9 * 60 + 30:
+        return "早盘"
+    if 11 * 60 + 30 <= minute < 13 * 60:
+        return "午间"
+    if 9 * 60 + 30 <= minute < 11 * 60 + 30 or 13 * 60 <= minute < 15 * 60:
+        return "盘中"
+    return "盘后"
+
+
+@dataclass(frozen=True)
+class ReportIdentity:
+    trade_date: str
+    session: str
+    topic: str
+
+    @property
+    def prefix(self) -> str:
+        safe_topic = "".join(character for character in self.topic if character.isalnum() or character in "-_")
+        return f"{self.trade_date}-{self.session}-{safe_topic}"
 
 
 @dataclass
@@ -36,6 +61,9 @@ class ReportArtifacts:
         path.write_text(content.rstrip() + "\n", encoding="utf-8")
         return path
 
+    def write_report_markdown(self, identity: ReportIdentity, content: str) -> Path:
+        return self.write_markdown(identity.prefix, content)
+
     def write_json(self, name: str, data: dict[str, Any]) -> Path:
         path = self.path(name, "json")
         path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -48,6 +76,13 @@ class ReportArtifacts:
             candidates = list((reports / trade_date).glob("*.md"))
         else:
             candidates = list(reports.glob("*/*.md"))
+        identified = [
+            path
+            for path in candidates
+            if re.match(r"^\d{8}-(?:早盘|盘中|午间|盘后)-.+\.md$", path.name)
+        ]
+        if identified:
+            candidates = identified
         return max(candidates, key=lambda path: path.stat().st_mtime) if candidates else None
 
     @classmethod

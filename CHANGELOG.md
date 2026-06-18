@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.3] - 2026-06-18
+
+### Added
+- Added a mandatory research-style boundary that converts internal evidence and stock-analysis methodology into publication-safe investment language before LLM synthesis.
+- Added a second report review pass that removes Markdown-wrapped internal fields, technical terms, local locations, and implementation filenames before persistence.
+- Added shared board and fund-flow routing for `young a` and LLM evidence, including optional Camofox and Playwright page retrieval after public data endpoints.
+- Added date/session/topic report identities such as `20260618-盘后-A股深度复盘.md`.
+
+### Changed
+- Reports generated in the same trading date, session, and topic now overwrite the prior artifact; reports from other sessions remain available.
+- Markdown, HTML, PDF, Evidence, and metadata now share the date/session/topic identity.
+- Legacy generic report files no longer take precedence once a session-aware report exists.
+- LLM auth failures now surface the provider response message and a concrete Ark model-discovery hint without exposing secrets.
+
 ## [0.2.2] - 2026-06-18
 
 ### Fixed

@@ -13,7 +13,7 @@ from importlib import resources
 from pathlib import Path
 from typing import Any, Callable
 
-from .artifacts import ReportArtifacts
+from .artifacts import ReportArtifacts, ReportIdentity, market_session
 from .local_store import load_store
 
 
@@ -159,7 +159,8 @@ def export_report_pdf(
             markdown = _capture_daily(core, trade_date, profile)
         else:
             raise ValueError("没有可用报告；请先运行 `young daily` 或提供日报生成器。")
-        markdown_path = artifacts.write_markdown("daily", markdown)
+        identity = ReportIdentity(trade_date, market_session(), "A股投资日报")
+        markdown_path = artifacts.write_report_markdown(identity, markdown)
     markdown = markdown_path.read_text(encoding="utf-8")
     body = markdown_to_html(markdown)
     title_match = re.search(r"^#\s+(.+)$", markdown, flags=re.MULTILINE)
@@ -170,8 +171,9 @@ def export_report_pdf(
         .replace("{{DATE}}", trade_date)
         .replace("{{BODY}}", body)
     )
-    html_path = artifacts.path("report", "html")
+    output_name = markdown_path.stem
+    html_path = artifacts.path(output_name, "html")
     html_path.write_text(document, encoding="utf-8")
-    pdf_path = artifacts.path("report", "pdf")
+    pdf_path = artifacts.path(output_name, "pdf")
     (render or _default_render)(html_path, pdf_path)
     return markdown_path, pdf_path

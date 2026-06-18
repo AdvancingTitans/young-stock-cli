@@ -92,6 +92,7 @@ class LLMClient:
     def _post(self, url: str, **kwargs: Any) -> Any:
         timeout = float(self.config.get("timeout") or 60)
         last_error: Exception | None = None
+        provider = str(self.config.get("provider") or "").lower()
         for attempt in range(3):
             try:
                 response = self.session.post(url, timeout=timeout, **kwargs)
@@ -105,7 +106,8 @@ class LLMClient:
                 time.sleep(0.2 * (attempt + 1))
                 continue
             if response.status_code in {401, 403}:
-                raise LLMError("LLM 认证失败，请检查 API key 和 provider 配置。")
+                detail = self._error_detail(response)
+                raise LLMError(self._auth_error_message("LLM", provider, detail))
             if response.status_code >= 400:
                 raise LLMError(f"LLM 请求失败（HTTP {response.status_code}）")
             return response
@@ -113,15 +115,47 @@ class LLMClient:
 
     def _get(self, url: str, **kwargs: Any) -> Any:
         timeout = float(self.config.get("timeout") or 60)
+        provider = str(self.config.get("provider") or "").lower()
         try:
             response = self.session.get(url, timeout=timeout, **kwargs)
         except requests.RequestException as exc:
             raise LLMError(f"模型列表请求失败: {exc.__class__.__name__}") from exc
         if response.status_code in {401, 403}:
-            raise LLMError("模型列表认证失败，请检查 API key、provider 和 api_base。")
+            detail = self._error_detail(response)
+            raise LLMError(self._auth_error_message("模型列表", provider, detail))
         if response.status_code >= 400:
             raise LLMError(f"模型列表请求失败（HTTP {response.status_code}）")
         return response
+
+    def _error_detail(self, response: Any) -> str:
+        try:
+            payload = response.json()
+        except Exception:
+            payload = None
+        if isinstance(payload, dict):
+            error = payload.get("error")
+            if isinstance(error, dict):
+                message = error.get("message") or error.get("type") or error.get("code")
+                if message:
+                    return str(message)
+            message = payload.get("message") or payload.get("detail") or payload.get("error_description")
+            if message:
+                return str(message)
+        text = str(getattr(response, "text", "") or "").strip()
+        return text[:160]
+
+    def _auth_error_message(self, surface: str, provider: str, detail: str) -> str:
+        message = f"{surface}认证失败，请检查 API key、provider 和 api_base。"
+        normalized = detail.strip()
+        if normalized:
+            message = f"{message} 服务端提示：{normalized}"
+        if provider in {"ark", "openai"}:
+            message = (
+                f"{message} 如使用 Ark，建议先运行 "
+                "`young config models --provider ark --api-key-env ARK_API_KEY` "
+                "或用 README 中的 curl 示例核对可用模型 ID。"
+            )
+        return message
 
     def _openai_compatible(
         self,

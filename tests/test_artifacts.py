@@ -1,6 +1,7 @@
 import json
+from datetime import datetime
 
-from young_stock.artifacts import ReportArtifacts
+from young_stock.artifacts import ReportArtifacts, ReportIdentity, market_session
 from young_stock.reports import generate_llm_daily_report
 
 
@@ -42,3 +43,30 @@ def test_generate_llm_daily_report_uses_evidence_and_returns_metadata():
     assert "深度复盘" in markdown
     assert metadata["provider"] == "test"
     assert metadata["usage"]["total_tokens"] == 12
+
+
+def test_market_session_labels():
+    assert market_session(datetime(2026, 6, 18, 9, 10)) == "早盘"
+    assert market_session(datetime(2026, 6, 18, 10, 30)) == "盘中"
+    assert market_session(datetime(2026, 6, 18, 12, 0)) == "午间"
+    assert market_session(datetime(2026, 6, 18, 15, 10)) == "盘后"
+
+
+def test_report_identity_uses_date_session_and_topic():
+    identity = ReportIdentity("20260618", "盘后", "A股深度复盘")
+    assert identity.prefix == "20260618-盘后-A股深度复盘"
+
+
+def test_same_session_topic_overwrites_and_cross_session_is_retained(monkeypatch, tmp_path):
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
+    artifacts = ReportArtifacts("20260618")
+    after_close = ReportIdentity("20260618", "盘后", "A股深度复盘")
+    midday = ReportIdentity("20260618", "午间", "A股深度复盘")
+
+    first = artifacts.write_report_markdown(after_close, "# old")
+    second = artifacts.write_report_markdown(after_close, "# new")
+    other = artifacts.write_report_markdown(midday, "# midday")
+
+    assert first == second
+    assert second.read_text(encoding="utf-8") == "# new\n"
+    assert other.exists()

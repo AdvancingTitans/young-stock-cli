@@ -149,3 +149,25 @@ def test_missing_configuration_and_auth_errors_are_clear():
         client.chat([{"role": "user", "content": "hi"}])
     assert "super-secret" not in str(exc.value)
     assert "认证" in str(exc.value)
+
+
+def test_auth_error_surfaces_provider_hint_without_leaking_secret():
+    session = FakeSession(
+        [response(401, {"error": {"message": "The API key format is incorrect.", "type": "Unauthorized"}})]
+    )
+    client = LLMClient(
+        {
+            "provider": "ark",
+            "model": "doubao-seed-1-6",
+            "api_key": "ark-secret",
+        },
+        session=session,
+    )
+
+    with pytest.raises(LLMError) as exc:
+        client.list_models()
+
+    text = str(exc.value)
+    assert "API key format is incorrect" in text
+    assert "young config models --provider ark" in text
+    assert "ark-secret" not in text

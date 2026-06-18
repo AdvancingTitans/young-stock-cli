@@ -10,7 +10,7 @@ from datetime import datetime
 import click
 
 from . import __version__, _core
-from .artifacts import ReportArtifacts
+from .artifacts import ReportArtifacts, ReportIdentity, market_session
 from .config import (
     add_feishu_channel,
     config_path,
@@ -279,7 +279,10 @@ def _run_llm_replay(date_str: str, kind: str = "replay", symbol: str | None = No
         else build_daily_evidence(_core, date_str, profile)
     )
     artifacts = ReportArtifacts(date_str)
-    artifacts.write_json("evidence" if not symbol else f"{symbol}-evidence", evidence.to_dict())
+    session = market_session()
+    topic = f"{symbol}深度分析" if symbol else "A股深度复盘"
+    identity = ReportIdentity(date_str, session, topic)
+    artifacts.write_json(f"{identity.prefix}-evidence", evidence.to_dict())
     config = load_config(strict=False).get("llm", {})
     methodology = sync_stock_analysis_methodology()
     try:
@@ -292,9 +295,11 @@ def _run_llm_replay(date_str: str, kind: str = "replay", symbol: str | None = No
         raise click.ClickException(str(exc)) from exc
     metadata["stock_analysis_version"] = methodology.version
     metadata["stock_analysis_updated"] = methodology.updated
-    name = f"analyze-{symbol}" if symbol else kind
-    path = artifacts.write_markdown(name, markdown)
-    artifacts.write_metadata({"kind": name, **metadata})
+    path = artifacts.write_report_markdown(identity, markdown)
+    artifacts.write_json(
+        f"{identity.prefix}-metadata",
+        {"kind": kind, "session": session, "topic": topic, **metadata},
+    )
     from rich.console import Console
     from rich.markdown import Markdown
 

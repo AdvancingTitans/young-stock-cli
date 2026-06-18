@@ -26,7 +26,7 @@ def test_export_report_uses_existing_markdown(monkeypatch, tmp_path):
 
     assert markdown_path == source
     assert pdf_path.read_bytes().startswith(b"%PDF")
-    assert calls[0][0].name == "report.html"
+    assert calls[0][0].name == "replay.html"
 
 
 def test_export_report_auto_generates_daily_markdown(monkeypatch, tmp_path):
@@ -38,7 +38,7 @@ def test_export_report_auto_generates_daily_markdown(monkeypatch, tmp_path):
         render=lambda html, pdf: pdf.write_bytes(b"%PDF-auto"),
     )
 
-    assert markdown_path.name == "daily.md"
+    assert markdown_path.name.endswith("-A股投资日报.md")
     assert "自动日报" in markdown_path.read_text()
     assert pdf_path.exists()
 
@@ -56,7 +56,7 @@ def test_export_report_reuses_saved_diary_text(monkeypatch, tmp_path):
         render=lambda html, pdf: pdf.write_bytes(b"%PDF-diary"),
     )
 
-    assert markdown_path.name == "daily.md"
+    assert markdown_path.name.endswith("-A股投资日报.md")
     assert "Diary report" in markdown_path.read_text()
 
 

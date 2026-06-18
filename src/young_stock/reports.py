@@ -5,6 +5,8 @@ import json
 import re
 from typing import Any
 
+from .research_style import review_research_report, to_research_evidence, to_research_methodology
+
 THEME_KEYWORDS = {
     "科技成长/AI": ("AI", "人工智能", "芯片", "半导体", "算力", "CPO", "光通信", "NVDA", "英伟达", "服务器"),
     "消费品牌": ("白酒", "消费", "茅台", "五粮液", "苹果", "Apple", "品牌"),
@@ -196,15 +198,16 @@ def generate_llm_daily_report(
 ) -> tuple[str, dict[str, Any]]:
     messages = [{"role": "system", "content": LLM_REPORT_SYSTEM_PROMPT}]
     if methodology:
+        research_methodology = to_research_methodology(methodology)
         messages.append(
             {
                 "role": "system",
                 "content": "以下是当前 stock-analysis 研究规范，仅用于报告结构和表达纪律：\n"
-                + methodology,
+                + research_methodology,
             }
         )
     messages.extend((history or [])[-10:])
-    report_context = _research_context(evidence)
+    report_context = to_research_evidence(evidence)
     messages.append(
         {
             "role": "user",
@@ -221,7 +224,7 @@ def generate_llm_daily_report(
         "quality_score": evidence.get("_meta", {}).get("quality_score"),
         "missing_modules": evidence.get("_meta", {}).get("missing_modules", []),
     }
-    return _sanitize_report_markdown(response.content), metadata
+    return review_research_report(response.content, evidence), metadata
 
 
 def _daily_watchlist_items(watchlist: dict[str, list[str]] | None, key: str) -> list[str]:

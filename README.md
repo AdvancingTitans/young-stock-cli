@@ -234,6 +234,27 @@ checks. Markdown, metadata, and `evidence.json` are retained under:
 ~/.young_stock/reports/YYYYMMDD/
 ```
 
+Before the model sees any data, young converts internal evidence into research-only Chinese terminology. The same
+conversion is applied to the downloaded stock-analysis methodology, so implementation guidance never enters the
+report-writing context. The returned Markdown is reviewed again before it can be saved or exported. Formal reports
+use only these source phrases:
+
+- normal data: `据公开市场数据`, `据交易所及财经终端披露`
+- missing data: `该指标当日未披露`, `历史数据不可得`, `本模块证据暂缺`
+- historical lookback: `按惯例回溯至该日`, `历史口径回溯`
+
+Report artifacts include the date, market session, and topic:
+
+```text
+20260618-早盘-A股深度复盘.md
+20260618-盘中-A股深度复盘.md
+20260618-盘后-A股深度复盘.md
+20260618-盘后-600519深度分析.md
+```
+
+Generating the same topic again in the same session replaces the previous artifact. A report from another session
+is retained.
+
 ### Professional PDF reports
 
 Install the optional renderer:

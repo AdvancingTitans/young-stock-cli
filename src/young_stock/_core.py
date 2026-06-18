@@ -36,6 +36,7 @@ from typing import Any
 
 from .calendar import nearest_trade_date as calendar_nearest_trade_date
 from .health import SourceHealthBook
+from .market_routes import route_board_data
 
 # ------------------------------------------------------------------
 # 配置
@@ -714,6 +715,32 @@ def fetch_ths_concept_money_flow_snapshot(date_str: str) -> dict[str, str]:
         result["_date_note"] = "latest_available"
     cache_save("fund_flow", date_str, "ths", result)
     return result
+
+
+def fetch_browser_fund_flow_snapshot(date_str: str) -> dict[str, str]:
+    raw = _playwright_html(THS_CONCEPT_MONEY_FLOW_URL)
+    if not raw:
+        return {}
+    rows = _parse_ths_money_flow_table(raw)
+    top_in_rows = sorted(
+        [row for row in rows if float(row.get("net") or 0) > 0],
+        key=lambda item: float(item.get("net") or 0),
+        reverse=True,
+    )[:5]
+    top_out_rows = sorted(
+        [row for row in rows if float(row.get("net") or 0) < 0],
+        key=lambda item: float(item.get("net") or 0),
+    )[:5]
+    if not top_in_rows or not top_out_rows:
+        return {}
+    return {
+        "date": _display_date(nearest_trade_date()),
+        "_source": "公开财经页面概念资金流",
+        "_scope": "A股",
+        "_fallback_indicator": "concept_money_flow",
+        "_concept_in": json.dumps(top_in_rows, ensure_ascii=False),
+        "_concept_out": json.dumps(top_out_rows, ensure_ascii=False),
+    }
 
 
 def _market_activity_snapshot(rows: list[dict[str, Any]], source: str, date_str: str) -> dict[str, str]:
@@ -1995,8 +2022,15 @@ def get_fund_flow(date_str: str, *, strict_date: bool = True) -> dict[str, str]:
         latest_result["_date_note"] = "latest_available"
         cache_save("fund_flow", date_str, "eastmoney", latest_result)
         return latest_result
-    for fallback in (fetch_sina_sector_money_flow_snapshot, fetch_sina_market_activity_snapshot, fetch_tencent_market_activity_snapshot):
-        activity = fallback(date_str)
+    for online_reference in (fetch_sina_sector_money_flow_snapshot,):
+        activity = online_reference(date_str)
+        if activity:
+            return activity
+    browser_flow = fetch_browser_fund_flow_snapshot(date_str)
+    if browser_flow:
+        return browser_flow
+    for market_reference in (fetch_sina_market_activity_snapshot, fetch_tencent_market_activity_snapshot):
+        activity = market_reference(date_str)
         if activity:
             return activity
     cached_latest = load_latest_fund_flow_cache(date_str)
@@ -2171,13 +2205,15 @@ def fetch_eastmoney_board_list(board_type: str, date_str: str, limit: int = 100)
 
 def get_board_list(board_type: str, date_str: str, limit: int = 100) -> dict[str, Any]:
     """Return board rankings through the stock-analysis source order."""
-    result = fetch_eastmoney_board_list(board_type, date_str, limit=limit)
-    if result.get("rows"):
-        return result
-    browser_result = camofox_board_list(board_type)
-    if browser_result.get("rows"):
-        return browser_result
-    return result
+    return route_board_data(
+        board_type,
+        date_str,
+        direct=fetch_eastmoney_board_list,
+        camofox=camofox_board_list,
+        playwright=playwright_board_list,
+        limit=limit,
+        current_trade_date=nearest_trade_date(),
+    )
 
 
 @retry_on_recoverable(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
@@ -2749,6 +2785,36 @@ def _parse_camofox_board_snapshot(markdown: str) -> list[dict[str, Any]]:
             }
         )
     return rows
+
+
+def _playwright_html(url: str) -> str:
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        return ""
+    try:
+        with sync_playwright() as runtime:
+            browser = runtime.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(url, wait_until="networkidle", timeout=20_000)
+            content = page.content()
+            browser.close()
+            return content
+    except Exception as exc:
+        diag(f"Browser page unavailable: {exc}")
+        return ""
+
+
+def playwright_board_list(board_type: str = "industry") -> dict[str, Any]:
+    anchor = "industry_board" if board_type == "industry" else "concept_board"
+    html_text = _playwright_html(f"https://quote.eastmoney.com/center/gridlist.html#{anchor}")
+    if not html_text:
+        return {"board_type": board_type, "rows": [], "_unavailable": "browser unavailable"}
+    text = re.sub(r"<[^>]+>", "  ", html.unescape(html_text))
+    rows = _parse_camofox_board_snapshot(
+        "\n".join(f'row "{line.strip()}"' for line in text.splitlines() if re.match(r"^\s*\d+\s+", line))
+    )
+    return {"board_type": board_type, "rows": rows, "count": len(rows), "_source": "公开财经页面"}
 
 
 def camofox_board_list(board_type: str = "industry") -> dict[str, Any]:

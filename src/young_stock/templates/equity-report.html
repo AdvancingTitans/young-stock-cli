@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>{{TITLE}}</title>
+  <meta name="generator" content="young-stock-cli · Kami-compatible Equity Report">
+  <style>
+    @page {
+      size: A4;
+      margin: 16mm 18mm 18mm;
+      background: #f5f4ed;
+      @bottom-center {
+        content: counter(page) " · {{DATE}}";
+        color: #6b6a64;
+        font-size: 9pt;
+      }
+    }
+    :root {
+      --parchment: #f5f4ed;
+      --ivory: #faf9f5;
+      --ink: #141413;
+      --muted: #6b6a64;
+      --brand: #1B365D;
+      --border: #dedcd2;
+      --serif: "Source Han Serif SC", "Noto Serif CJK SC", "Songti SC", "STSong", Georgia, serif;
+    }
+    * { box-sizing: border-box; }
+    html, body { background: var(--parchment); }
+    body {
+      color: var(--ink);
+      font-family: var(--serif);
+      font-size: 10pt;
+      line-height: 1.5;
+      letter-spacing: .2pt;
+      margin: 0;
+    }
+    header {
+      border-left: 3pt solid var(--brand);
+      padding-left: 10pt;
+      margin-bottom: 14pt;
+    }
+    .eyebrow { color: var(--brand); font-size: 9pt; letter-spacing: 1pt; }
+    header h1 { font-size: 24pt; margin: 2pt 0; line-height: 1.15; }
+    .date { color: var(--muted); }
+    main h1 { display: none; }
+    h2 { font-size: 16pt; margin: 18pt 0 6pt; break-after: avoid; }
+    h3 { font-size: 13pt; color: #3d3d3a; margin: 12pt 0 4pt; break-after: avoid; }
+    p { margin: 0 0 8pt; }
+    ul { margin: 4pt 0 9pt; padding-left: 18pt; }
+    li::marker, .highlight { color: var(--brand); }
+    blockquote {
+      background: var(--ivory);
+      border-left: 2pt solid var(--brand);
+      margin: 10pt 0;
+      padding: 8pt 12pt;
+    }
+    table { width: 100%; border-collapse: collapse; margin: 8pt 0; font-size: 9pt; break-inside: avoid; }
+    th { color: #3d3d3a; text-align: left; border-bottom: 1pt solid var(--brand); padding: 4pt 6pt; }
+    td { border-bottom: .3pt solid var(--border); padding: 4pt 6pt; }
+    code { color: var(--brand); font-family: ui-monospace, monospace; font-size: 8.5pt; }
+    footer { margin-top: 18pt; border-top: .5pt solid var(--border); padding-top: 6pt; color: var(--muted); font-size: 8.5pt; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="eyebrow">YOUNG STOCK · EQUITY REPORT</div>
+    <h1>{{TITLE}}</h1>
+    <div class="date">{{DATE}} · Evidence-driven market review</div>
+  </header>
+  <main>{{BODY}}</main>
+  <footer>Kami-compatible editorial layout · 内容仅供复盘参考</footer>
+</body>
+</html>

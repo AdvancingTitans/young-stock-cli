@@ -63,7 +63,7 @@ def test_cli_subcommands_registered():
     for sub in [
         "a", "hk", "us", "global", "indices", "zt-pool", "flow", "block-trades", "stock", "fund", "news",
         "daily", "profile", "portfolio", "alert", "note", "diary", "diagnose", "guide", "example",
-        "cache-clear", "update", "uninstall",
+        "cache-clear", "update", "uninstall", "config", "chat", "replay", "analyze", "report", "send",
     ]:
         assert sub in result.output, f"subcommand `{sub}` missing from help"
 
@@ -75,7 +75,7 @@ def test_cli_top_level_command_help_is_available():
     commands = [
         "a", "hk", "us", "global", "indices", "zt-pool", "flow", "block-trades", "stock", "fund", "news",
         "daily", "profile", "portfolio", "alert", "note", "diary", "diagnose", "guide", "example",
-        "cache-clear", "update", "uninstall",
+        "cache-clear", "update", "uninstall", "config", "chat", "replay", "analyze", "report", "send",
     ]
 
     for command in commands:
@@ -503,3 +503,61 @@ def test_cli_diagnose_json_outputs_machine_readable_support_info(monkeypatch, tm
     assert payload["paths"]["cache"]
     assert payload["read_only"] is True
     assert {source["name"] for source in payload["sources"]} >= {"eastmoney", "sina", "tencent", "ths", "futu"}
+
+
+def test_cli_config_llm_saves_and_masks_secret(monkeypatch, tmp_path):
+    from click.testing import CliRunner
+
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
+    runner = CliRunner()
+
+    saved = runner.invoke(
+        cli,
+        [
+            "config",
+            "llm",
+            "--provider",
+            "deepseek",
+            "--model",
+            "deepseek-chat",
+            "--api-key",
+            "very-secret",
+        ],
+    )
+    shown = runner.invoke(cli, ["config", "show"])
+
+    assert saved.exit_code == 0
+    assert "very-secret" not in saved.output
+    assert "very-secret" not in shown.output
+    assert "deepseek-chat" in shown.output
+
+
+def test_cli_daily_llm_uses_enhanced_path(monkeypatch, tmp_path):
+    from click.testing import CliRunner
+
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
+    monkeypatch.setenv("YOUNG_STOCK_PROFILE", str(tmp_path / "profile.json"))
+    monkeypatch.setattr(cli_module._core, "nearest_trade_date", lambda: "20260618")
+    monkeypatch.setattr(cli_module._core, "cache_clear_old", lambda days: None)
+    monkeypatch.setattr(cli_module, "load_profile", lambda: {"stocks": ["600519"], "funds": []})
+    calls = []
+    monkeypatch.setattr(cli_module, "_run_llm_replay", lambda date_str, kind="replay", symbol=None: calls.append((date_str, kind, symbol)))
+
+    result = CliRunner().invoke(cli, ["daily", "--llm"])
+
+    assert result.exit_code == 0
+    assert calls == [("20260618", "replay", None)]
+
+
+def test_cli_report_and_send_render_friendly_errors(monkeypatch):
+    from click.testing import CliRunner
+
+    monkeypatch.setattr("young_stock.pdf.export_report_pdf", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("pdf missing")))
+    report_result = CliRunner().invoke(cli, ["report", "--date", "20260618"])
+    assert report_result.exit_code != 0
+    assert "pdf missing" in report_result.output
+
+    monkeypatch.setattr("young_stock.channels.send_report", lambda *args, **kwargs: (_ for _ in ()).throw(ValueError("run report first")))
+    send_result = CliRunner().invoke(cli, ["send", "--date", "20260618"])
+    assert send_result.exit_code != 0
+    assert "run report first" in send_result.output

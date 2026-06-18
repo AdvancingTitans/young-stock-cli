@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-06-18
+
+### Added
+- Added versioned LLM and delivery-channel configuration in `~/.young_stock/config.json`, including masked display and environment-based API key lookup.
+- Added OpenAI-compatible providers (OpenAI, DeepSeek, Qwen, Ollama) plus Anthropic message support with timeouts, retries, and safe errors.
+- Added `young chat`, a Rich interactive REPL whose slash commands reuse the existing Click command tree.
+- Added evidence-driven `young replay`, `young daily --llm`, and `young analyze <symbol>` workflows based on the stock-analysis M1-M6 methodology and quality-score degradation.
+- Added persistent report/evidence artifacts under `~/.young_stock/reports/YYYYMMDD/`.
+- Added `young report` with automatic deterministic-report fallback and optional WeasyPrint PDF export using a Kami-compatible Equity Report layout.
+- Added modular `young send` delivery with Feishu webhook preview mode and Feishu App Markdown/PDF attachment mode.
+
+### Changed
+- Extended `young diagnose --json` with non-secret LLM, PDF, report, and configured-channel readiness.
+- Version advanced to 0.2.0 for the new optional AI/reporting surface; all existing commands remain available without LLM or PDF dependencies.
+
 ## [0.1.22] - 2026-06-15
 
 ### Changed

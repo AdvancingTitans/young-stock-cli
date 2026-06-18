@@ -219,10 +219,12 @@ The report follows the six-module method from
 5. M5 market/portfolio style
 6. M6 resilient directions
 
-Before each LLM replay, young checks the remote `stock-analysis` `SKILL.md`. A newer text specification is cached
-under `~/.young_stock/methodologies/stock-analysis/` and used for report structure and writing discipline. Remote
-code is never executed; if the check is unavailable, the most recent cached specification or the bundled 4.2.0
-guidance is used.
+Before each LLM replay, young checks the remote `stock-analysis` version. It installs a text-only update only when
+the remote semantic version is greater than the locally cached/bundled version. `SKILL.md`, output discipline,
+data-source strategy, M1-M6 methodology files, and report templates are downloaded together, SHA-256 recorded in
+`~/.young_stock/methodologies/stock-analysis/manifest.json`, and verified when read. Remote code is never executed.
+If checking, downloading, or validation fails, young keeps the last verified local specification or bundled 4.2.0
+guidance.
 
 Each module has an evidence score. Missing fields remain missing rather than being rendered as zero. Low-quality
 evidence automatically produces a shorter report limited to verified indices, holdings, risks, and next-session

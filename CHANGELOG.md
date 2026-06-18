@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2026-06-18
+
+### Fixed
+- Made stock-analysis updates strictly version-gated: remote content is installed only when its semantic version is greater than the verified local version.
+- Downloaded the reporting specification, output discipline, data-source strategy, M1-M6 methodology, and templates as one text-only bundle.
+- Added SHA-256 manifests and read-time validation for the cached methodology bundle; failures retain the last verified local or bundled specification.
+- Kept the security boundary explicit: no remote Python, JavaScript, shell code, package, or repository checkout is executed by report generation.
+
 ## [0.2.1] - 2026-06-18
 
 ### Added

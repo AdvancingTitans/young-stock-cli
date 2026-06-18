@@ -10,6 +10,17 @@ from datetime import datetime
 import click
 
 from . import __version__, _core
+from .artifacts import ReportArtifacts
+from .config import (
+    add_feishu_channel,
+    config_path,
+    load_config,
+    mask_config,
+    remove_feishu_channel,
+    update_llm_config,
+)
+from .evidence import build_daily_evidence, build_stock_evidence
+from .llm import LLMClient, LLMError
 from .local_store import load_store, now_label, save_store, young_home
 from .profile import (
     add_group,
@@ -21,6 +32,7 @@ from .profile import (
     profile_path,
     remove_profile_item,
 )
+from .reports import generate_llm_daily_report
 
 
 @click.group(
@@ -231,7 +243,17 @@ def news(parts: tuple[str, ...], date: str | None, refresh: bool, limit: int) ->
 @click.option("--only", default=None, help="Only show selected parts, e.g. funds,stocks,a or 基金,A股.")
 @click.option("--order", default=None, help="Custom full-report order, e.g. 基金,A股,港股,美股.")
 @click.option("--quick", is_flag=True, help="Fast mode: skip slower global/news sections.")
-def daily(date: str | None, refresh: bool, no_news: bool, report_format: str, only: str | None, order: str | None, quick: bool) -> None:
+@click.option("--llm", "use_llm", is_flag=True, help="Generate an evidence-driven deep replay with the configured LLM.")
+def daily(
+    date: str | None,
+    refresh: bool,
+    no_news: bool,
+    report_format: str,
+    only: str | None,
+    order: str | None,
+    quick: bool,
+    use_llm: bool,
+) -> None:
     if refresh:
         _core.NO_CACHE = True
     _core.cache_clear_old(days=7)
@@ -240,7 +262,196 @@ def daily(date: str | None, refresh: bool, no_news: bool, report_format: str, on
     if not profile.get("stocks") and not profile.get("funds"):
         _print_first_use_guide()
         return
+    if use_llm:
+        _run_llm_replay(date_str)
+        return
     _core.run_daily_report(date_str, profile, include_news=not no_news, report_format=report_format, only=only, order=order, quick=quick)
+
+
+def _run_llm_replay(date_str: str, kind: str = "replay", symbol: str | None = None) -> None:
+    profile = load_profile()
+    evidence = (
+        build_stock_evidence(_core, symbol, date_str)
+        if symbol
+        else build_daily_evidence(_core, date_str, profile)
+    )
+    artifacts = ReportArtifacts(date_str)
+    artifacts.write_json("evidence" if not symbol else f"{symbol}-evidence", evidence.to_dict())
+    config = load_config(strict=False).get("llm", {})
+    try:
+        markdown, metadata = generate_llm_daily_report(evidence.to_dict(), LLMClient(config))
+    except LLMError as exc:
+        raise click.ClickException(str(exc)) from exc
+    name = f"analyze-{symbol}" if symbol else kind
+    path = artifacts.write_markdown(name, markdown)
+    artifacts.write_metadata({"kind": name, **metadata})
+    from rich.console import Console
+    from rich.markdown import Markdown
+
+    Console().print(Markdown(markdown))
+    click.echo(f"\nSaved: {path}")
+
+
+@cli.command(help="Generate an evidence-driven deep market replay with the configured LLM.")
+@_date_opt
+@_refresh_opt
+def replay(date: str | None, refresh: bool) -> None:
+    if refresh:
+        _core.NO_CACHE = True
+    _run_llm_replay(date or _core.nearest_trade_date())
+
+
+@cli.command(help="Generate deep analysis for one stock using verified young-stock data.")
+@click.argument("symbol")
+@_date_opt
+@_refresh_opt
+def analyze(symbol: str, date: str | None, refresh: bool) -> None:
+    if refresh:
+        _core.NO_CACHE = True
+    _run_llm_replay(date or _core.nearest_trade_date(), kind="analyze", symbol=symbol)
+
+
+@cli.command(help="Enter Rich interactive chat with slash commands.")
+def chat() -> None:
+    from .chat import run_chat
+
+    run_chat()
+
+
+@cli.group(help="Manage LLM and delivery-channel configuration.")
+def config() -> None:
+    pass
+
+
+@config.command("path", help="Show the configuration file path.")
+def config_path_command() -> None:
+    click.echo(str(config_path()))
+
+
+@config.command("show", help="Show effective configuration with secrets masked.")
+def config_show() -> None:
+    click.echo(json.dumps(mask_config(load_config()), ensure_ascii=False, indent=2))
+
+
+@config.command("llm", help="Configure the LLM provider and model.")
+@click.option("--provider", required=True, type=click.Choice(["openai", "deepseek", "qwen", "ollama", "anthropic"]))
+@click.option("--model", required=True)
+@click.option("--api-key", default=None, hide_input=True)
+@click.option("--api-key-env", default=None, help="Environment variable containing the API key.")
+@click.option("--api-base", default=None)
+@click.option("--timeout", default=60, show_default=True, type=float)
+@click.option("--max-tokens", default=4000, show_default=True, type=int)
+def config_llm(
+    provider: str,
+    model: str,
+    api_key: str | None,
+    api_key_env: str | None,
+    api_base: str | None,
+    timeout: float,
+    max_tokens: int,
+) -> None:
+    update_llm_config(
+        provider=provider,
+        model=model,
+        api_key=api_key,
+        api_key_env=api_key_env,
+        api_base=api_base,
+        timeout=timeout,
+        max_tokens=max_tokens,
+    )
+    click.echo(f"LLM configured: provider={provider}; model={model}; config={config_path()}")
+
+
+@config.group("channel", help="Manage notification channels.")
+def config_channel() -> None:
+    pass
+
+
+@config_channel.command("add", help="Add a Feishu channel.")
+@click.argument("channel_type", type=click.Choice(["feishu"]))
+@click.argument("name")
+@click.option("--webhook", default=None)
+@click.option("--app-id", default=None)
+@click.option("--app-secret", default=None, hide_input=True)
+@click.option("--tenant-access-token", default=None, hide_input=True)
+@click.option("--receive-id", default=None)
+@click.option("--receive-id-type", default="chat_id", show_default=True)
+def config_channel_add(
+    channel_type: str,
+    name: str,
+    webhook: str | None,
+    app_id: str | None,
+    app_secret: str | None,
+    tenant_access_token: str | None,
+    receive_id: str | None,
+    receive_id_type: str,
+) -> None:
+    app_ready = receive_id and (tenant_access_token or (app_id and app_secret))
+    if not webhook and not app_ready:
+        raise click.ClickException(
+            "Feishu 需要 --webhook，或 --receive-id 配合 tenant token / app credentials。"
+        )
+    add_feishu_channel(
+        name,
+        {
+            "type": channel_type,
+            "webhook": webhook,
+            "app_id": app_id,
+            "app_secret": app_secret,
+            "tenant_access_token": tenant_access_token,
+            "receive_id": receive_id,
+            "receive_id_type": receive_id_type,
+        },
+    )
+    click.echo(f"Added feishu channel: {name}")
+
+
+@config_channel.command("list", help="List channels with secrets masked.")
+def config_channel_list() -> None:
+    channels = mask_config(load_config().get("channels", {}))
+    click.echo(json.dumps(channels, ensure_ascii=False, indent=2))
+
+
+@config_channel.command("remove", help="Remove a channel.")
+@click.argument("channel_type", type=click.Choice(["feishu"]))
+@click.argument("name")
+def config_channel_remove(channel_type: str, name: str) -> None:
+    removed = remove_feishu_channel(name)
+    click.echo(f"Removed {channel_type} channel: {name}" if removed else f"Channel not found: {name}")
+
+
+@cli.command(help="Export the latest Markdown report to a professional PDF.")
+@_date_opt
+def report(date: str | None) -> None:
+    from .pdf import export_report_pdf
+
+    try:
+        markdown_path, pdf_path = export_report_pdf(
+            date or _core.nearest_trade_date(),
+            core=_core,
+            profile=load_profile(),
+        )
+    except (RuntimeError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(f"Markdown: {markdown_path}")
+    click.echo(f"PDF: {pdf_path}")
+
+
+@cli.command(help="Send the latest Markdown and PDF report to configured channels.")
+@_date_opt
+@click.option("--channel", "channel_name", default=None, help="Send only one configured channel.")
+def send(date: str | None, channel_name: str | None) -> None:
+    from .channels import send_report
+
+    try:
+        results = send_report(date or ReportArtifacts.latest_date(), channel_name=channel_name)
+    except (RuntimeError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    for result in results:
+        state = "OK" if result.ok else "FAILED"
+        click.echo(f"{state} {result.channel}/{result.target}: {result.detail}")
+    if results and not all(result.ok for result in results):
+        raise click.ClickException("部分渠道发送失败。")
 
 
 @cli.group(help="Manage local investment memory for daily reports.")
@@ -401,6 +612,14 @@ def _diagnostic_payload() -> dict:
             "average_latency_ms": snap.average_latency_ms,
             "should_skip": snap.should_skip,
         })
+    config_data = load_config(strict=False)
+    llm_config = config_data.get("llm", {})
+    try:
+        import importlib.util
+
+        pdf_ready = importlib.util.find_spec("weasyprint") is not None
+    except (ImportError, ValueError):
+        pdf_ready = False
     return {
         "command": "young diagnose",
         "version": __version__,
@@ -414,6 +633,13 @@ def _diagnostic_payload() -> dict:
             "cache": str(_core.CACHE_DIR),
         },
         "sources": sources,
+        "llm": {
+            "configured": bool(llm_config.get("provider") and llm_config.get("model")),
+            "provider": llm_config.get("provider"),
+            "model": llm_config.get("model"),
+        },
+        "pdf": {"weasyprint": pdf_ready},
+        "channels": sorted(config_data.get("channels", {}).get("feishu", {}).keys()),
         "read_only": True,
     }
 

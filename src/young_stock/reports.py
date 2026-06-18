@@ -1,6 +1,7 @@
 """Report composers built on top of the core quote/fund APIs."""
 from __future__ import annotations
 
+import json
 from typing import Any
 
 THEME_KEYWORDS = {
@@ -16,6 +17,40 @@ POSITIVE_NEWS_KEYWORDS = (
 NEGATIVE_NEWS_KEYWORDS = (
     "下滑", "亏损", "减持", "调查", "处罚", "诉讼", "裁员", "降级", "放缓", "跌破", "风险", "监管", "召回", "违约"
 )
+
+LLM_REPORT_PROMPT_VERSION = "stock-analysis-m1-m6-v1"
+LLM_REPORT_SYSTEM_PROMPT = """你是一名资深A股交易员、量化研究员和风险控制专家。
+你只能使用用户提供的 Evidence Pack，不得补写、猜测或外推任何缺失数字、日期、来源或持仓。
+按以下顺序输出 Markdown：大盘指数概览、持仓分析、六模块深度复盘、综合持仓建议与风险提示。
+每个有证据的模块给出关键判断、证据、风险/确认条件；建议必须是条件化触发器，不给无条件买卖指令。
+如果 _meta.degrade_mode=simplified，只输出指数、持仓、已验证风险和下一交易日观察清单。
+结尾必须原样包含：以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。"""
+
+
+def generate_llm_daily_report(
+    evidence: dict[str, Any],
+    llm_client: Any,
+    history: list[dict[str, str]] | None = None,
+) -> tuple[str, dict[str, Any]]:
+    messages = [{"role": "system", "content": LLM_REPORT_SYSTEM_PROMPT}]
+    messages.extend((history or [])[-10:])
+    messages.append(
+        {
+            "role": "user",
+            "content": "请生成证据驱动的深度行情复盘。\n\nEvidence Pack:\n"
+            + json.dumps(evidence, ensure_ascii=False, indent=2),
+        }
+    )
+    response = llm_client.chat(messages)
+    metadata = {
+        "prompt_version": LLM_REPORT_PROMPT_VERSION,
+        "provider": response.provider,
+        "model": response.model,
+        "usage": response.usage,
+        "quality_score": evidence.get("_meta", {}).get("quality_score"),
+        "missing_modules": evidence.get("_meta", {}).get("missing_modules", []),
+    }
+    return response.content.strip(), metadata
 
 
 def _daily_watchlist_items(watchlist: dict[str, list[str]] | None, key: str) -> list[str]:

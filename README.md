@@ -70,6 +70,12 @@ young profile clear-funds   # clear all saved funds only
 young daily --format summary      # concise personalized daily report
 young daily --format key-points   # short report with trend/risk points
 young daily --format full         # full personalized daily report
+young daily --llm                # evidence-driven deep replay with your configured LLM
+young replay                     # deep M1-M6 market replay
+young analyze 600519             # deep single-stock analysis
+young chat                       # Rich chat mode with slash commands
+young report                     # export latest Markdown as a Kami-style PDF
+young send                       # send latest Markdown + PDF to configured channels
 young daily --only 基金,A股 --quick
 young news 3690.HK      # multi-source news only
 young diagnose          # network/source diagnostic
@@ -91,6 +97,131 @@ young update            # upgrade young-stock-cli in the current Python env
 young uninstall         # uninstall from the current Python env
 young --help
 ```
+
+### LLM configuration and chat
+
+LLM features are optional. Existing market commands do not require a model or API key. Configuration is stored in
+`~/.young_stock/config.json` (or `$YOUNG_STOCK_HOME/config.json`).
+
+```bash
+# Prefer an environment variable so the key is not stored in config.json
+export DEEPSEEK_API_KEY="..."
+young config llm \
+  --provider deepseek \
+  --model deepseek-chat \
+  --api-key-env DEEPSEEK_API_KEY
+
+# Other supported providers
+young config llm --provider openai --model gpt-4.1 --api-key-env OPENAI_API_KEY
+young config llm --provider qwen --model qwen-plus --api-key-env DASHSCOPE_API_KEY
+young config llm --provider anthropic --model claude-sonnet-4-20250514 --api-key-env ANTHROPIC_API_KEY
+young config llm --provider ollama --model qwen2.5:14b --api-base http://localhost:11434/v1
+
+young config show       # secrets are masked
+young config path
+```
+
+Start the interactive mode with `young chat`. Slash commands reuse the same Click command tree, so traditional CLI
+and chat behavior stay aligned:
+
+```text
+/a
+/stock 600519
+/fund 161725
+/daily --format summary
+/daily --llm
+/daily-llm
+/replay
+/analyze 600519
+/profile list
+/report
+/send
+```
+
+The chat keeps the five most recent user/assistant turns. If no LLM is configured, enhanced commands fail with a
+configuration hint while `/a`, `/stock`, `/daily`, and every other deterministic command continue working.
+
+### Evidence-driven deep replay
+
+`young replay`, `young daily --llm`, and `/replay` build an Evidence Pack entirely from the structured values returned
+by `young_stock._core`. The model is used for synthesis, not data collection.
+
+The report follows the six-module method from
+[`AdvancingTitans/stock-analysis`](https://github.com/AdvancingTitans/stock-analysis):
+
+1. M1 index overview
+2. M2 sector and fund flow
+3. M3 upside/limit-up effect
+4. M4 downside and blow-up risk
+5. M5 market/portfolio style
+6. M6 resilient directions
+
+Each module has an evidence score. Missing fields remain missing rather than being rendered as zero. Low-quality
+evidence automatically produces a shorter report limited to verified indices, holdings, risks, and next-session
+checks. Markdown, metadata, and `evidence.json` are retained under:
+
+```text
+~/.young_stock/reports/YYYYMMDD/
+```
+
+### Professional PDF reports
+
+Install the optional renderer:
+
+```bash
+python3 -m pip install "young-stock-cli[pdf]"
+```
+
+Then export the latest report:
+
+```bash
+young report
+young report --date 20260618
+```
+
+If no Markdown report exists for the selected date, `young report` first reuses a saved diary entry when available,
+otherwise it automatically generates a deterministic full daily report. It keeps `daily.md`/`replay.md`,
+`report.html`, and `report.pdf` together.
+
+The bundled Equity Report layout follows the
+[`tw93/Kami`](https://github.com/tw93/Kami) editorial language: parchment `#f5f4ed`, ink blue `#1B365D`,
+serif-led hierarchy, compact rhythm, and print-ready A4 output. To use a locally installed Kami-derived template,
+set `YOUNG_STOCK_KAMI_TEMPLATE` to an HTML file containing `{{TITLE}}`, `{{DATE}}`, and `{{BODY}}`.
+
+### Feishu delivery
+
+Webhook mode sends a text preview. Feishu incoming webhooks cannot upload arbitrary PDF attachments:
+
+```bash
+young config channel add feishu work \
+  --webhook "https://open.feishu.cn/open-apis/bot/v2/hook/..."
+```
+
+App mode uploads and sends both Markdown and PDF:
+
+```bash
+young config channel add feishu research-app \
+  --app-id "$FEISHU_APP_ID" \
+  --app-secret "$FEISHU_APP_SECRET" \
+  --receive-id "$FEISHU_CHAT_ID"
+
+young config channel list
+young config channel remove feishu work
+```
+
+One-click workflow:
+
+```bash
+young replay
+young report
+young send
+
+# Or target one date/channel
+young send --date 20260618 --channel research-app
+```
+
+Requests use timeouts and bounded retries. Channel errors are reported independently, and secrets are masked in
+configuration and diagnostic output.
 
 ### Example output (`young indices`)
 

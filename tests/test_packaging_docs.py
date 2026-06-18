@@ -16,10 +16,18 @@ def test_package_version_is_next_patch_release():
     pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     init_py = (ROOT / "src" / "young_stock" / "__init__.py").read_text(encoding="utf-8")
 
-    assert 'version = "0.1.22"' in pyproject
+    assert 'version = "0.2.0"' in pyproject
     assert 'requires-python = ">=3.9"' in pyproject
     assert '"Programming Language :: Python :: 3.9"' in pyproject
-    assert '__version__ = "0.1.22"' in init_py
+    assert '__version__ = "0.2.0"' in init_py
+
+
+def test_pdf_template_is_declared_as_package_data():
+    pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    template = ROOT / "src" / "young_stock" / "templates" / "equity-report.html"
+
+    assert template.exists()
+    assert "src/young_stock/templates/*.html" in pyproject
 
 
 def test_ci_covers_python_39():

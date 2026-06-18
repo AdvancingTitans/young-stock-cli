@@ -62,6 +62,26 @@ def _pool(data: dict[str, Any]) -> tuple[int | None, list[dict[str, Any]]]:
     return payload.get("tc", len(rows)), rows
 
 
+def _board_list(core: Any, board_type: str, trade_date: str) -> dict[str, Any]:
+    if hasattr(core, "get_board_list"):
+        return _call({}, core.get_board_list, board_type, trade_date, limit=100)
+    result = _call({}, core.fetch_eastmoney_board_list, board_type, trade_date, limit=100)
+    if result.get("rows") or not hasattr(core, "camofox_board_list"):
+        return result
+    browser_result = _call({}, core.camofox_board_list, board_type)
+    return browser_result if browser_result.get("rows") else result
+
+
+def _fund_flow_available(data: dict[str, Any]) -> bool:
+    if not isinstance(data, dict) or data.get("_unavailable") or data.get("_error"):
+        return False
+    return any(
+        isinstance(value, (int, float)) or bool(value)
+        for key, value in data.items()
+        if not str(key).startswith("_") and key != "date"
+    )
+
+
 def build_daily_evidence(core: Any, trade_date: str, profile: dict[str, Any] | None = None) -> EvidenceBundle:
     profile = profile or {}
     a_indices = [_index_dict(item) for item in _call([], core.get_index, trade_date)]
@@ -78,9 +98,9 @@ def build_daily_evidence(core: Any, trade_date: str, profile: dict[str, Any] | N
         trade_date,
     )
     northbound = _call({}, core.fetch_northbound_flow_snapshot, trade_date)
-    fund_flow = _call({}, core.get_fund_flow, trade_date, strict_date=False)
-    industry = _call({}, core.fetch_eastmoney_board_list, "industry", trade_date, limit=100)
-    concept = _call({}, core.fetch_eastmoney_board_list, "concept", trade_date, limit=100)
+    fund_flow = _call({}, core.get_fund_flow, trade_date, strict_date=True)
+    industry = _board_list(core, "industry", trade_date)
+    concept = _board_list(core, "concept", trade_date)
     zt = _call({}, core.get_zt_pool, trade_date)
     dt = _call({}, core.get_dt_pool, trade_date)
     zb = _call({}, core.get_zb_pool, trade_date)
@@ -113,7 +133,7 @@ def build_daily_evidence(core: Any, trade_date: str, profile: dict[str, Any] | N
             },
         },
         "M2": {
-            "available": bool(board_rows),
+            "available": bool(board_rows) or _fund_flow_available(fund_flow),
             "industry": industry.get("rows") or [],
             "concept": concept.get("rows") or [],
             "fund_flow": fund_flow,

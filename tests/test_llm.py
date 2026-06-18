@@ -17,6 +17,13 @@ class FakeSession:
             raise response
         return response
 
+    def get(self, url, **kwargs):
+        self.calls.append((url, kwargs))
+        response = self.responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return response
+
 
 def response(status, payload):
     return SimpleNamespace(
@@ -97,6 +104,36 @@ def test_api_key_env_takes_precedence(monkeypatch):
     client.chat([{"role": "user", "content": "hi"}])
 
     assert session.calls[0][1]["headers"]["Authorization"] == "Bearer env-secret"
+
+
+def test_openai_compatible_model_discovery():
+    session = FakeSession(
+        [
+            response(
+                200,
+                {
+                    "data": [
+                        {"id": "doubao-seed-1-6-250615"},
+                        {"id": "kimi-k2-0711-preview"},
+                    ]
+                },
+            )
+        ]
+    )
+    client = LLMClient(
+        {
+            "provider": "openai",
+            "model": "placeholder",
+            "api_key": "secret",
+            "api_base": "https://example.test/v1",
+        },
+        session=session,
+    )
+
+    models = client.list_models()
+
+    assert models == ["doubao-seed-1-6-250615", "kimi-k2-0711-preview"]
+    assert session.calls[0][0] == "https://example.test/v1/models"
 
 
 def test_missing_configuration_and_auth_errors_are_clear():

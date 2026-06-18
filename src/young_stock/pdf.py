@@ -116,7 +116,9 @@ def _default_render(html_path: Path, pdf_path: Path) -> None:
     renderer = _load_weasyprint()
     if renderer is None:
         raise PDFDependencyError(
-            '未安装 PDF 可选依赖。请运行 `python3 -m pip install "young-stock-cli[pdf]"`。'
+            "未安装 PDF 可选依赖。uv tool 用户请运行 "
+            "`uv tool install --force 'young-stock-cli[pdf]'`；"
+            "普通 Python 环境请运行 `python3 -m pip install \"young-stock-cli[pdf]\"`。"
         )
     renderer(filename=str(html_path), base_url=str(html_path.parent)).write_pdf(str(pdf_path))
 

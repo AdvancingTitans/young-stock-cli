@@ -53,6 +53,7 @@ def test_complete_evidence_has_six_modules_and_real_values():
 def test_missing_modules_lower_quality_without_fabricating_zero():
     core = fake_core()
     core.fetch_eastmoney_board_list = lambda kind, date, limit=100: {"rows": []}
+    core.get_fund_flow = lambda date, strict_date=False: {"_unavailable": "not disclosed"}
     core.get_zt_pool = lambda date: {"_error": "unavailable"}
     core.get_dt_pool = lambda date: {"_error": "unavailable"}
     core.get_zb_pool = lambda date: {"_error": "unavailable"}
@@ -63,6 +64,31 @@ def test_missing_modules_lower_quality_without_fabricating_zero():
     assert {"M2", "M3", "M4", "M6"} <= set(evidence.missing_modules)
     assert evidence.modules["M3"]["zt_count"] is None
     assert evidence.meta["degrade_mode"] == "simplified"
+
+
+def test_board_evidence_uses_browser_rows_when_lightweight_source_is_empty():
+    core = fake_core()
+    core.fetch_eastmoney_board_list = lambda kind, date, limit=100: {"rows": []}
+    core.camofox_board_list = lambda kind: {
+        "rows": [{"name": f"{kind}-浏览器", "change_pct": 1.5, "up_count": 6, "down_count": 2}]
+    }
+
+    evidence = build_daily_evidence(core, "20260618", {"stocks": [], "funds": []})
+
+    assert evidence.modules["M2"]["available"] is True
+    assert evidence.modules["M2"]["industry"][0]["name"] == "industry-浏览器"
+    assert evidence.modules["M2"]["concept"][0]["name"] == "concept-浏览器"
+
+
+def test_fund_flow_keeps_module_two_available_when_board_rows_are_missing():
+    core = fake_core()
+    core.fetch_eastmoney_board_list = lambda kind, date, limit=100: {"rows": []}
+    core.camofox_board_list = lambda kind: {"rows": []}
+
+    evidence = build_daily_evidence(core, "20260618", {"stocks": [], "funds": []})
+
+    assert evidence.modules["M2"]["available"] is True
+    assert evidence.modules["M2"]["fund_flow"]["主力净流入"] == 1_000_000
 
 
 def test_stock_evidence_includes_quote_flow_trades_and_news():

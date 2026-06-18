@@ -22,6 +22,7 @@ from .config import (
 from .evidence import build_daily_evidence, build_stock_evidence
 from .llm import LLMClient, LLMError
 from .local_store import load_store, now_label, save_store, young_home
+from .methodology import sync_stock_analysis_methodology
 from .profile import (
     add_group,
     add_group_item,
@@ -125,7 +126,9 @@ def update(pre: bool, user_install: bool) -> None:
             "update failed with exit code "
             f"{result.returncode}. young-stock-cli requires Python 3.9+. "
             "Check `python3 --version`, then retry with "
-            "`python3 -m pip install --upgrade young-stock-cli`."
+            "`python3 -m pip install --upgrade young-stock-cli`；"
+            "如果 `which young` 指向 uv tool 环境，请运行 "
+            "`uv tool install --upgrade young-stock-cli`。"
         )
 
 
@@ -278,10 +281,17 @@ def _run_llm_replay(date_str: str, kind: str = "replay", symbol: str | None = No
     artifacts = ReportArtifacts(date_str)
     artifacts.write_json("evidence" if not symbol else f"{symbol}-evidence", evidence.to_dict())
     config = load_config(strict=False).get("llm", {})
+    methodology = sync_stock_analysis_methodology()
     try:
-        markdown, metadata = generate_llm_daily_report(evidence.to_dict(), LLMClient(config))
+        markdown, metadata = generate_llm_daily_report(
+            evidence.to_dict(),
+            LLMClient(config),
+            methodology=methodology.text,
+        )
     except LLMError as exc:
         raise click.ClickException(str(exc)) from exc
+    metadata["stock_analysis_version"] = methodology.version
+    metadata["stock_analysis_updated"] = methodology.updated
     name = f"analyze-{symbol}" if symbol else kind
     path = artifacts.write_markdown(name, markdown)
     artifacts.write_metadata({"kind": name, **metadata})
@@ -334,7 +344,11 @@ def config_show() -> None:
 
 
 @config.command("llm", help="Configure the LLM provider and model.")
-@click.option("--provider", required=True, type=click.Choice(["openai", "deepseek", "qwen", "ollama", "anthropic"]))
+@click.option(
+    "--provider",
+    required=True,
+    type=click.Choice(["openai", "ark", "kimi", "moonshot", "deepseek", "qwen", "ollama", "anthropic"]),
+)
 @click.option("--model", required=True)
 @click.option("--api-key", default=None, hide_input=True)
 @click.option("--api-key-env", default=None, help="Environment variable containing the API key.")
@@ -360,6 +374,43 @@ def config_llm(
         max_tokens=max_tokens,
     )
     click.echo(f"LLM configured: provider={provider}; model={model}; config={config_path()}")
+
+
+@config.command("models", help="List model IDs exposed by an OpenAI-compatible, Anthropic, or Ollama endpoint.")
+@click.option(
+    "--provider",
+    default=None,
+    type=click.Choice(["openai", "ark", "kimi", "moonshot", "deepseek", "qwen", "ollama", "anthropic"]),
+)
+@click.option("--api-key", default=None, hide_input=True)
+@click.option("--api-key-env", default=None, help="Environment variable containing the API key.")
+@click.option("--api-base", default=None, help="Provider API base, for example https://api.moonshot.cn/v1.")
+@click.option("--timeout", default=30, show_default=True, type=float)
+def config_models(
+    provider: str | None,
+    api_key: str | None,
+    api_key_env: str | None,
+    api_base: str | None,
+    timeout: float,
+) -> None:
+    saved = dict(load_config(strict=False).get("llm") or {})
+    query = {
+        **saved,
+        "provider": provider or saved.get("provider"),
+        "api_key": api_key if api_key is not None else saved.get("api_key"),
+        "api_key_env": api_key_env if api_key_env is not None else saved.get("api_key_env"),
+        "api_base": api_base or saved.get("api_base"),
+        "timeout": timeout,
+    }
+    try:
+        models = LLMClient(query).list_models()
+    except LLMError as exc:
+        raise click.ClickException(str(exc)) from exc
+    if not models:
+        click.echo("该服务当前未返回可用模型 ID。")
+        return
+    for model_id in models:
+        click.echo(model_id)
 
 
 @config.group("channel", help="Manage notification channels.")

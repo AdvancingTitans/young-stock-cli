@@ -17,6 +17,14 @@ Born out of a real workflow: every trading day after close I wanted the same fiv
 
 ## Install
 
+Recommended for CLI isolation:
+
+```bash
+uv tool install young-stock-cli
+```
+
+Or install into the active Python environment:
+
 ```bash
 python3 -m pip install young-stock-cli
 ```
@@ -121,6 +129,61 @@ young config show       # secrets are masked
 young config path
 ```
 
+Model IDs are provider-specific and change over time. Do not rely on a console display name such as
+`Kimi-K2.6` or `ark-code-latest`; query the endpoint and copy an exact returned ID:
+
+```bash
+# Use saved provider/api_base/api_key_env settings
+young config models
+
+# Ark / Volcano Engine (OpenAI-compatible)
+export ARK_API_KEY="..."
+young config models \
+  --provider ark \
+  --api-key-env ARK_API_KEY
+
+# Kimi / Moonshot
+export MOONSHOT_API_KEY="..."
+young config models \
+  --provider kimi \
+  --api-key-env MOONSHOT_API_KEY
+
+# DeepSeek and Qwen can use their built-in API bases
+young config models --provider deepseek --api-key-env DEEPSEEK_API_KEY
+young config models --provider qwen --api-key-env DASHSCOPE_API_KEY
+
+# Local Ollama
+young config models --provider ollama --api-base http://localhost:11434/v1
+```
+
+For endpoint-level troubleshooting, the equivalent OpenAI-compatible request is:
+
+```bash
+curl -sS "$API_BASE/models" \
+  -H "Authorization: Bearer $MODEL_API_KEY" |
+python3 -c 'import json,sys; print("\n".join(x["id"] for x in json.load(sys.stdin).get("data", [])))'
+
+# Ark exact example
+curl -sS https://ark.cn-beijing.volces.com/api/v3/models \
+  -H "Authorization: Bearer $ARK_API_KEY" |
+python3 -c 'import json,sys; print("\n".join(x["id"] for x in json.load(sys.stdin).get("data", [])))'
+
+# Kimi / Moonshot exact example
+curl -sS https://api.moonshot.cn/v1/models \
+  -H "Authorization: Bearer $MOONSHOT_API_KEY" |
+python3 -c 'import json,sys; print("\n".join(x["id"] for x in json.load(sys.stdin).get("data", [])))'
+```
+
+For Ark, set `API_BASE=https://ark.cn-beijing.volces.com/api/v3`; for Kimi/Moonshot, set
+`API_BASE=https://api.moonshot.cn/v1`. After selecting an ID, pass the same API base to `young config llm`.
+Some coding-plan names and web-console aliases are not Chat Completions model IDs.
+
+```bash
+# Configure the exact ID returned above
+young config llm --provider ark --model "<ark-model-or-endpoint-id>" --api-key-env ARK_API_KEY
+young config llm --provider kimi --model "<moonshot-model-id>" --api-key-env MOONSHOT_API_KEY
+```
+
 Start the interactive mode with `young chat`. Slash commands reuse the same Click command tree, so traditional CLI
 and chat behavior stay aligned:
 
@@ -156,6 +219,11 @@ The report follows the six-module method from
 5. M5 market/portfolio style
 6. M6 resilient directions
 
+Before each LLM replay, young checks the remote `stock-analysis` `SKILL.md`. A newer text specification is cached
+under `~/.young_stock/methodologies/stock-analysis/` and used for report structure and writing discipline. Remote
+code is never executed; if the check is unavailable, the most recent cached specification or the bundled 4.2.0
+guidance is used.
+
 Each module has an evidence score. Missing fields remain missing rather than being rendered as zero. Low-quality
 evidence automatically produces a shorter report limited to verified indices, holdings, risks, and next-session
 checks. Markdown, metadata, and `evidence.json` are retained under:
@@ -167,6 +235,12 @@ checks. Markdown, metadata, and `evidence.json` are retained under:
 ### Professional PDF reports
 
 Install the optional renderer:
+
+```bash
+uv tool install --force 'young-stock-cli[pdf]'
+```
+
+If `young` was installed into the active Python environment instead:
 
 ```bash
 python3 -m pip install "young-stock-cli[pdf]"

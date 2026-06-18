@@ -6,7 +6,7 @@ from young_stock.reports import generate_llm_daily_report
 
 class FakeLLM:
     def chat(self, messages):
-        assert '"quality_score": 85' in messages[-1]["content"]
+        assert '"证据完整度评分": 85' in messages[-1]["content"]
         return type(
             "Result",
             (),

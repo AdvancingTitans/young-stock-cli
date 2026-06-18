@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-06-18
+
+### Added
+- Added `young config models` for provider-neutral model discovery across Ark and other OpenAI-compatible services, Kimi/Moonshot, DeepSeek, Qwen, Anthropic, and Ollama endpoints.
+- Added report-time stock-analysis specification checks with safe text-only caching; remote code is never executed.
+
+### Fixed
+- Translated internal Evidence Pack fields into research language before LLM synthesis and sanitized engineering terminology from final reports.
+- Allowed verified fund-flow data to keep the sector/fund-flow module available when board rankings are temporarily absent.
+- Unified `young a` and LLM evidence board routing so both try the lightweight source and then the configured Camofox browser path.
+- Converted Camofox board snapshots into the same structured row format used by normal board rankings.
+- Expanded uv tool installation and PDF dependency guidance in README and command errors.
+
 ## [0.2.0] - 2026-06-18
 
 ### Added

@@ -2169,6 +2169,17 @@ def fetch_eastmoney_board_list(board_type: str, date_str: str, limit: int = 100)
     return result
 
 
+def get_board_list(board_type: str, date_str: str, limit: int = 100) -> dict[str, Any]:
+    """Return board rankings through the stock-analysis source order."""
+    result = fetch_eastmoney_board_list(board_type, date_str, limit=limit)
+    if result.get("rows"):
+        return result
+    browser_result = camofox_board_list(board_type)
+    if browser_result.get("rows"):
+        return browser_result
+    return result
+
+
 @retry_on_recoverable(max_retries=MAX_RETRIES, initial_delay=INITIAL_BACKOFF)
 def eastmoney_datacenter(
     report_name: str,
@@ -2709,6 +2720,37 @@ def rank_symbols_by_news_heat(
 # 板块榜（camofox 降级层）
 # ------------------------------------------------------------------
 
+def _parse_camofox_board_snapshot(markdown: str) -> list[dict[str, Any]]:
+    rows = []
+    for line in markdown.splitlines():
+        line = line.strip()
+        if not line.startswith('row "'):
+            continue
+        content = line[5:].rstrip('"')
+        parts = re.split(r"\s{2,}", content)
+        if len(parts) < 4:
+            parts = content.split()
+        if len(parts) < 3:
+            continue
+        rank = _safe_int(parts[0])
+        if rank is None:
+            continue
+        rows.append(
+            {
+                "rank": rank,
+                "name": parts[1],
+                "change_pct": _safe_float(str(parts[2]).rstrip("%")),
+                "up_count": _safe_int(parts[3]) if len(parts) > 3 else None,
+                "down_count": _safe_int(parts[4]) if len(parts) > 4 else None,
+                "leader": parts[5] if len(parts) > 5 else "",
+                "leader_change_pct": (
+                    _safe_float(str(parts[6]).rstrip("%")) if len(parts) > 6 else None
+                ),
+            }
+        )
+    return rows
+
+
 def camofox_board_list(board_type: str = "industry") -> dict[str, Any]:
     base = os.environ.get("CAMOFOX_URL", "http://localhost:9377")
     user_id = os.environ.get("CAMOFOX_USER_ID", "")
@@ -2741,14 +2783,7 @@ def camofox_board_list(board_type: str = "industry") -> dict[str, Any]:
         with urllib.request.urlopen(urllib.request.Request(snap_url, method="GET"), timeout=15) as resp:
             md = resp.read().decode("utf-8", errors="ignore")
 
-        rows = []
-        for line in md.splitlines():
-            line = line.strip()
-            if line.startswith('row "'):
-                content = line[5:].rstrip('"')
-                parts = re.split(r"\s{2,}", content)
-                if len(parts) >= 4:
-                    rows.append(parts)
+        rows = _parse_camofox_board_snapshot(md)
         return {"board_type": board_type, "rows": rows, "count": len(rows)}
     except Exception as e:
         diag(f"camofox board {board_type}: {e}")
@@ -3927,12 +3962,8 @@ def run_a_share(date_str: str, include_news: bool = True) -> None:
     if include_news:
         print_a_share_news(date_str, zt)
 
-    industry = fetch_eastmoney_board_list("industry", date_str)
-    if not industry.get("rows"):
-        industry = camofox_board_list("industry")
-    concept = fetch_eastmoney_board_list("concept", date_str)
-    if not concept.get("rows"):
-        concept = camofox_board_list("concept")
+    industry = get_board_list("industry", date_str)
+    concept = get_board_list("concept", date_str)
     print_boards(industry, "行业板块涨幅")
     print_boards(concept, "概念板块涨幅")
 

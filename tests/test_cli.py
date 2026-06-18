@@ -262,6 +262,35 @@ def test_cli_update_failure_mentions_python_version(monkeypatch):
     assert "python3 -m pip install --upgrade young-stock-cli" in result.output
 
 
+def test_cli_config_models_lists_provider_models(monkeypatch):
+    from click.testing import CliRunner
+
+    monkeypatch.setattr(
+        cli_module.LLMClient,
+        "list_models",
+        lambda self: ["moonshot-v1-8k", "kimi-k2-0711-preview"],
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "config",
+            "models",
+            "--provider",
+            "openai",
+            "--api-base",
+            "https://api.moonshot.cn/v1",
+            "--api-key-env",
+            "MOONSHOT_API_KEY",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "moonshot-v1-8k" in result.output
+    assert "kimi-k2-0711-preview" in result.output
+
+
 def test_cli_uninstall_runs_pip_uninstall(monkeypatch):
     from click.testing import CliRunner
 

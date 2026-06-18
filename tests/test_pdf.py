@@ -65,5 +65,5 @@ def test_default_renderer_has_clear_optional_dependency_error(monkeypatch, tmp_p
     ReportArtifacts("20260618").write_markdown("daily", "# 日报")
     monkeypatch.setattr("young_stock.pdf._load_weasyprint", lambda: None)
 
-    with pytest.raises(PDFDependencyError, match=r"young-stock-cli\[pdf\]"):
+    with pytest.raises(PDFDependencyError, match=r"uv tool install --force"):
         export_report_pdf("20260618")

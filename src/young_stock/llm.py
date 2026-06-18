@@ -11,6 +11,9 @@ import requests
 
 PROVIDER_BASES = {
     "openai": "https://api.openai.com/v1",
+    "ark": "https://ark.cn-beijing.volces.com/api/v3",
+    "kimi": "https://api.moonshot.cn/v1",
+    "moonshot": "https://api.moonshot.cn/v1",
     "deepseek": "https://api.deepseek.com",
     "qwen": "https://dashscope.aliyuncs.com/compatible-mode/v1",
     "ollama": "http://localhost:11434/v1",
@@ -55,6 +58,31 @@ class LLMClient:
             return self._anthropic(api_base, api_key, model, messages)
         return self._openai_compatible(api_base, api_key, provider, model, messages)
 
+    def list_models(self) -> list[str]:
+        provider = str(self.config.get("provider") or "").lower()
+        if not provider:
+            raise LLMNotConfigured("未指定 provider，请使用 `young config models --provider ...`。")
+        api_base = str(self.config.get("api_base") or PROVIDER_BASES.get(provider) or "").rstrip("/")
+        if not api_base:
+            raise LLMNotConfigured(f"provider {provider} 缺少 api_base")
+        api_key = self._api_key()
+        if provider != "ollama" and not api_key:
+            raise LLMNotConfigured("未配置 LLM API key；建议使用 api_key_env。")
+        headers = {"Accept": "application/json"}
+        if provider == "anthropic":
+            headers.update({"x-api-key": api_key, "anthropic-version": "2023-06-01"})
+        elif api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        response = self._get(f"{api_base}/models", headers=headers)
+        data = response.json()
+        rows = data.get("data") or data.get("models") or []
+        models = []
+        for item in rows:
+            model_id = (item.get("id") or item.get("name")) if isinstance(item, dict) else item
+            if model_id:
+                models.append(str(model_id))
+        return sorted(dict.fromkeys(models))
+
     def _api_key(self) -> str:
         env_name = str(self.config.get("api_key_env") or "")
         if env_name and os.environ.get(env_name):
@@ -82,6 +110,18 @@ class LLMClient:
                 raise LLMError(f"LLM 请求失败（HTTP {response.status_code}）")
             return response
         raise LLMError(f"LLM 网络请求失败: {last_error.__class__.__name__ if last_error else 'unknown'}")
+
+    def _get(self, url: str, **kwargs: Any) -> Any:
+        timeout = float(self.config.get("timeout") or 60)
+        try:
+            response = self.session.get(url, timeout=timeout, **kwargs)
+        except requests.RequestException as exc:
+            raise LLMError(f"模型列表请求失败: {exc.__class__.__name__}") from exc
+        if response.status_code in {401, 403}:
+            raise LLMError("模型列表认证失败，请检查 API key、provider 和 api_base。")
+        if response.status_code >= 400:
+            raise LLMError(f"模型列表请求失败（HTTP {response.status_code}）")
+        return response
 
     def _openai_compatible(
         self,

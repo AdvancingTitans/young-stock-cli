@@ -233,6 +233,43 @@ def test_fetch_eastmoney_board_list_parses_industry_rows(monkeypatch):
     assert data["rows"][0]["leader"] == "测试龙头"
 
 
+def test_get_board_list_uses_browser_when_lightweight_source_is_empty(monkeypatch):
+    monkeypatch.setattr(
+        _core,
+        "fetch_eastmoney_board_list",
+        lambda board_type, date_str, limit=100: {"rows": [], "_error": "temporarily unavailable"},
+    )
+    monkeypatch.setattr(
+        _core,
+        "camofox_board_list",
+        lambda board_type: {"rows": [{"name": "半导体", "change_pct": 2.34}]},
+    )
+
+    data = _core.get_board_list("industry", "20260618")
+
+    assert data["rows"][0]["name"] == "半导体"
+
+
+def test_parse_camofox_board_snapshot_returns_structured_rows():
+    markdown = (
+        'row "1  半导体  2.34%  80  12  测试龙头  8.80%"\n'
+        'row "2  白酒  -1.20%  15  40  贵州茅台  -0.50%"\n'
+    )
+
+    rows = _core._parse_camofox_board_snapshot(markdown)
+
+    assert rows[0] == {
+        "rank": 1,
+        "name": "半导体",
+        "change_pct": 2.34,
+        "up_count": 80,
+        "down_count": 12,
+        "leader": "测试龙头",
+        "leader_change_pct": 8.8,
+    }
+    assert rows[1]["change_pct"] == -1.2
+
+
 def test_print_boards_supports_structured_rows(capsys):
     _core.print_boards(
         {"rows": [{"name": "半导体", "change_pct": 2.34, "up_count": 80, "down_count": 12, "leader": "测试龙头"}]},
@@ -607,6 +644,8 @@ def test_fund_flow_uses_latest_good_cache_when_sources_fail(monkeypatch):
 
 def test_fund_flow_uses_online_snapshot_before_cache(monkeypatch):
     monkeypatch.setattr(_core, "cache_load", lambda *args, **kwargs: None)
+    monkeypatch.setattr(_core, "cache_save", lambda *args, **kwargs: None)
+    monkeypatch.setattr(_core, "fetch_ths_concept_money_flow_snapshot", lambda date_str: {})
     monkeypatch.setattr(_core, "fetch_fund_flow_json", lambda url: {"_error": "blocked"})
     monkeypatch.setattr(
         _core,

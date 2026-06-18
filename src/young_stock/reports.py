@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 THEME_KEYWORDS = {
@@ -18,27 +19,197 @@ NEGATIVE_NEWS_KEYWORDS = (
     "下滑", "亏损", "减持", "调查", "处罚", "诉讼", "裁员", "降级", "放缓", "跌破", "风险", "监管", "召回", "违约"
 )
 
-LLM_REPORT_PROMPT_VERSION = "stock-analysis-m1-m6-v1"
+LLM_REPORT_PROMPT_VERSION = "stock-analysis-research-language-v2"
 LLM_REPORT_SYSTEM_PROMPT = """你是一名资深A股交易员、量化研究员和风险控制专家。
-你只能使用用户提供的 Evidence Pack，不得补写、猜测或外推任何缺失数字、日期、来源或持仓。
+你只能使用用户提供的研报证据，不得补写或外推任何缺失数字、日期、来源或持仓。
 按以下顺序输出 Markdown：大盘指数概览、持仓分析、六模块深度复盘、综合持仓建议与风险提示。
 每个有证据的模块给出关键判断、证据、风险/确认条件；建议必须是条件化触发器，不给无条件买卖指令。
-如果 _meta.degrade_mode=simplified，只输出指数、持仓、已验证风险和下一交易日观察清单。
+证据完整度不足时，只输出指数、持仓、已验证风险和下一交易日观察清单。
+正文只写投资研究语言。不得出现内部字段名、程序结构、工具名称、本地路径、文件扩展名或技术切换过程。
+正常数据使用“据公开市场数据”或“据交易所及财经终端披露”；缺失数据使用“该指标当日未披露”、
+“历史数据不可得”或“本模块证据暂缺”；回溯数据使用“按惯例回溯至该日”或“历史口径回溯”。
 结尾必须原样包含：以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。"""
+
+MODULE_TITLES = {
+    "M1": "大盘指数与市场广度",
+    "M2": "板块强弱与资金流",
+    "M3": "赚钱效应与涨停结构",
+    "M4": "下跌风险与炸板结构",
+    "M5": "持仓与市场风格",
+    "M6": "抗跌方向",
+    "STOCK": "个股证据",
+}
+
+FIELD_TITLES = {
+    "a_indices": "A股指数",
+    "hk_indices": "港股指数",
+    "us_indices": "美股指数",
+    "northbound": "北向资金",
+    "breadth": "市场广度",
+    "industry": "行业板块",
+    "concept": "概念板块",
+    "fund_flow": "资金流",
+    "zt_count": "涨停家数",
+    "zt_pool": "涨停明细",
+    "early_limit_up_count": "早盘涨停家数",
+    "dt_count": "跌停家数",
+    "zb_count": "炸板家数",
+    "blowup_ratio": "炸板率",
+    "dt_pool": "跌停明细",
+    "zb_pool": "炸板明细",
+    "holdings": "持仓",
+    "style_signals": "风格观察",
+    "growth_board_count": "科创板与创业板活跃样本数",
+    "resilient": "抗跌方向",
+    "quote": "行情",
+    "block_trades": "大宗交易",
+    "news": "公开信息",
+    "trade_date": "交易日",
+    "quality_score": "证据完整度评分",
+    "missing_modules": "证据暂缺模块",
+    "degrade_mode": "报告范围",
+    "source_events": "数据状态",
+    "methodology": "研究框架",
+    "analysis_symbol": "分析标的",
+    "report_type": "报告类型",
+    "source": "数据来源",
+}
+
+INTERNAL_FIELD_TITLES = {
+    "_source": "数据来源",
+    "_source_date": "数据日期",
+    "_requested_date": "请求日期",
+    "_scope": "统计范围",
+    "_date_note": "日期说明",
+    "_cache_note": "日期说明",
+}
+
+
+def _public_source(value: Any) -> Any:
+    text = str(value or "")
+    source_names = []
+    for token, label in (
+        ("腾讯", "腾讯财经"),
+        ("sina", "新浪财经"),
+        ("新浪", "新浪财经"),
+        ("eastmoney", "东方财富"),
+        ("东方财富", "东方财富"),
+        ("东财", "东方财富"),
+        ("同花顺", "同花顺"),
+        ("ths", "同花顺"),
+        ("futu", "富途公开资讯"),
+        ("富途", "富途公开资讯"),
+    ):
+        if token.lower() in text.lower() and label not in source_names:
+            source_names.append(label)
+    return "、".join(source_names) if source_names else "公开市场数据"
+
+
+def _research_value(value: Any) -> Any:
+    if isinstance(value, list):
+        return [_research_value(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+    result = {}
+    for key, item in value.items():
+        if key == "available":
+            result["证据状态"] = "据公开市场数据" if item else "本模块证据暂缺"
+            continue
+        if key in {"source", "_source"}:
+            result["数据来源"] = _public_source(item)
+            continue
+        if key in {"_date_note", "_cache_note"}:
+            result["日期说明"] = "历史口径回溯"
+            continue
+        if key == "missing_modules":
+            result["证据暂缺模块"] = [MODULE_TITLES.get(name, name) for name in item]
+            continue
+        if key == "degrade_mode":
+            result["报告范围"] = {
+                "full": "完整报告",
+                "degraded": "证据受限报告",
+                "simplified": "简化报告",
+            }.get(str(item), str(item))
+            continue
+        if key in INTERNAL_FIELD_TITLES:
+            result[INTERNAL_FIELD_TITLES[key]] = _research_value(item)
+            continue
+        if key.startswith("_"):
+            continue
+        label = FIELD_TITLES.get(key, key)
+        result[label] = _research_value(item)
+    return result
+
+
+def _research_context(evidence: dict[str, Any]) -> dict[str, Any]:
+    modules = evidence.get("modules") or {}
+    context = {
+        "研报证据": {
+            MODULE_TITLES.get(name, name): _research_value(payload)
+            for name, payload in modules.items()
+        },
+        "报告信息": _research_value(evidence.get("_meta") or {}),
+    }
+    return context
+
+
+def _sanitize_report_markdown(markdown: str) -> str:
+    text = re.sub(
+        r"证据\s*[:：]\s*modules\.M\d+\.available\s*为\s*false[。.]?",
+        "本模块证据暂缺。",
+        markdown,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"风格信号\s*[:：]\s*growth_board_count\s*为\s*(\d+)[。.]?",
+        r"据公开市场数据，科创板与创业板活跃样本 \1 家。",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(?m)^.*(?:fallback|脚本|采集|本地路径|\b[\w-]+\.(?:py|js|sh)\b).*$",
+        "据公开市场数据，相关指标以已披露口径为准。",
+        text,
+        flags=re.IGNORECASE,
+    )
+    replacements = {
+        "fallback": "备用路径",
+        "脚本": "数据流程",
+        "采集": "汇总",
+        "推测": "判断",
+        "不确定性": "风险边界",
+        "猜测": "主观判断",
+        "降级": "证据范围调整",
+    }
+    for source, target in replacements.items():
+        text = re.sub(re.escape(source), target, text, flags=re.IGNORECASE)
+    text = re.sub(r"(?:[A-Za-z]:)?[/~][^\s，。；：)）]+", "相关数据位置", text)
+    text = re.sub(r"\b[\w-]+\.(?:py|js|sh)\b", "相关数据流程", text, flags=re.IGNORECASE)
+    return text.strip()
 
 
 def generate_llm_daily_report(
     evidence: dict[str, Any],
     llm_client: Any,
     history: list[dict[str, str]] | None = None,
+    methodology: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
     messages = [{"role": "system", "content": LLM_REPORT_SYSTEM_PROMPT}]
+    if methodology:
+        messages.append(
+            {
+                "role": "system",
+                "content": "以下是当前 stock-analysis 研究规范，仅用于报告结构和表达纪律：\n"
+                + methodology,
+            }
+        )
     messages.extend((history or [])[-10:])
+    report_context = _research_context(evidence)
     messages.append(
         {
             "role": "user",
-            "content": "请生成证据驱动的深度行情复盘。\n\nEvidence Pack:\n"
-            + json.dumps(evidence, ensure_ascii=False, indent=2),
+            "content": "请生成证据驱动的深度行情复盘。\n\n研报证据：\n"
+            + json.dumps(report_context, ensure_ascii=False, indent=2),
         }
     )
     response = llm_client.chat(messages)
@@ -50,7 +221,7 @@ def generate_llm_daily_report(
         "quality_score": evidence.get("_meta", {}).get("quality_score"),
         "missing_modules": evidence.get("_meta", {}).get("missing_modules", []),
     }
-    return response.content.strip(), metadata
+    return _sanitize_report_markdown(response.content), metadata
 
 
 def _daily_watchlist_items(watchlist: dict[str, list[str]] | None, key: str) -> list[str]:

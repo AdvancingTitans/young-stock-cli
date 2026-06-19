@@ -74,6 +74,19 @@ def test_llm_report_output_removes_engineering_language():
     assert "备用路径" not in markdown
 
 
+def test_llm_report_output_strips_fixed_preamble():
+    client = RecordingClient(
+        "# 复盘\n\n"
+        "好的，作为资深A股交易员，以下是今天的复盘。\n"
+        "据公开市场数据，板块轮动加快。\n"
+    )
+
+    markdown, _ = generate_llm_daily_report({"modules": {}, "_meta": {}}, client)
+
+    assert "资深A股交易员" not in markdown
+    assert "板块轮动加快" in markdown
+
+
 def test_llm_methodology_context_is_research_only():
     client = RecordingClient("# 复盘\n\n据公开市场数据，市场震荡。")
 
@@ -84,6 +97,7 @@ def test_llm_methodology_context_is_research_only():
     )
 
     system_text = "\n".join(message["content"] for message in client.messages if message["role"] == "system")
+    assert "资深A股交易员" not in system_text
     assert "报告固定顺序" in system_text
     assert "fallback" not in system_text
     assert "脚本" not in system_text

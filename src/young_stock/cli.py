@@ -78,6 +78,10 @@ def _print_first_use_guide() -> None:
     click.echo(f"配置会保存到: {profile_path()}")
 
 
+def _current_report_date() -> str:
+    return datetime.now().strftime("%Y%m%d")
+
+
 @cli.command(help="A-share dashboard: indices, ZT/DT pool, verified A-share fund flow, boards.")
 @_date_opt
 @_refresh_opt
@@ -313,7 +317,7 @@ def _run_llm_replay(date_str: str, kind: str = "replay", symbol: str | None = No
 def replay(date: str | None, refresh: bool) -> None:
     if refresh:
         _core.NO_CACHE = True
-    _run_llm_replay(date or _core.nearest_trade_date())
+    _run_llm_replay(date or _current_report_date())
 
 
 @cli.command(help="Generate deep analysis for one stock using verified young-stock data.")
@@ -520,7 +524,7 @@ def report(date: str | None) -> None:
 
     try:
         markdown_path, pdf_path = export_report_pdf(
-            date or _core.nearest_trade_date(),
+            date or _current_report_date(),
             core=_core,
             profile=load_profile(),
         )

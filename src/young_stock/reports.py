@@ -22,7 +22,7 @@ NEGATIVE_NEWS_KEYWORDS = (
 )
 
 LLM_REPORT_PROMPT_VERSION = "stock-analysis-research-language-v2"
-LLM_REPORT_SYSTEM_PROMPT = """你是一名资深A股交易员、量化研究员和风险控制专家。
+LLM_REPORT_SYSTEM_PROMPT = """请基于用户提供的研报证据，撰写正式 A 股投资研究报告。
 你只能使用用户提供的研报证据，不得补写或外推任何缺失数字、日期、来源或持仓。
 按以下顺序输出 Markdown：大盘指数概览、持仓分析、六模块深度复盘、综合持仓建议与风险提示。
 每个有证据的模块给出关键判断、证据、风险/确认条件；建议必须是条件化触发器，不给无条件买卖指令。

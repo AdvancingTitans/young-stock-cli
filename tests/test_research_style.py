@@ -73,6 +73,21 @@ def test_review_research_report_handles_markdown_wrapped_engineering_phrases():
     assert "科创板与创业板活跃样本数为 14 家" in reviewed
 
 
+def test_review_research_report_strips_fixed_preamble_and_layout_noise():
+    markdown = (
+        "# 复盘\n\n"
+        "好的，作为资深A股交易员，以下是今天的正式报告。\n"
+        "据公开市场数据，市场震荡整理。\n"
+        "Kami-compatible editorial layout · 内容仅供复盘参考\n"
+    )
+
+    reviewed = review_research_report(markdown, sample_evidence())
+
+    assert "资深A股交易员" not in reviewed
+    assert "Kami-compatible editorial layout" not in reviewed
+    assert "市场震荡整理" in reviewed
+
+
 def test_review_research_report_rejects_unrecognized_internal_field():
     with pytest.raises(ResearchStyleError):
         review_research_report("# 复盘\n\n`modules.UNKNOWN.secret` 为 true。", sample_evidence())

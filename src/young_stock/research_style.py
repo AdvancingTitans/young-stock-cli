@@ -58,6 +58,11 @@ FORBIDDEN_PATTERNS = (
     r"\bM[1-6]\s*(?:降级|缺失|不可用)",
 )
 
+EDITORIAL_NOISE_PATTERNS = (
+    r"^\s*(?:好的[，,、]?)?.*资深A股交易员.*$",
+    r"Kami-compatible editorial layout",
+)
+
 
 class ResearchStyleError(RuntimeError):
     """Report still contains publication-unsafe internal language."""
@@ -154,23 +159,49 @@ def _unsafe(line: str) -> bool:
     return any(re.search(pattern, line, flags=re.IGNORECASE) for pattern in FORBIDDEN_PATTERNS)
 
 
-def review_research_report(markdown: str, evidence: dict[str, Any]) -> str:
-    """Remove unsafe sentences, add evidence-backed research wording, and validate."""
-    internal_fields = re.findall(r"\bmodules\.([A-Za-z0-9_]+)\.([A-Za-z0-9_.]+)", markdown)
-    known_modules = set((evidence.get("modules") or {}).keys())
-    if any(module not in known_modules for module, _field in internal_fields):
-        raise ResearchStyleError("正式研报包含无法转换的内部字段。")
+def _editorial_noise(line: str) -> bool:
+    return any(re.search(pattern, line, flags=re.IGNORECASE) for pattern in EDITORIAL_NOISE_PATTERNS)
+
+
+def _normalized_line(line: str) -> str:
+    return line.replace("`", "")
+
+
+def sanitize_public_report(markdown: str, evidence: dict[str, Any] | None = None, *, strict: bool = False) -> str:
+    evidence = evidence or {}
+    normalized_markdown = _normalized_line(markdown)
+    if strict:
+        internal_fields = re.findall(r"\bmodules\.([A-Za-z0-9_]+)\.([A-Za-z0-9_.]+)", normalized_markdown)
+        known_modules = set((evidence.get("modules") or {}).keys())
+        if any(module not in known_modules for module, _field in internal_fields):
+            raise ResearchStyleError("正式研报包含无法转换的内部字段。")
+
     safe_lines = []
-    removed = False
+    removed_unsafe = False
+    in_code_block = False
     for line in markdown.splitlines():
-        if _unsafe(line):
-            removed = True
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            in_code_block = not in_code_block
+            removed_unsafe = True
+            continue
+        normalized = _normalized_line(line)
+        if in_code_block or _editorial_noise(normalized):
+            continue
+        if _unsafe(normalized):
+            removed_unsafe = True
             continue
         safe_lines.append(line)
-    if removed:
+    if removed_unsafe:
         insert_at = 1 if safe_lines and safe_lines[0].startswith("#") else 0
         safe_lines[insert_at:insert_at] = ["", *_replacement_lines(evidence), ""]
     reviewed = "\n".join(safe_lines).strip()
-    if _unsafe(reviewed):
+    validation_lines = [_normalized_line(line) for line in reviewed.splitlines()]
+    if any(_unsafe(line) or _editorial_noise(line) for line in validation_lines):
         raise ResearchStyleError("正式研报未通过研究语言审校。")
     return reviewed
+
+
+def review_research_report(markdown: str, evidence: dict[str, Any]) -> str:
+    """Remove unsafe sentences, add evidence-backed research wording, and validate."""
+    return sanitize_public_report(markdown, evidence, strict=True)

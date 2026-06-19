@@ -47,8 +47,10 @@ def test_generate_llm_daily_report_uses_evidence_and_returns_metadata():
 
 def test_market_session_labels():
     assert market_session(datetime(2026, 6, 18, 9, 10)) == "早盘"
-    assert market_session(datetime(2026, 6, 18, 10, 30)) == "盘中"
+    assert market_session(datetime(2026, 6, 18, 9, 41)) == "早盘"
+    assert market_session(datetime(2026, 6, 18, 10, 30)) == "早盘"
     assert market_session(datetime(2026, 6, 18, 12, 0)) == "午间"
+    assert market_session(datetime(2026, 6, 18, 14, 10)) == "盘中"
     assert market_session(datetime(2026, 6, 18, 15, 10)) == "盘后"
 
 
@@ -70,3 +72,14 @@ def test_same_session_topic_overwrites_and_cross_session_is_retained(monkeypatch
     assert first == second
     assert second.read_text(encoding="utf-8") == "# new\n"
     assert other.exists()
+
+
+def test_latest_markdown_prefers_identity_path_over_newer_legacy_file(monkeypatch, tmp_path):
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
+    artifacts = ReportArtifacts("20260619")
+    legacy = artifacts.write_markdown("replay", "# legacy\n")
+    identified = artifacts.write_report_markdown(ReportIdentity("20260619", "早盘", "A股深度复盘"), "# identity\n")
+
+    legacy.touch()
+
+    assert ReportArtifacts.latest_markdown("20260619") == identified

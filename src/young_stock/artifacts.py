@@ -15,11 +15,11 @@ from .local_store import young_home
 def market_session(now: datetime | None = None) -> str:
     now = now or datetime.now()
     minute = now.hour * 60 + now.minute
-    if 9 * 60 <= minute < 9 * 60 + 30:
+    if 9 * 60 <= minute < 11 * 60 + 30:
         return "早盘"
     if 11 * 60 + 30 <= minute < 13 * 60:
         return "午间"
-    if 9 * 60 + 30 <= minute < 11 * 60 + 30 or 13 * 60 <= minute < 15 * 60:
+    if 13 * 60 <= minute < 15 * 60:
         return "盘中"
     return "盘后"
 

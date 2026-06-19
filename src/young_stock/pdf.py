@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import contextlib
+from datetime import datetime
 import html
 import io
+import json
 import os
 import re
 import sys
@@ -15,6 +17,7 @@ from typing import Any, Callable
 
 from .artifacts import ReportArtifacts, ReportIdentity, market_session
 from .local_store import load_store
+from .research_style import sanitize_public_report
 
 
 class PDFDependencyError(RuntimeError):
@@ -94,6 +97,63 @@ def _template_text() -> str:
     )
 
 
+def _parse_identity_from_path(path: Path) -> ReportIdentity | None:
+    match = re.match(r"^(?P<trade_date>\d{8})-(?P<session>早盘|午间|盘中|盘后)-(?P<topic>.+)\.md$", path.name)
+    if not match:
+        return None
+    return ReportIdentity(match.group("trade_date"), match.group("session"), match.group("topic"))
+
+
+def _report_title(markdown: str, trade_date: str) -> str:
+    title_match = re.search(r"^#\s+(.+)$", markdown, flags=re.MULTILINE)
+    return title_match.group(1).strip() if title_match else f"{trade_date} 投资复盘报告"
+
+
+def _report_topic(markdown: str, fallback: str = "A股投资日报") -> str:
+    title = re.sub(r"\s+", "", _report_title(markdown, "")).strip("：:-—")
+    if title in {"", "复盘", "深度复盘"}:
+        return "A股深度复盘"
+    if "日报" in title:
+        return "A股投资日报"
+    return title or fallback
+
+
+def _load_related_evidence(markdown_path: Path) -> dict[str, Any] | None:
+    candidates = []
+    if markdown_path.stem in {"replay", "report"}:
+        candidates.append(markdown_path.with_name("evidence.json"))
+    candidates.append(markdown_path.with_name(f"{markdown_path.stem}-evidence.json"))
+    for candidate in candidates:
+        if not candidate.exists():
+            continue
+        try:
+            return json.loads(candidate.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return None
+    return None
+
+
+def _canonicalize_markdown(
+    artifacts: ReportArtifacts,
+    trade_date: str,
+    markdown_path: Path,
+    markdown: str,
+    *,
+    now: datetime | None = None,
+) -> tuple[Path, str]:
+    identity = _parse_identity_from_path(markdown_path)
+    evidence = _load_related_evidence(markdown_path)
+    cleaned = sanitize_public_report(markdown, evidence)
+    session = identity.session if identity else market_session(now)
+    topic = identity.topic if identity else _report_topic(cleaned)
+    canonical = artifacts.write_report_markdown(ReportIdentity(trade_date, session, topic), cleaned)
+    return canonical, cleaned
+
+
+def _clean_document_html(document: str) -> str:
+    return re.sub(r"Kami-compatible editorial layout\s*·?\s*", "", document, flags=re.IGNORECASE)
+
+
 def _load_weasyprint() -> Any:
     os.environ.setdefault("XDG_CACHE_HOME", str(Path(tempfile.gettempdir()) / "young-stock-weasy-cache"))
     if sys.platform == "darwin":
@@ -116,9 +176,9 @@ def _default_render(html_path: Path, pdf_path: Path) -> None:
     renderer = _load_weasyprint()
     if renderer is None:
         raise PDFDependencyError(
-            "未安装 PDF 可选依赖。uv tool 用户请运行 "
-            "`uv tool install --force 'young-stock-cli[pdf]'`；"
-            "普通 Python 环境请运行 `python3 -m pip install \"young-stock-cli[pdf]\"`。"
+            "当前环境未检测到 PDF 渲染能力。请先运行 `young init` 检查安装状态；"
+            "若仍缺少依赖，uv tool 用户请执行 `uv tool install --force 'young-stock-cli[pdf]'`，"
+            "普通 Python 环境请执行 `python3 -m pip install \"young-stock-cli[pdf]\"`。"
         )
     renderer(filename=str(html_path), base_url=str(html_path.parent)).write_pdf(str(pdf_path))
 
@@ -145,6 +205,7 @@ def export_report_pdf(
     profile: dict[str, Any] | None = None,
     daily_markdown_factory: Callable[[], str] | None = None,
     render: Callable[[Path, Path], None] | None = None,
+    now: datetime | None = None,
 ) -> tuple[Path, Path]:
     artifacts = ReportArtifacts(trade_date)
     markdown_path = ReportArtifacts.latest_markdown(trade_date)
@@ -159,13 +220,15 @@ def export_report_pdf(
             markdown = _capture_daily(core, trade_date, profile)
         else:
             raise ValueError("没有可用报告；请先运行 `young daily` 或提供日报生成器。")
-        identity = ReportIdentity(trade_date, market_session(), "A股投资日报")
-        markdown_path = artifacts.write_report_markdown(identity, markdown)
+        markdown_path = artifacts.write_report_markdown(
+            ReportIdentity(trade_date, market_session(now), "A股投资日报"),
+            sanitize_public_report(markdown),
+        )
     markdown = markdown_path.read_text(encoding="utf-8")
+    markdown_path, markdown = _canonicalize_markdown(artifacts, trade_date, markdown_path, markdown, now=now)
     body = markdown_to_html(markdown)
-    title_match = re.search(r"^#\s+(.+)$", markdown, flags=re.MULTILINE)
-    title = title_match.group(1).strip() if title_match else f"{trade_date} 投资复盘报告"
-    document = (
+    title = _report_title(markdown, trade_date)
+    document = _clean_document_html(
         _template_text()
         .replace("{{TITLE}}", html.escape(title))
         .replace("{{DATE}}", trade_date)

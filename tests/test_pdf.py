@@ -24,9 +24,10 @@ def test_export_report_uses_existing_markdown(monkeypatch, tmp_path):
 
     markdown_path, pdf_path = export_report_pdf("20260618", render=fake_render)
 
-    assert markdown_path == source
+    assert markdown_path != source
+    assert markdown_path.name.startswith("20260618-")
     assert pdf_path.read_bytes().startswith(b"%PDF")
-    assert calls[0][0].name == "replay.html"
+    assert calls[0][0].name.startswith("20260618-")
 
 
 def test_export_report_auto_generates_daily_markdown(monkeypatch, tmp_path):
@@ -60,10 +61,27 @@ def test_export_report_reuses_saved_diary_text(monkeypatch, tmp_path):
     assert "Diary report" in markdown_path.read_text()
 
 
+def test_export_report_strips_layout_noise_and_fixed_preamble(monkeypatch, tmp_path):
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
+    ReportArtifacts("20260618").write_markdown(
+        "replay",
+        "# 复盘\n\n好的，作为资深A股交易员，以下是今天的报告。\nKami-compatible editorial layout · 内容仅供复盘参考\n正文\n",
+    )
+
+    markdown_path, pdf_path = export_report_pdf(
+        "20260618",
+        render=lambda html, pdf: pdf.write_bytes(b"%PDF-clean"),
+    )
+
+    assert "资深A股交易员" not in markdown_path.read_text(encoding="utf-8")
+    html_text = pdf_path.with_suffix(".html").read_text(encoding="utf-8")
+    assert "Kami-compatible editorial layout" not in html_text
+
+
 def test_default_renderer_has_clear_optional_dependency_error(monkeypatch, tmp_path):
     monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
     ReportArtifacts("20260618").write_markdown("daily", "# 日报")
     monkeypatch.setattr("young_stock.pdf._load_weasyprint", lambda: None)
 
-    with pytest.raises(PDFDependencyError, match=r"uv tool install --force"):
+    with pytest.raises(PDFDependencyError, match=r"young init"):
         export_report_pdf("20260618")

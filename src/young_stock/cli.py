@@ -333,6 +333,43 @@ def chat() -> None:
     run_chat()
 
 
+@cli.group(help="Manage persistent long-term memory for young chat.")
+def memory() -> None:
+    pass
+
+
+@memory.command("show", help="Show saved young chat long-term memory.")
+def memory_show() -> None:
+    from .chat import format_long_term_memory_for_cli, load_long_term_memory
+
+    click.echo(format_long_term_memory_for_cli(load_long_term_memory()))
+
+
+memory.add_command(memory_show, name="list")
+
+
+@memory.command("clear", help="Clear one kind of young chat memory, or all kinds.")
+@click.option(
+    "--kind",
+    type=click.Choice(["investment", "persona", "preferences", "all"]),
+    default="all",
+    show_default=True,
+)
+def memory_clear(kind: str) -> None:
+    from .chat import clear_long_term_memory_store
+
+    clear_long_term_memory_store(None if kind == "all" else kind)
+    click.echo(f"已清空 chat memory: {kind}")
+
+
+@memory.command("reset", help="Reset all persistent young chat memory.")
+def memory_reset() -> None:
+    from .chat import clear_long_term_memory_store
+
+    clear_long_term_memory_store()
+    click.echo("已重置全部 chat memory。")
+
+
 @cli.group(help="Manage LLM and delivery-channel configuration.")
 def config() -> None:
     pass

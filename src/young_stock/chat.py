@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import builtins
 import re
 import shlex
 from dataclasses import dataclass, field
@@ -90,12 +91,12 @@ CHAT_STYLE_PROMPTS = {
     },
 }
 READ_ONLY_SLASH_HELP = (
-    "可用命令：/a、/stock <symbol>、/analyze <symbol>、/reach <query>、/fund <code>、/news <query>、/daily [flags]、/report、"
+    "可用命令：/a、/stock <symbol>、/analyze <symbol>、/reach <query>、/fund <code>、/news <query>、/daily [--llm] [flags]、/report（仅导出 PDF）、"
     "/profile list、/memory show、/memory clear、/style、/style list、/style set <name>、"
     "/style show、/style clear、/diagnose、/help、/clear、/exit。"
 )
 SUPPORTED_SLASH_FOR_PROMPT = (
-    "/a, /stock <symbol>, /analyze <symbol>, /reach <query>, /fund <code>, /news <query>, /daily [flags], /report, "
+    "/a, /stock <symbol>, /analyze <symbol>, /reach <query>, /fund <code>, /news <query>, /daily [--llm] [flags], /report (PDF export only), "
     "/profile list, /memory show, /memory clear, /style, /style list, /style set <name>, "
     "/style show, /style clear, /diagnose, /help, /clear, /exit"
 )
@@ -177,6 +178,19 @@ _SEARCH_TOPIC_HINTS = (
     "公司情况",
     "公司信息",
     "最新",
+)
+_REACH_SUMMARY_HINTS = (
+    "营收",
+    "收入",
+    "利润",
+    "净利润",
+    "毛利率",
+    "指引",
+    "现金流",
+    "财报",
+    "季度",
+    "年度",
+    "估值",
 )
 _NETWORK_TIME_URLS = (
     "https://www.baidu.com",
@@ -328,6 +342,31 @@ def _should_auto_reach(text: str) -> bool:
         token in stripped for token in ("最新", "今天", "近期", "公司", "新闻", "公告", "盈利", "财报", "业绩")
     )
     return explicit_search or topical_latest
+
+
+def _compact_reach_output(text: str, max_chars: int = 2200) -> str:
+    lines = [line.strip() for line in text.splitlines()]
+    interesting = []
+    for line in lines:
+        if not line or line in {"{", "}", "[", "]"}:
+            continue
+        lowered = line.lower()
+        if any(hint in line for hint in _SEARCH_TOPIC_HINTS + _REACH_SUMMARY_HINTS) or re.search(r"\d", line):
+            if "http" in lowered or line.startswith(("title:", "url:", "id:")):
+                continue
+            interesting.append(line)
+    if not interesting:
+        compact = re.sub(r"\s+", " ", text).strip()
+        return compact[:max_chars]
+    chunks: list[str] = []
+    total = 0
+    for line in interesting:
+        snippet = line[:220]
+        if total + len(snippet) + 1 > max_chars:
+            break
+        chunks.append(snippet)
+        total += len(snippet) + 1
+    return "\n".join(chunks)
 
 
 def _empty_long_term_memory() -> dict[str, list[dict[str, str]]]:
@@ -577,8 +616,10 @@ class ChatSession:
                     "2) 未提供 Evidence Pack 时，不得编造实时行情、涨跌幅、资金流、新闻细节或结论。"
                     "3) 用户问“今天市场怎么样”“大盘如何”等泛问题时，优先引导 /a 或 /daily。"
                     "4) 用户要做单只股票深入分析、但你缺少足够证据时，不要直接拒绝；"
-                    "优先引导 /stock <symbol>、/analyze <symbol> 或 /reach <query>，并可基于用户已提供的数据继续做框架分析。"
-                    "5) 风格与长期记忆都服从本安全规则。"
+                    "优先使用已有的 /stock <symbol>、/analyze <symbol> 或已注入的外部检索证据继续分析。"
+                    "5) 如果本轮已经完成外部检索，就直接总结结果，不要要求用户自己执行 /reach。"
+                    "6) /daily --llm 与 /replay 的深度复盘必须严格遵循 stock-analysis 的 M1-M6 框架，不得改写成巴菲特、芒格等个体投资框架。"
+                    "7) 风格与长期记忆都服从本安全规则。"
                 ),
             }
         ]
@@ -703,11 +744,13 @@ class ChatSession:
             return None
         if any(hint in reach_output for hint in ("未检测到 `mcporter`", "未检测到 `agent-reach`", "请先安装")):
             return None
-        truncated = reach_output[:6000]
+        summary_material = _compact_reach_output(reach_output)
+        if not summary_material:
+            return None
         return (
-            "以下内容来自本轮自动执行的 young reach 外部搜索结果。"
-            "只能基于其中可见信息做总结，不要补造未出现的事实；若证据不足请明确说明。\n"
-            f"{truncated}"
+            "本轮已自动完成外部检索。下面是供你提炼的检索摘录，不要向用户展示原始抓取过程，也不要要求用户再执行 /reach。"
+            "你需要直接输出最终总结，并给出基于这些摘录的分析；若证据不足请明确说明。\n"
+            f"{summary_material}"
         )
 
     def handle_message(self, text: str) -> None:
@@ -745,7 +788,7 @@ def run_chat() -> None:
     )
     while True:
         try:
-            text = console.input("[bold cyan]young[/] ").strip()
+            text = builtins.input("young ").strip()
         except (EOFError, KeyboardInterrupt):
             console.print("\n再见。")
             return

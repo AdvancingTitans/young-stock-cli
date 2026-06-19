@@ -38,20 +38,20 @@ def test_chat_allows_analyze_slash(monkeypatch):
     outputs = []
     session = ChatSession(output=outputs.append)
     calls = []
-    monkeypatch.setattr(session, "_invoke_click", lambda args: calls.append(args) or "")
+    monkeypatch.setattr(session, "_invoke_click", lambda args, echo=True: calls.append((args, echo)) or "")
 
     assert session.handle_slash("/analyze 600519") is False
-    assert calls == [["analyze", "600519"]]
+    assert calls == [(["analyze", "600519"], True)]
 
 
 def test_chat_allows_reach_slash(monkeypatch):
     outputs = []
     session = ChatSession(output=outputs.append)
     calls = []
-    monkeypatch.setattr(session, "_invoke_click", lambda args: calls.append(args) or "")
+    monkeypatch.setattr(session, "_invoke_click", lambda args, echo=True: calls.append((args, echo)) or "")
 
     assert session.handle_slash("/reach 贵州茅台 盈利 新闻") is False
-    assert calls == [["reach", "贵州茅台", "盈利", "新闻"]]
+    assert calls == [(["reach", "贵州茅台", "盈利", "新闻"], True)]
 
 
 def test_chat_unknown_command_does_not_exit():
@@ -88,11 +88,11 @@ def test_chat_deprecated_aliases_route_to_daily_llm(monkeypatch):
     outputs = []
     session = ChatSession(output=outputs.append)
     calls = []
-    monkeypatch.setattr(session, "_invoke_click", lambda args: calls.append(args) or "")
+    monkeypatch.setattr(session, "_invoke_click", lambda args, echo=True: calls.append((args, echo)) or "")
 
     assert session.handle_slash("/daily-llm") is False
     assert session.handle_slash("/replay --refresh") is False
-    assert calls == [["daily", "--llm"], ["daily", "--llm", "--refresh"]]
+    assert calls == [(["daily", "--llm"], True), (["daily", "--llm", "--refresh"], True)]
     assert any("已弃用" in output for output in outputs)
 
 
@@ -262,15 +262,58 @@ def test_chat_injects_current_time_and_auto_reach_context(monkeypatch):
         },
     )
     session = ChatSession(output=lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(session, "_invoke_click", lambda args, echo=True: "搜索结果：贵州茅台 盈利 新闻" if not echo else "")
+    monkeypatch.setattr(
+        session,
+        "_invoke_click",
+        lambda args, echo=True: """
+title: Tesla Q1 2026 earnings
+营收 120 亿美元，同比增长 12%
+毛利率 18.4%
+净利润 21 亿美元
+现金流改善
+https://example.com/raw
+""".strip() if not echo else "",
+    )
 
     session.handle_message("帮我搜索一下贵州茅台最新新闻和盈利情况")
 
     system_contents = [item["content"] for item in captured_messages[0] if item["role"] == "system"]
     assert any("当前系统时间（北京时间，UTC+8）是 2026-06-19 16:08:09" in content for content in system_contents)
     assert any("联网时钟与本地时钟交叉校验" in content for content in system_contents)
-    assert any("young reach 外部搜索结果" in content for content in system_contents)
-    assert any("贵州茅台 盈利 新闻" in content for content in system_contents)
+    assert any("本轮已自动完成外部检索" in content for content in system_contents)
+    assert any("营收 120 亿美元" in content for content in system_contents)
+    assert all("https://example.com/raw" not in content for content in system_contents)
+    assert all("title:" not in content for content in system_contents)
+
+
+def test_chat_auto_reach_never_echoes_raw_capture(monkeypatch):
+    outputs: list[str] = []
+
+    class DummyClient:
+        def __init__(self, config):
+            self.config = config
+
+        def chat(self, messages):
+            return type("Response", (), {"content": "已总结"})()
+
+    monkeypatch.setattr(chat_module, "LLMClient", DummyClient)
+    monkeypatch.setattr(
+        chat_module,
+        "current_time_snapshot",
+        lambda: {
+            "current": chat_module.datetime(2026, 6, 19, 16, 8, 9, tzinfo=chat_module._BEIJING_TZ),
+            "source": "network+local",
+            "local": chat_module.datetime(2026, 6, 19, 16, 8, 7, tzinfo=chat_module._BEIJING_TZ),
+            "network": chat_module.datetime(2026, 6, 19, 16, 8, 9, tzinfo=chat_module._BEIJING_TZ),
+            "diff_seconds": 2,
+        },
+    )
+    session = ChatSession(output=outputs.append)
+    monkeypatch.setattr(session, "_invoke_click", lambda args, echo=True: "营收 120 亿美元\n毛利率 18.4%" if not echo else "")
+
+    session.handle_message("搜索特斯拉 2026 年第一季度财报")
+
+    assert outputs == ["已总结"]
 
 
 def test_current_time_snapshot_falls_back_to_local_when_network_unavailable(monkeypatch):
@@ -294,7 +337,7 @@ def test_run_chat_banner_shows_style_options(monkeypatch, tmp_path, capsys):
     def raise_eof(*args, **kwargs):
         raise EOFError
 
-    monkeypatch.setattr(chat_module.Console, "input", raise_eof)
+    monkeypatch.setattr("builtins.input", raise_eof)
 
     run_chat()
 
@@ -304,3 +347,18 @@ def test_run_chat_banner_shows_style_options(monkeypatch, tmp_path, capsys):
     assert "当前风格" in captured
     assert "/style set <name>" in captured
     assert "对话风格、自称口吻和分析框架" in captured
+
+
+def test_run_chat_uses_fixed_plain_prompt(monkeypatch, tmp_path):
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
+    prompts = []
+
+    def fake_input(prompt):
+        prompts.append(prompt)
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", fake_input)
+
+    run_chat()
+
+    assert prompts == ["young "]

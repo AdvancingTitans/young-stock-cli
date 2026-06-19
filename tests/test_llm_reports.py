@@ -113,3 +113,14 @@ def test_llm_report_system_prompt_uses_short_public_disclaimer_contract():
     assert "结尾必须原样包含" not in system_text
     assert "不构成任何投资建议。股市有风险，投资需谨慎。" not in system_text
     assert "不要重复免责声明" in system_text
+
+
+def test_llm_report_system_prompt_rejects_persona_framework_drift():
+    client = RecordingClient("# 复盘\n\n据公开市场数据，市场震荡。")
+
+    generate_llm_daily_report({"modules": {}, "_meta": {}}, client)
+
+    system_text = "\n".join(message["content"] for message in client.messages if message["role"] == "system")
+    assert "不得替换、弱化或改写成巴菲特、芒格、格雷厄姆、达利欧" in system_text
+    assert "### M1 大盘指数与市场广度" in system_text
+    assert "### M6 抗跌方向" in system_text

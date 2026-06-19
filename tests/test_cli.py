@@ -271,11 +271,10 @@ def test_cli_reach_runs_mcporter_search(monkeypatch):
 
     calls = []
 
-    monkeypatch.setattr(cli_module.shutil, "which", lambda name: "/usr/bin/mock" if name == "mcporter" else None)
     monkeypatch.setattr(
-        cli_module.subprocess,
-        "run",
-        lambda cmd, check=False: calls.append((cmd, check)) or SimpleNamespace(returncode=0),
+        cli_module,
+        "_capture_external_command",
+        lambda cmd, missing_hint: calls.append((cmd, missing_hint)) or "search output",
     )
 
     result = CliRunner().invoke(cli, ["reach", "贵州茅台", "盈利", "新闻", "--limit", "3"])
@@ -283,8 +282,9 @@ def test_cli_reach_runs_mcporter_search(monkeypatch):
     assert result.exit_code == 0
     assert calls == [(
         ["mcporter", "call", 'exa.web_search_exa(query: "贵州茅台 盈利 新闻", numResults: 3)'],
-        False,
+        "未检测到 `mcporter`。请先安装 Agent-Reach / Exa 通道，或先用 `young reach --doctor` 检查外部能力。",
     )]
+    assert "search output" in result.output
 
 
 def test_cli_reach_url_uses_jina_bridge(monkeypatch):
@@ -292,11 +292,10 @@ def test_cli_reach_url_uses_jina_bridge(monkeypatch):
 
     calls = []
 
-    monkeypatch.setattr(cli_module.shutil, "which", lambda name: "/usr/bin/mock" if name == "curl" else None)
     monkeypatch.setattr(
-        cli_module.subprocess,
-        "run",
-        lambda cmd, check=False: calls.append((cmd, check)) or SimpleNamespace(returncode=0),
+        cli_module,
+        "_capture_external_command",
+        lambda cmd, missing_hint: calls.append((cmd, missing_hint)) or "page summary",
     )
 
     result = CliRunner().invoke(cli, ["reach", "--url", "https://example.com/article"])
@@ -304,19 +303,42 @@ def test_cli_reach_url_uses_jina_bridge(monkeypatch):
     assert result.exit_code == 0
     assert calls == [(
         ["curl", "-s", "https://r.jina.ai/https://example.com/article"],
-        False,
+        "当前环境缺少 `curl`，无法走 Agent-Reach 网页阅读桥接。",
     )]
+    assert "page summary" in result.output
 
 
 def test_cli_reach_missing_mcporter_shows_install_hint(monkeypatch):
     from click.testing import CliRunner
 
-    monkeypatch.setattr(cli_module.shutil, "which", lambda name: None)
+    monkeypatch.setattr(
+        cli_module,
+        "_capture_external_command",
+        lambda cmd, missing_hint: (_ for _ in ()).throw(click.ClickException(missing_hint)),
+    )
 
     result = CliRunner().invoke(cli, ["reach", "腾讯", "新闻"])
 
     assert result.exit_code != 0
     assert "mcporter" in result.output
+
+
+def test_cli_report_help_says_pdf_only():
+    from click.testing import CliRunner
+
+    result = CliRunner().invoke(cli, ["report", "--help"])
+
+    assert result.exit_code == 0
+    assert "PDF only" in result.output
+
+
+def test_cli_replay_help_marks_alias_only():
+    from click.testing import CliRunner
+
+    result = CliRunner().invoke(cli, ["replay", "--help"])
+
+    assert result.exit_code == 0
+    assert "Deprecated alias" in result.output
 
 
 def test_cli_config_models_lists_provider_models(monkeypatch):

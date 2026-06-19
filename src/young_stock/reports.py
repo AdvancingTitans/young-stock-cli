@@ -24,13 +24,30 @@ NEGATIVE_NEWS_KEYWORDS = (
 LLM_REPORT_PROMPT_VERSION = "stock-analysis-research-language-v3"
 LLM_REPORT_SYSTEM_PROMPT = """请基于用户提供的研报证据，撰写正式 A 股投资研究报告。
 你只能使用用户提供的研报证据，不得补写或外推任何缺失数字、日期、来源或持仓。
+你必须严格遵循 AdvancingTitans/stock-analysis 的 M1-M6 方法，不得替换、弱化或改写成巴菲特、芒格、格雷厄姆、达利欧或其他个人投资框架。
 按以下顺序输出 Markdown：大盘指数概览、持仓分析、六模块深度复盘、综合持仓建议与风险提示。
+“六模块深度复盘”下固定使用以下子标题顺序：M1 大盘指数与市场广度、M2 板块强弱与资金流、M3 赚钱效应与涨停结构、M4 下跌风险与炸板结构、M5 持仓与市场风格、M6 抗跌方向。
 每个有证据的模块给出关键判断、证据、风险/确认条件；建议必须是条件化触发器，不给无条件买卖指令。
 证据完整度不足时，只输出指数、持仓、已验证风险和下一交易日观察清单。
 正文只写投资研究语言。不得出现内部字段名、程序结构、工具名称、本地路径、文件扩展名、技术切换过程或机械占位段。
 某模块无证据时优先省略该小节；确需说明时使用“相关指标当日未披露”或“历史数据不可得”等自然表述。
 正常数据使用“据公开市场数据”或“据交易所及财经终端披露”；回溯数据使用“按惯例回溯至该日”或“历史口径回溯”。
 公开版会在标题下统一加入短声明；不要重复免责声明，也不要在结尾追加长免责声明。"""
+
+LLM_REPORT_STRUCTURE_PROMPT = """输出结构必须固定：
+# 标题
+## 大盘指数概览
+## 持仓分析
+## 六模块深度复盘
+### M1 大盘指数与市场广度
+### M2 板块强弱与资金流
+### M3 赚钱效应与涨停结构
+### M4 下跌风险与炸板结构
+### M5 持仓与市场风格
+### M6 抗跌方向
+## 综合持仓建议与风险提示
+
+不得把以上结构改写成任何人物风格模板。"""
 
 MODULE_TITLES = {
     "M1": "大盘指数与市场广度",
@@ -179,6 +196,7 @@ def generate_llm_daily_report(
     methodology: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
     messages = [{"role": "system", "content": LLM_REPORT_SYSTEM_PROMPT}]
+    messages.append({"role": "system", "content": LLM_REPORT_STRUCTURE_PROMPT})
     if methodology:
         research_methodology = to_research_methodology(methodology)
         messages.append(

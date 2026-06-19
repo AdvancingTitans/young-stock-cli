@@ -108,6 +108,25 @@ def _run_external_command(command: list[str], *, missing_hint: str) -> None:
         raise click.ClickException(f"外部能力执行失败（exit={result.returncode}）：{' '.join(command)}")
 
 
+def _capture_external_command(command: list[str], *, missing_hint: str) -> str:
+    if not shutil.which(command[0]):
+        raise click.ClickException(missing_hint)
+    result = subprocess.run(
+        command,
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    output = (result.stdout or "").strip()
+    error_output = (result.stderr or "").strip()
+    if result.returncode != 0:
+        detail = error_output or output or f"exit={result.returncode}"
+        raise click.ClickException(f"外部能力执行失败：{detail}")
+    return output or error_output
+
+
 def _run_plain_daily(
     date_str: str,
     profile: dict[str, object],
@@ -354,7 +373,7 @@ def news(parts: tuple[str, ...], date: str | None, refresh: bool, limit: int) ->
     _core.run_stock_news(symbol, date_str, size=limit)
 
 
-@cli.command(help="Personal daily report from your saved watchlist.")
+@cli.command(help="Personal watchlist daily report. Add `--llm` for a strict stock-analysis M1-M6 Markdown replay.")
 @_date_opt
 @_refresh_opt
 @click.option("--no-news", is_flag=True, help="Only show market data, skip news lookup.")
@@ -437,7 +456,7 @@ def _run_llm_replay(date_str: str, kind: str = "replay", symbol: str | None = No
     return path
 
 
-@cli.command(help="Generate an evidence-driven deep market replay with the configured LLM.")
+@cli.command(help="Deprecated alias for `young daily --llm` (Markdown replay only; no PDF export).")
 @_date_opt
 @_refresh_opt
 def replay(date: str | None, refresh: bool) -> None:
@@ -473,20 +492,24 @@ def analyze(symbol: str, date: str | None, refresh: bool) -> None:
 def reach(query_parts: tuple[str, ...], url: str | None, limit: int, doctor: bool) -> None:
     query = " ".join(part for part in query_parts if part).strip()
     if doctor:
-        _run_external_command(
+        output = _capture_external_command(
             ["agent-reach", "doctor"],
             missing_hint="未检测到 `agent-reach`。请先按 Agent-Reach 技能文档安装后再运行 `young reach --doctor`。",
         )
+        if output:
+            click.echo(output)
         return
     if url:
-        _run_external_command(
+        output = _capture_external_command(
             ["curl", "-s", f"https://r.jina.ai/{url}"],
             missing_hint="当前环境缺少 `curl`，无法走 Agent-Reach 网页阅读桥接。",
         )
+        if output:
+            click.echo(output)
         return
     if not query:
         raise click.ClickException("请提供查询词，或使用 --url / --doctor。")
-    _run_external_command(
+    output = _capture_external_command(
         [
             "mcporter",
             "call",
@@ -497,6 +520,8 @@ def reach(query_parts: tuple[str, ...], url: str | None, limit: int, doctor: boo
             "或先用 `young reach --doctor` 检查外部能力。"
         ),
     )
+    if output:
+        click.echo(output)
 
 
 @cli.command(help="Enter Rich interactive chat with slash commands.")
@@ -686,7 +711,7 @@ def config_channel_remove(channel_type: str, name: str) -> None:
     click.echo(f"Removed {channel_type} channel: {name}" if removed else f"Channel not found: {name}")
 
 
-@cli.command(help="Export the latest Markdown report to a professional PDF.")
+@cli.command(help="Export the latest saved Markdown report to PDF only; it does not generate a new LLM replay.")
 @_date_opt
 def report(date: str | None) -> None:
     from .pdf import export_report_pdf

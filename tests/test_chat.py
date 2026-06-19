@@ -173,9 +173,11 @@ def test_style_set_affects_llm_prompt(monkeypatch, tmp_path):
     assert session.handle_slash("/style set buffett") is False
     session.handle_message("怎么看护城河？")
 
-    style_prompt = captured_messages[0][1]["content"]
     safety_prompt = captured_messages[0][0]["content"]
+    time_prompt = captured_messages[0][1]["content"]
+    style_prompt = captured_messages[0][2]["content"]
     assert "young-stock-cli 助手" not in safety_prompt
+    assert "当前系统时间（北京时间，UTC+8）是" in time_prompt
     assert "当前对话风格与分析框架：buffett" in style_prompt
     assert "股东通信" in style_prompt
     assert "我是 Buffett" in style_prompt
@@ -204,9 +206,86 @@ def test_style_set_uses_selected_persona_name_in_prompt(monkeypatch, tmp_path):
     assert session.handle_slash("/style set graham") is False
     session.handle_message("先自我介绍一下。")
 
-    style_prompt = captured_messages[0][1]["content"]
+    style_prompt = captured_messages[0][2]["content"]
     assert "我是 Graham" in style_prompt
     assert "young-stock-cli 助手" not in style_prompt
+
+
+def test_chat_time_query_uses_beijing_system_time(monkeypatch):
+    outputs = []
+    session = ChatSession(output=outputs.append)
+    fixed_now = chat_module.datetime(2026, 6, 19, 15, 30, 45, tzinfo=chat_module._BEIJING_TZ)
+    monkeypatch.setattr(
+        chat_module,
+        "current_time_snapshot",
+        lambda: {
+            "current": fixed_now,
+            "source": "network+local",
+            "local": fixed_now,
+            "network": fixed_now,
+            "diff_seconds": 0,
+        },
+    )
+    monkeypatch.setattr(
+        chat_module,
+        "LLMClient",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("LLM should not be called for time query")),
+    )
+
+    session.handle_message("现在北京时间几点？今天几号？")
+
+    assert outputs == ["当前北京时间是 2026 年 6 月 19 日 15:30:45，星期五（已用联网时钟与本地时钟交叉校验）。"]
+    assert session.history[-1]["content"] == outputs[0]
+
+
+def test_chat_injects_current_time_and_auto_reach_context(monkeypatch):
+    captured_messages = []
+
+    class DummyClient:
+        def __init__(self, config):
+            self.config = config
+
+        def chat(self, messages):
+            captured_messages.append(messages)
+            return type("Response", (), {"content": "已分析"})()
+
+    monkeypatch.setattr(chat_module, "LLMClient", DummyClient)
+    monkeypatch.setattr(
+        chat_module,
+        "current_time_snapshot",
+        lambda: {
+            "current": chat_module.datetime(2026, 6, 19, 16, 8, 9, tzinfo=chat_module._BEIJING_TZ),
+            "source": "network+local",
+            "local": chat_module.datetime(2026, 6, 19, 16, 8, 7, tzinfo=chat_module._BEIJING_TZ),
+            "network": chat_module.datetime(2026, 6, 19, 16, 8, 9, tzinfo=chat_module._BEIJING_TZ),
+            "diff_seconds": 2,
+        },
+    )
+    session = ChatSession(output=lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(session, "_invoke_click", lambda args, echo=True: "搜索结果：贵州茅台 盈利 新闻" if not echo else "")
+
+    session.handle_message("帮我搜索一下贵州茅台最新新闻和盈利情况")
+
+    system_contents = [item["content"] for item in captured_messages[0] if item["role"] == "system"]
+    assert any("当前系统时间（北京时间，UTC+8）是 2026-06-19 16:08:09" in content for content in system_contents)
+    assert any("联网时钟与本地时钟交叉校验" in content for content in system_contents)
+    assert any("young reach 外部搜索结果" in content for content in system_contents)
+    assert any("贵州茅台 盈利 新闻" in content for content in system_contents)
+
+
+def test_current_time_snapshot_falls_back_to_local_when_network_unavailable(monkeypatch):
+    local_now = chat_module.datetime(2026, 6, 19, 9, 0, 0, tzinfo=chat_module._BEIJING_TZ)
+    monkeypatch.setattr(chat_module, "_local_beijing_now", lambda: local_now)
+    monkeypatch.setattr(chat_module, "_median_network_time", lambda: None)
+    chat_module._TIME_VERIFICATION_CACHE["verified_at"] = None
+    chat_module._TIME_VERIFICATION_CACHE["local_now"] = None
+    chat_module._TIME_VERIFICATION_CACHE["network_now"] = None
+
+    snapshot = chat_module.current_time_snapshot()
+
+    assert snapshot["current"] == local_now
+    assert snapshot["source"] == "local-only"
+    assert snapshot["network"] is None
 
 
 def test_run_chat_banner_shows_style_options(monkeypatch, tmp_path, capsys):
@@ -215,7 +294,7 @@ def test_run_chat_banner_shows_style_options(monkeypatch, tmp_path, capsys):
     def raise_eof(*args, **kwargs):
         raise EOFError
 
-    monkeypatch.setattr(chat_module.Prompt, "ask", raise_eof)
+    monkeypatch.setattr(chat_module.Console, "input", raise_eof)
 
     run_chat()
 

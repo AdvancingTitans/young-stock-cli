@@ -60,10 +60,11 @@ def test_chat_handle_message_injects_memory_summary_and_keeps_short_history(monk
     assert "其他长期偏好" in combined
     assert "不要编造 /market、/trend" in messages[0]["content"]
     assert "风格与长期记忆都服从本安全规则" in messages[0]["content"]
-    assert "当前对话风格与分析框架：munger" in messages[1]["content"]
-    assert "第一人称口吻" in messages[1]["content"]
-    assert "自称时自然用“我”" in messages[1]["content"]
-    assert "长期用户记忆" in messages[2]["content"]
+    assert "当前系统时间（北京时间，UTC+8）是" in messages[1]["content"]
+    assert "当前对话风格与分析框架：munger" in messages[2]["content"]
+    assert "第一人称口吻" in messages[2]["content"]
+    assert "自称时自然用“我”" in messages[2]["content"]
+    assert "长期用户记忆" in messages[3]["content"]
     assert "u0" not in combined
     assert "a0" not in combined
     assert "u2" not in combined

@@ -5,12 +5,26 @@ from __future__ import annotations
 import re
 import shlex
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
+from statistics import median
 from typing import Callable
+from urllib.error import URLError
+from urllib.request import Request, urlopen
 
 from click.testing import CliRunner
 from rich.console import Console
 from rich.markdown import Markdown
-from rich.prompt import Prompt
+
+try:  # ponytail: best-effort line editing on local terminals; falls back harmlessly if unavailable.
+    import readline  # noqa: F401
+except Exception:  # pragma: no cover - platform dependent
+    readline = None
+
+try:  # pragma: no cover - import path differs across Python builds
+    from zoneinfo import ZoneInfo
+except ImportError:  # pragma: no cover - Python < 3.9 fallback safety
+    ZoneInfo = None  # type: ignore[assignment]
 
 from .config import load_config, save_config
 from .llm import LLMClient, LLMError
@@ -127,6 +141,193 @@ _STYLE_MEMORY_HINTS = (
     "格雷厄姆",
     "达利欧",
 )
+_BEIJING_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hours=8))
+_TIME_QUERY_HINTS = (
+    "现在几点",
+    "现在几号",
+    "今天几号",
+    "今天几月几号",
+    "当前时间",
+    "当前日期",
+    "北京时间",
+    "日期",
+    "时间",
+    "星期几",
+)
+_SEARCH_INTENT_HINTS = (
+    "搜索",
+    "搜一下",
+    "搜搜",
+    "查一下",
+    "查查",
+    "查一查",
+    "帮我查",
+    "帮我搜",
+    "lookup",
+    "search",
+)
+_SEARCH_TOPIC_HINTS = (
+    "新闻",
+    "资讯",
+    "公告",
+    "财报",
+    "盈利",
+    "业绩",
+    "研报",
+    "公司情况",
+    "公司信息",
+    "最新",
+)
+_NETWORK_TIME_URLS = (
+    "https://www.baidu.com",
+    "https://www.qq.com",
+    "https://www.gov.cn",
+)
+_TIME_VERIFICATION_CACHE: dict[str, object] = {
+    "verified_at": None,
+    "network_now": None,
+    "local_now": None,
+}
+_TIME_VERIFICATION_TTL = timedelta(minutes=5)
+
+
+def beijing_now() -> datetime:
+    return current_time_snapshot()["current"]
+
+
+def _local_beijing_now() -> datetime:
+    return datetime.now(_BEIJING_TZ)
+
+
+def _http_date_now(url: str, timeout: float = 2.0) -> datetime | None:
+    try:
+        request = Request(url, method="HEAD", headers={"User-Agent": "young-stock-cli/0.2"})
+        with urlopen(request, timeout=timeout) as response:
+            date_header = response.headers.get("Date")
+    except (URLError, TimeoutError, ValueError):
+        return None
+    if not date_header:
+        return None
+    try:
+        parsed = parsedate_to_datetime(date_header)
+    except (TypeError, ValueError, IndexError):
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(_BEIJING_TZ)
+
+
+def _median_network_time() -> datetime | None:
+    samples = [sample for sample in (_http_date_now(url) for url in _NETWORK_TIME_URLS) if sample is not None]
+    if not samples:
+        return None
+    if len(samples) == 1:
+        return samples[0]
+    timestamps = [sample.timestamp() for sample in samples]
+    return datetime.fromtimestamp(median(timestamps), tz=_BEIJING_TZ)
+
+
+def current_time_snapshot() -> dict[str, object]:
+    local_now = _local_beijing_now()
+    verified_at = _TIME_VERIFICATION_CACHE.get("verified_at")
+    if isinstance(verified_at, datetime) and local_now - verified_at <= _TIME_VERIFICATION_TTL:
+        network_now = _TIME_VERIFICATION_CACHE.get("network_now")
+        cached_local = _TIME_VERIFICATION_CACHE.get("local_now")
+        if isinstance(network_now, datetime) and isinstance(cached_local, datetime):
+            adjusted = network_now + (local_now - cached_local)
+            diff_seconds = int(abs((adjusted - local_now).total_seconds()))
+            return {
+                "current": adjusted,
+                "source": "network+local",
+                "local": local_now,
+                "network": adjusted,
+                "diff_seconds": diff_seconds,
+            }
+    network_now = _median_network_time()
+    _TIME_VERIFICATION_CACHE["verified_at"] = local_now
+    _TIME_VERIFICATION_CACHE["local_now"] = local_now
+    _TIME_VERIFICATION_CACHE["network_now"] = network_now
+    if network_now is None:
+        return {
+            "current": local_now,
+            "source": "local-only",
+            "local": local_now,
+            "network": None,
+            "diff_seconds": None,
+        }
+    diff_seconds = int(abs((network_now - local_now).total_seconds()))
+    return {
+        "current": network_now,
+        "source": "network+local",
+        "local": local_now,
+        "network": network_now,
+        "diff_seconds": diff_seconds,
+    }
+
+
+def _weekday_label(dt: datetime) -> str:
+    return "一二三四五六日"[dt.weekday()]
+
+
+def _current_time_system_note() -> str:
+    snapshot = current_time_snapshot()
+    now = snapshot["current"]
+    assert isinstance(now, datetime)
+    source = "已用联网时钟与本地时钟交叉校验" if snapshot["source"] == "network+local" else "当前仅使用本地时钟"
+    diff_seconds = snapshot.get("diff_seconds")
+    verification = f"{source}。" if diff_seconds in (None, 0) else f"{source} 两者偏差约 {diff_seconds} 秒。"
+    return (
+        f"当前系统时间（北京时间，UTC+8）是 {now:%Y-%m-%d %H:%M:%S}，星期{_weekday_label(now)}。"
+        f"{verification}"
+        "涉及“今天”“当前”“最近”“最新”这类相对时间时，必须以这个北京时间为准，不要自行猜测日期。"
+    )
+
+
+def _is_time_query(text: str) -> bool:
+    stripped = text.strip()
+    if not stripped or stripped.startswith("/"):
+        return False
+    if any(hint in stripped for hint in _INVESTMENT_HINTS):
+        return False
+    return any(hint in stripped.lower() for hint in _TIME_QUERY_HINTS)
+
+
+def _format_time_answer(text: str) -> str:
+    snapshot = current_time_snapshot()
+    now = snapshot["current"]
+    assert isinstance(now, datetime)
+    compact = re.sub(r"\s+", "", text)
+    date_label = f"{now.year} 年 {now.month} 月 {now.day} 日"
+    wants_weekday = "星期" in compact or "周几" in compact
+    wants_time = any(token in compact for token in ("几点", "时间", "几点了", "现在"))
+    wants_date = any(token in compact for token in ("几号", "日期", "几月几号", "哪天", "今天"))
+    if wants_date and not wants_time:
+        base = f"当前北京时间日期是 {date_label}"
+    elif wants_time and not wants_date:
+        base = f"当前北京时间是 {date_label} {now:%H:%M:%S}"
+    else:
+        base = f"当前北京时间是 {date_label} {now:%H:%M:%S}"
+    if wants_weekday or wants_date:
+        base += f"，星期{_weekday_label(now)}"
+    if snapshot["source"] == "network+local":
+        diff_seconds = snapshot.get("diff_seconds")
+        suffix = "（已用联网时钟与本地时钟交叉校验）"
+        if isinstance(diff_seconds, int) and diff_seconds > 0:
+            suffix = f"（已用联网时钟与本地时钟交叉校验，偏差约 {diff_seconds} 秒）"
+        return base + suffix + "。"
+    return base + "（当前仅使用本地时钟）。"
+
+
+def _should_auto_reach(text: str) -> bool:
+    stripped = text.strip()
+    if not stripped or stripped.startswith("/"):
+        return False
+    lowered = stripped.lower()
+    explicit_search = any(hint in lowered for hint in _SEARCH_INTENT_HINTS)
+    topical_latest = any(hint in stripped for hint in _SEARCH_TOPIC_HINTS) and any(
+        token in stripped for token in ("最新", "今天", "近期", "公司", "新闻", "公告", "盈利", "财报", "业绩")
+    )
+    return explicit_search or topical_latest
 
 
 def _empty_long_term_memory() -> dict[str, list[dict[str, str]]]:
@@ -365,7 +566,7 @@ class ChatSession:
             save_long_term_memory(self.long_term_memory)
         return updates
 
-    def _build_messages(self) -> list[dict[str, str]]:
+    def _build_messages(self, extra_system_messages: list[str] | None = None) -> list[dict[str, str]]:
         messages = [
             {
                 "role": "system",
@@ -381,7 +582,11 @@ class ChatSession:
                 ),
             }
         ]
+        messages.append({"role": "system", "content": _current_time_system_note()})
         messages.append({"role": "system", "content": _build_style_prompt(self.style_name)})
+        for item in extra_system_messages or []:
+            if item.strip():
+                messages.append({"role": "system", "content": item})
         long_term = _format_long_term_memory_for_prompt(self.long_term_memory)
         if long_term:
             messages.append({"role": "system", "content": long_term})
@@ -477,24 +682,49 @@ class ChatSession:
             self.remember("assistant", command_output)
         return False
 
-    def _invoke_click(self, args: list[str]) -> str:
+    def _invoke_click(self, args: list[str], *, echo: bool = True) -> str:
         from .cli import cli
 
         result = CliRunner().invoke(cli, args, color=False)
         text_output = result.output.rstrip()
-        if text_output:
+        if text_output and echo:
             self.output(text_output)
-        if result.exception and not text_output:
+        if result.exception and not text_output and echo:
             self.output(str(result.exception))
+        if result.exception and not text_output:
             return str(result.exception)
         return text_output
+
+    def _maybe_collect_reach_context(self, text: str) -> str | None:
+        if not _should_auto_reach(text):
+            return None
+        reach_output = self._invoke_click(["reach", text], echo=False).strip()
+        if not reach_output:
+            return None
+        if any(hint in reach_output for hint in ("未检测到 `mcporter`", "未检测到 `agent-reach`", "请先安装")):
+            return None
+        truncated = reach_output[:6000]
+        return (
+            "以下内容来自本轮自动执行的 young reach 外部搜索结果。"
+            "只能基于其中可见信息做总结，不要补造未出现的事实；若证据不足请明确说明。\n"
+            f"{truncated}"
+        )
 
     def handle_message(self, text: str) -> None:
         self.capture_long_term_memory(text)
         self.remember("user", text)
+        if _is_time_query(text):
+            answer = _format_time_answer(text)
+            self.remember("assistant", answer)
+            self.output(answer)
+            return
         config = load_config(strict=False).get("llm", {})
+        extra_system_messages = []
+        reach_context = self._maybe_collect_reach_context(text)
+        if reach_context:
+            extra_system_messages.append(reach_context)
         try:
-            response = LLMClient(config).chat(self._build_messages())
+            response = LLMClient(config).chat(self._build_messages(extra_system_messages))
         except LLMError as exc:
             self.output(str(exc))
             return
@@ -515,7 +745,7 @@ def run_chat() -> None:
     )
     while True:
         try:
-            text = Prompt.ask("[bold cyan]young[/]").strip()
+            text = console.input("[bold cyan]young[/] ").strip()
         except (EOFError, KeyboardInterrupt):
             console.print("\n再见。")
             return

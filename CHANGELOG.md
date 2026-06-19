@@ -5,7 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.6] - 2026-06-19
+## [0.2.8] - 2026-06-19
+
+### Added
+- `young chat` now cross-checks Beijing time with both local clock and lightweight online HTTP Date sources, using whichever path is available as a safe fallback.
+
+### Changed
+- Chat time grounding now refreshes with a five-minute verification cache so relative phrases like “今天”“当前”“最新” stay anchored to current Beijing time without adding heavy network overhead.
+- Chat now auto-invokes the existing `young reach` bridge only for explicit search/latest-news/company-info requests, then feeds the result back into the LLM as evidence instead of claiming it cannot search.
+
+### Fixed
+- Fixed chat answers that could hallucinate stale absolute dates when users asked for the current date or time.
+- Fixed interactive input deletion issues by switching the chat prompt loop away from `Rich Prompt.ask()` to a simpler console input path with native line-edit support.
 
 ## [0.2.7] - 2026-06-19
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import contextlib
-from datetime import datetime
 import html
 import io
 import json
@@ -11,11 +10,12 @@ import os
 import re
 import sys
 import tempfile
+from datetime import datetime
 from importlib import resources
 from pathlib import Path
 from typing import Any, Callable
 
-from .artifacts import ReportArtifacts, ReportIdentity, market_session
+from .artifacts import ReportArtifacts, ReportIdentity, report_session
 from .local_store import load_store
 from .research_style import sanitize_public_report
 
@@ -144,7 +144,7 @@ def _canonicalize_markdown(
     identity = _parse_identity_from_path(markdown_path)
     evidence = _load_related_evidence(markdown_path)
     cleaned = sanitize_public_report(markdown, evidence)
-    session = identity.session if identity else market_session(now)
+    session = identity.session if identity else report_session(trade_date, now)
     topic = identity.topic if identity else _report_topic(cleaned)
     canonical = artifacts.write_report_markdown(ReportIdentity(trade_date, session, topic), cleaned)
     return canonical, cleaned
@@ -177,8 +177,8 @@ def _default_render(html_path: Path, pdf_path: Path) -> None:
     if renderer is None:
         raise PDFDependencyError(
             "当前环境未检测到 PDF 渲染能力。请先运行 `young init` 检查安装状态；"
-            "若仍缺少依赖，uv tool 用户请执行 `uv tool install --force 'young-stock-cli[pdf]'`，"
-            "普通 Python 环境请执行 `python3 -m pip install \"young-stock-cli[pdf]\"`。"
+            "若仍缺少依赖，uv tool 用户请执行 `uv tool install --force 'young-stock-cli'`，"
+            "普通 Python 环境请执行 `python3 -m pip install --upgrade young-stock-cli`。"
         )
     renderer(filename=str(html_path), base_url=str(html_path.parent)).write_pdf(str(pdf_path))
 
@@ -221,7 +221,7 @@ def export_report_pdf(
         else:
             raise ValueError("没有可用报告；请先运行 `young daily` 或提供日报生成器。")
         markdown_path = artifacts.write_report_markdown(
-            ReportIdentity(trade_date, market_session(now), "A股投资日报"),
+            ReportIdentity(trade_date, report_session(trade_date, now), "A股投资日报"),
             sanitize_public_report(markdown),
         )
     markdown = markdown_path.read_text(encoding="utf-8")

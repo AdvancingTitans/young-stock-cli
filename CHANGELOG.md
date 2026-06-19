@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.4] - 2026-06-19
+
+### Added
+- Added persistent long-term chat memory with dedicated `young memory show|clear|reset` management commands.
+- Added `young init` to initialize local state and check report/LLM readiness in one step.
+
+### Fixed
+- Fixed `young report` to prefer identity-based Markdown/PDF artifacts over legacy `replay.*` files and to sanitize legacy reports before export.
+- Fixed report/session routing so `young report` defaults to the current calendar date and historical report exports stay tagged as `盘后`.
+- Fixed exported Markdown/HTML/PDF to remove the fixed “资深A股交易员”前言 and `Kami-compatible editorial layout` residue.
+- Fixed `young send` to deliver the identity-matched PDF instead of looking only for `report.pdf`.
+- Fixed installation guidance so the default package path includes PDF support and the readiness/error messages point to the same install flow.
+
 ## [0.2.3] - 2026-06-18
 
 ### Added

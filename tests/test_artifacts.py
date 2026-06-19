@@ -1,7 +1,7 @@
 import json
 from datetime import datetime
 
-from young_stock.artifacts import ReportArtifacts, ReportIdentity, market_session
+from young_stock.artifacts import ReportArtifacts, ReportIdentity, market_session, report_session
 from young_stock.reports import generate_llm_daily_report
 
 
@@ -52,6 +52,11 @@ def test_market_session_labels():
     assert market_session(datetime(2026, 6, 18, 12, 0)) == "午间"
     assert market_session(datetime(2026, 6, 18, 14, 10)) == "盘中"
     assert market_session(datetime(2026, 6, 18, 15, 10)) == "盘后"
+
+
+def test_report_session_uses_after_close_for_historical_trade_date():
+    assert report_session("20260618", datetime(2026, 6, 19, 9, 41)) == "盘后"
+    assert report_session("20260619", datetime(2026, 6, 19, 9, 41)) == "早盘"
 
 
 def test_report_identity_uses_date_session_and_topic():

@@ -24,6 +24,13 @@ def market_session(now: datetime | None = None) -> str:
     return "盘后"
 
 
+def report_session(trade_date: str, now: datetime | None = None) -> str:
+    now = now or datetime.now()
+    if trade_date != now.strftime("%Y%m%d"):
+        return "盘后"
+    return market_session(now)
+
+
 @dataclass(frozen=True)
 class ReportIdentity:
     trade_date: str

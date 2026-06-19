@@ -10,13 +10,14 @@ from datetime import datetime
 import click
 
 from . import __version__, _core
-from .artifacts import ReportArtifacts, ReportIdentity, market_session
+from .artifacts import ReportArtifacts, ReportIdentity, report_session
 from .config import (
     add_feishu_channel,
     config_path,
     load_config,
     mask_config,
     remove_feishu_channel,
+    save_config,
     update_llm_config,
 )
 from .evidence import build_daily_evidence, build_stock_evidence
@@ -32,6 +33,7 @@ from .profile import (
     load_profile,
     profile_path,
     remove_profile_item,
+    save_profile,
 )
 from .reports import generate_llm_daily_report
 
@@ -283,7 +285,7 @@ def _run_llm_replay(date_str: str, kind: str = "replay", symbol: str | None = No
         else build_daily_evidence(_core, date_str, profile)
     )
     artifacts = ReportArtifacts(date_str)
-    session = market_session()
+    session = report_session(date_str)
     topic = f"{symbol}深度分析" if symbol else "A股深度复盘"
     identity = ReportIdentity(date_str, session, topic)
     artifacts.write_json(f"{identity.prefix}-evidence", evidence.to_dict())
@@ -762,6 +764,37 @@ def guide() -> None:
     click.echo("2. young profile add-fund 161725 --buy-date 2026-01-10 --quantity 1000")
     click.echo("3. young daily --format summary")
     click.echo("4. young profile list / young diagnose")
+
+
+@cli.command(help="Initialize local state, verify installed capabilities, and print next steps.")
+def init() -> None:
+    from .pdf import _load_weasyprint
+
+    home = young_home()
+    home.mkdir(parents=True, exist_ok=True)
+    (home / "reports").mkdir(parents=True, exist_ok=True)
+    save_config(load_config(strict=False))
+    save_profile(load_profile())
+    for name, default in (
+        ("notes", []),
+        ("alerts", []),
+        ("diaries", {}),
+        ("portfolios", {}),
+    ):
+        save_store(name, load_store(name, default))
+
+    pdf_ready = _load_weasyprint() is not None
+    click.echo("初始化完成。")
+    click.echo(f"Home: {home}")
+    click.echo(f"Profile: {profile_path()}")
+    click.echo(f"Config: {config_path()}")
+    click.echo(f"PDF: {'已就绪' if pdf_ready else '当前环境未检测到 PDF 渲染能力'}")
+    if not pdf_ready:
+        click.echo("若当前环境缺少 PDF 渲染能力，请重新执行 `uv tool install --force 'young-stock-cli'`。")
+    click.echo("下一步：")
+    click.echo("1. young daily --format summary")
+    click.echo("2. young replay")
+    click.echo("3. young config llm --help")
 
 
 @cli.command(help="Show common examples.")

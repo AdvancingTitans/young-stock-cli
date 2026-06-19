@@ -21,6 +21,7 @@ Recommended for CLI isolation:
 
 ```bash
 uv tool install young-stock-cli
+young init
 ```
 
 Or install into the active Python environment:
@@ -44,6 +45,10 @@ If you installed `young` with `uv tool`, upgrade that tool-managed environment i
 ```bash
 uv tool install --upgrade young-stock-cli
 ```
+
+`young init` creates the local home/profile files, verifies whether PDF rendering is available in the current
+environment, and prints the recommended next steps. You only need to install the tool once per environment; you do
+not need to reinstall it before every report.
 
 If `python3 -m pip install --upgrade young-stock-cli` succeeds but `young --version` still shows an older release,
 you are probably running a different executable entrypoint than the interpreter you just upgraded. A quick check:
@@ -79,6 +84,7 @@ young daily --format summary      # concise personalized daily report
 young daily --format key-points   # short report with trend/risk points
 young daily --format full         # full personalized daily report
 young daily --llm                # evidence-driven deep replay with your configured LLM
+young init                       # initialize local state and verify report/LLM readiness
 young replay                     # deep M1-M6 market replay
 young analyze 600519             # deep single-stock analysis
 young chat                       # Rich chat mode with slash commands
@@ -257,16 +263,16 @@ is retained.
 
 ### Professional PDF reports
 
-Install the optional renderer:
+The standard install already includes PDF support. If you upgraded from an older environment, refresh the tool once:
 
 ```bash
-uv tool install --force 'young-stock-cli[pdf]'
+uv tool install --force 'young-stock-cli'
 ```
 
 If `young` was installed into the active Python environment instead:
 
 ```bash
-python3 -m pip install "young-stock-cli[pdf]"
+python3 -m pip install --upgrade young-stock-cli
 ```
 
 Then export the latest report:
@@ -277,8 +283,8 @@ young report --date 20260618
 ```
 
 If no Markdown report exists for the selected date, `young report` first reuses a saved diary entry when available,
-otherwise it automatically generates a deterministic full daily report. It keeps `daily.md`/`replay.md`,
-`report.html`, and `report.pdf` together.
+otherwise it automatically generates a deterministic full daily report. Run `young init` first if you want a quick
+readiness check for PDF rendering, config, and local storage paths.
 
 The bundled Equity Report layout follows the
 [`tw93/Kami`](https://github.com/tw93/Kami) editorial language: parchment `#f5f4ed`, ink blue `#1B365D`,

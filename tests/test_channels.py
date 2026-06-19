@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from young_stock.artifacts import ReportArtifacts, ReportIdentity
 from young_stock.channels import send_report
 from young_stock.channels.feishu import FeishuChannel
 
@@ -66,6 +67,33 @@ def test_send_report_requires_artifacts(monkeypatch, tmp_path):
 
     with pytest.raises(ValueError, match="young report"):
         send_report("20260618")
+
+
+def test_send_report_uses_identity_named_pdf(monkeypatch, tmp_path):
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
+    artifacts = ReportArtifacts("20260618")
+    identity = ReportIdentity("20260618", "盘后", "A股深度复盘")
+    markdown = artifacts.write_report_markdown(identity, "# 复盘\n\n正文")
+    pdf = artifacts.path(identity.prefix, "pdf")
+    pdf.write_bytes(b"%PDF")
+    sent = []
+
+    class DummyChannel:
+        def __init__(self, name, config):
+            self.name = name
+            self.config = config
+
+        def send(self, markdown_path, pdf_path):
+            sent.append((markdown_path, pdf_path))
+            return SimpleNamespace(ok=True, channel=self.name, target="x", detail="ok")
+
+    monkeypatch.setattr("young_stock.channels.load_config", lambda strict=False: {"channels": {"feishu": {"work": {"webhook": "x"}}}})
+    monkeypatch.setattr("young_stock.channels.FeishuChannel", DummyChannel)
+
+    results = send_report("20260618")
+
+    assert results[0].ok is True
+    assert sent == [(markdown, pdf)]
 
 
 def test_feishu_retries_transient_http_failure(monkeypatch, tmp_path):

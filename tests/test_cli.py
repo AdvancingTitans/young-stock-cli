@@ -62,7 +62,7 @@ def test_cli_subcommands_registered():
     result = runner.invoke(cli, ["--help"])
     for sub in [
         "a", "hk", "us", "global", "indices", "zt-pool", "flow", "block-trades", "stock", "fund", "news",
-        "daily", "profile", "portfolio", "alert", "note", "diary", "diagnose", "guide", "example",
+        "daily", "profile", "portfolio", "alert", "note", "diary", "diagnose", "guide", "example", "init",
         "cache-clear", "update", "uninstall", "config", "chat", "replay", "analyze", "report", "send",
     ]:
         assert sub in result.output, f"subcommand `{sub}` missing from help"
@@ -74,7 +74,7 @@ def test_cli_top_level_command_help_is_available():
     runner = CliRunner()
     commands = [
         "a", "hk", "us", "global", "indices", "zt-pool", "flow", "block-trades", "stock", "fund", "news",
-        "daily", "profile", "portfolio", "alert", "note", "diary", "diagnose", "guide", "example",
+        "daily", "profile", "portfolio", "alert", "note", "diary", "diagnose", "guide", "example", "init",
         "cache-clear", "update", "uninstall", "config", "chat", "replay", "analyze", "report", "send",
     ]
 
@@ -495,6 +495,24 @@ def test_cli_local_productivity_commands(monkeypatch, tmp_path):
 
     assert runner.invoke(cli, ["diary", "save", "20260603", "--text", "日报摘要"]).exit_code == 0
     assert "日报摘要" in runner.invoke(cli, ["diary", "show", "20260603"]).output
+
+
+def test_cli_init_bootstraps_local_state(monkeypatch, tmp_path):
+    from click.testing import CliRunner
+
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path / "young-home"))
+    monkeypatch.setenv("YOUNG_STOCK_PROFILE", str(tmp_path / "profile.json"))
+    monkeypatch.setattr("young_stock.pdf._load_weasyprint", lambda: object())
+
+    result = CliRunner().invoke(cli, ["init"])
+
+    assert result.exit_code == 0
+    assert "初始化完成" in result.output
+    assert "young daily --format summary" in result.output
+    assert "young replay" in result.output
+    assert (tmp_path / "young-home" / "config.json").exists()
+    assert (tmp_path / "young-home" / "reports").exists()
+    assert (tmp_path / "profile.json").exists()
 
 
 def test_cli_diagnose_outputs_network_guidance(monkeypatch):

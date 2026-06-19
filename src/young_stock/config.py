@@ -36,6 +36,12 @@ def _with_defaults(data: dict[str, Any] | None) -> dict[str, Any]:
     result["channels"].setdefault("feishu", {})
     chat = data.get("chat") or {}
     result["chat"] = dict(chat) if isinstance(chat, dict) else {}
+    chat_style = result["chat"].get("style")
+    framework = result["chat"].get("analysis_framework")
+    if framework is not None:
+        result["chat"]["style"] = framework
+    elif chat_style is not None:
+        result["chat"]["analysis_framework"] = chat_style
     return result
 
 

@@ -105,14 +105,58 @@ def test_chat_style_slash_persists_across_sessions(monkeypatch, tmp_path):
 
     assert session.handle_slash("/style set buffett") is False
     assert load_config(strict=False)["chat"]["style"] == "buffett"
-    assert any("已设置风格" in output for output in outputs)
+    assert load_config(strict=False)["chat"]["analysis_framework"] == "buffett"
+    assert any("已同步设置对话风格和分析框架" in output for output in outputs)
 
     reloaded = ChatSession(output=lambda _: None)
     assert reloaded.style_name == "buffett"
 
     assert reloaded.handle_slash("/style clear") is False
     assert "style" not in load_config(strict=False)["chat"]
+    assert "analysis_framework" not in load_config(strict=False)["chat"]
     assert ChatSession(output=lambda _: None).style_name == "balanced"
+
+
+def test_style_set_replaces_conflicting_style_memory(monkeypatch, tmp_path):
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
+    outputs = []
+    session = ChatSession(output=outputs.append)
+    session.capture_long_term_memory("以后请扮演查理芒格式的投资教练。")
+
+    assert session.handle_slash("/style set buffett") is False
+
+    combined = "\n".join(
+        item["content"]
+        for notes in session.long_term_memory.values()
+        for item in notes
+    )
+    assert "查理芒格" not in combined
+    assert "buffett" in combined
+    assert any("同步设置对话风格和分析框架" in output for output in outputs)
+
+
+def test_style_set_affects_llm_prompt(monkeypatch, tmp_path):
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
+    captured_messages = []
+
+    class DummyClient:
+        def __init__(self, config):
+            self.config = config
+
+        def chat(self, messages):
+            captured_messages.append(messages)
+            return type("Response", (), {"content": "收到"})()
+
+    monkeypatch.setattr(chat_module, "LLMClient", DummyClient)
+    session = ChatSession(output=lambda _: None)
+
+    assert session.handle_slash("/style set buffett") is False
+    session.handle_message("怎么看护城河？")
+
+    style_prompt = captured_messages[0][1]["content"]
+    assert "当前对话风格与分析框架：buffett" in style_prompt
+    assert "股东通信" in style_prompt
+    assert "自称时自然用“我”" in style_prompt
 
 
 def test_run_chat_banner_shows_style_options(monkeypatch, tmp_path, capsys):
@@ -129,3 +173,5 @@ def test_run_chat_banner_shows_style_options(monkeypatch, tmp_path, capsys):
     assert "可选风格" in captured
     assert "balanced" in captured
     assert "当前风格" in captured
+    assert "/style set <name>" in captured
+    assert "对话风格、自称口吻和分析框架" in captured

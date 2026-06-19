@@ -87,7 +87,7 @@ young profile clear-funds   # clear all saved funds only
 young daily --format summary      # deterministic watchlist daily report
 young daily --format key-points   # short deterministic report with trend/risk points
 young daily --format full         # full deterministic watchlist daily report
-young daily --llm                # deep after-hours / latest-trading-day replay; closes MD+PDF
+young daily --llm                # deep after-hours / latest-trading-day replay; saves Markdown
 young daily --llm --refresh       # rebuild the same identity from scratch
 young init                       # initialize local state and verify report/PDF readiness
 young replay                     # deprecated alias for young daily --llm
@@ -221,8 +221,8 @@ authoritative and only exposes a white-listed command surface: do not expect `/m
 `/config`, `/update`, and `/uninstall` are intentionally blocked from chat. `/daily-llm` and `/replay` are kept as
 deprecated aliases that route to `/daily --llm`.
 
-The style commands persist under chat config and only change the analysis frame, not persona identity. Supported
-styles are `balanced`, `buffett`, `munger`, `graham`, and `dalio`.
+The style commands persist under chat config and synchronously set dialogue tone, self-reference style, and analysis
+framework. Supported styles are `balanced`, `buffett`, `munger`, `graham`, and `dalio`.
 
 ### Evidence-driven deep replay
 
@@ -378,9 +378,9 @@ The internals are being split into focused modules: `young_stock.calendar` handl
 - **Single-stock lookup** — `young stock 600519`, `young stock 0700.HK`, or `young stock AAPL` prints a compact quote snapshot with source, trade date, price, change, volume, turnover, market cap, PE/PB, 52-week range when available, and optional news.
 - **Fund holding lookup** — `young fund 161725` prints the fund's same-day estimated change, latest NAV date, top holdings, holding-stock quotes, rough contribution estimate, and same-day holding-stock news. Official fund NAVs usually update at night, so intraday/close values are clearly labeled as estimates.
 - **Personal daily report** — `young daily` is the deterministic watchlist report from your local investment memory in `~/.young_stock/profile.json`; it prints saved stock/ETF trends, fund estimates, only the markets relevant to your symbols and fund top holdings, and portfolio-style suggestions grounded in your funds, stocks, holding dates, quantities, and available news. First use requires a verified symbol plus `--buy-date` and `--quantity`, for example `young profile add-stock 600519 --buy-date 2026-01-15 --quantity 100` or `young profile add-fund 161725 --buy-date 2026-01-10 --quantity 1000`.
-- **LLM replay** — `young daily --llm` performs the deep after-hours / latest-trading-day replay, then writes the matching Markdown and PDF under the same report identity; `--refresh` forces a rebuild of that identity. `young replay`, `/replay`, and `/daily-llm` are compatibility aliases only.
+- **LLM replay** — `young daily --llm` performs the deep after-hours / latest-trading-day replay, writes the matching Markdown artifact under the same report identity, and prints it in the terminal; `young report` is the dedicated PDF export step, and `--refresh` rebuilds the Markdown identity. `young replay`, `/replay`, and `/daily-llm` are compatibility aliases only.
 - **Short report modes** — `young daily --format summary` keeps terminal output compact; `--format key-points` adds a few trend/risk bullets; `--only`, `--order`, and `--quick` trim slower or irrelevant sections.
-- **Chat style control** — `/style list|set|show|clear` persists a framework-only style choice. `balanced`, `buffett`, `munger`, `graham`, and `dalio` are analysis frames, not personas.
+- **Chat style control** — `/style list|set|show|clear` persists one synchronized style choice for tone, self-reference, and analysis framework. `balanced`, `buffett`, `munger`, `graham`, and `dalio` are style contracts, not identity claims.
 - **Investment memory management** — list, remove, clear, and group saved stocks/funds with `young profile list`, `remove-stock`, `remove-fund`, `clear`, `clear-stocks`, `clear-funds`, and `profile group create/add`.
 - **Local workflow helpers** — lightweight `portfolio`, `alert`, `note`, and `diary` commands store local records for portfolio experiments, reminder rules, investment notes, and saved daily-report text.
 - **Diagnostics** — `young diagnose` summarizes recent source health and suggests cache/quick-mode fallbacks when public APIs are unstable; `young diagnose --json` prints read-only, machine-readable support info with Python/version/path/source-health details.

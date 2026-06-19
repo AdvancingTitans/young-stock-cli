@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.6] - 2026-06-19
+
+### Changed
+- `young chat` startup banner now explicitly teaches `/style set <name>` as the way to sync dialogue style, self-reference tone, and analysis framework.
+- Style prompts now bind all three together: tone, first-person self-reference, and the selected investment framework are sent to the LLM in one contract.
+- `young daily --llm` now stops at terminal output plus Markdown artifact generation, while `young report` remains the single PDF export path.
+- `young init` now puts config and investment-memory setup ahead of optional reporting commands.
+
+### Fixed
+- Fixed style drift where old persona memory could pull the assistant back toward a different voice after `/style set <name>`.
+- Fixed persistent chat config migration so `chat.style` and `chat.analysis_framework` converge to one synchronized value across restarts.
+
 ## [0.2.5] - 2026-06-19
 
 ### Added

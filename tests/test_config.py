@@ -75,6 +75,17 @@ def test_chat_config_section_round_trips(monkeypatch, tmp_path):
     save_config({"chat": {"style": "buffett"}})
 
     assert load_config()["chat"]["style"] == "buffett"
+    assert load_config()["chat"]["analysis_framework"] == "buffett"
+
+
+def test_chat_analysis_framework_migrates_to_synchronized_style(monkeypatch, tmp_path):
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
+
+    save_config({"chat": {"analysis_framework": "munger", "style": "buffett"}})
+
+    chat = load_config()["chat"]
+    assert chat["style"] == "munger"
+    assert chat["analysis_framework"] == "munger"
 
 
 def test_feishu_channel_accepts_preissued_tenant_token(monkeypatch, tmp_path):

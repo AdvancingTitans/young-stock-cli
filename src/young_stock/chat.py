@@ -28,7 +28,8 @@ CHAT_STYLE_PROMPTS = {
         "label": "balanced",
         "summary": "先事实、再判断，平衡基本面、估值、风险、催化剂与反例。",
         "prompt": (
-            "当前分析框架：balanced。先区分已验证事实、推断、未知项；"
+            "当前对话风格与分析框架：balanced。使用冷静、克制、专业的第一人称口吻，避免刻意模仿名人腔调；"
+            "先区分已验证事实、推断、未知项；"
             "同时看业务/资产质量、估值、风险、催化剂与反例；给概率化结论和后续核验点。"
         ),
     },
@@ -36,7 +37,9 @@ CHAT_STYLE_PROMPTS = {
         "label": "buffett",
         "summary": "重商业质量、护城河、管理层、资本配置与安全边际。",
         "prompt": (
-            "当前分析框架：buffett。强调可理解的业务、长期竞争优势、管理层质量、资本配置、"
+            "当前对话风格与分析框架：buffett。使用长期主义、朴素直接、少术语的第一人称口吻，"
+            "自称时自然用“我”，像在和股东通信；"
+            "强调可理解的业务、长期竞争优势、管理层质量、资本配置、"
             "自由现金流与安全边际；避免把短期波动包装成长期价值。"
         ),
     },
@@ -44,7 +47,9 @@ CHAT_STYLE_PROMPTS = {
         "label": "munger",
         "summary": "用多元思维模型、反向思考、激励与错配检查。",
         "prompt": (
-            "当前分析框架：munger。使用多元思维模型与反向思考，重点检查激励、错配、"
+            "当前对话风格与分析框架：munger。使用犀利、直白、强调思维模型的第一人称口吻，"
+            "自称时自然用“我”；"
+            "使用多元思维模型与反向思考，重点检查激励、错配、"
             "机会成本、行为偏差与可避免的重大错误。"
         ),
     },
@@ -52,7 +57,9 @@ CHAT_STYLE_PROMPTS = {
         "label": "graham",
         "summary": "重资产负债表、盈利稳定性、估值纪律与下行保护。",
         "prompt": (
-            "当前分析框架：graham。优先看资产负债表、盈利稳定性、估值纪律与下行保护；"
+            "当前对话风格与分析框架：graham。使用审慎、克制、偏教科书式的第一人称口吻，"
+            "自称时自然用“我”；"
+            "优先看资产负债表、盈利稳定性、估值纪律与下行保护；"
             "对证据不足的成长叙事保持克制。"
         ),
     },
@@ -60,7 +67,9 @@ CHAT_STYLE_PROMPTS = {
         "label": "dalio",
         "summary": "重宏观周期、情景分析、分散化与风险平衡。",
         "prompt": (
-            "当前分析框架：dalio。优先识别宏观周期、流动性与政策环境，做情景分析、"
+            "当前对话风格与分析框架：dalio。使用原则导向、结构化、偏桥水备忘录式的第一人称口吻，"
+            "自称时自然用“我”；"
+            "优先识别宏观周期、流动性与政策环境，做情景分析、"
             "相关性检查与分散化/风险平衡讨论。"
         ),
     },
@@ -108,6 +117,14 @@ _PREFERENCE_HINTS = (
     "别",
     "避免",
     "先给",
+)
+_STYLE_MEMORY_HINTS = (
+    *CHAT_STYLE_PROMPTS,
+    "巴菲特",
+    "芒格",
+    "查理",
+    "格雷厄姆",
+    "达利欧",
 )
 
 
@@ -253,7 +270,8 @@ def _normalize_style_name(name: str | None) -> str:
 
 
 def _load_chat_style_name() -> str:
-    return _normalize_style_name(load_config(strict=False).get("chat", {}).get("style"))
+    chat_config = load_config(strict=False).get("chat", {})
+    return _normalize_style_name(chat_config.get("analysis_framework") or chat_config.get("style"))
 
 
 def _save_chat_style_name(name: str | None) -> str:
@@ -261,8 +279,13 @@ def _save_chat_style_name(name: str | None) -> str:
     chat_config = config.setdefault("chat", {})
     if name is None:
         chat_config.pop("style", None)
+        chat_config.pop("analysis_framework", None)
+        chat_config.pop("analysis_style", None)
     else:
-        chat_config["style"] = _normalize_style_name(name)
+        normalized = _normalize_style_name(name)
+        chat_config["style"] = normalized
+        chat_config["analysis_framework"] = normalized
+        chat_config.pop("analysis_style", None)
     save_config(config)
     return _load_chat_style_name()
 
@@ -279,8 +302,36 @@ def _style_summary(name: str) -> str:
 def _build_style_prompt(name: str) -> str:
     return (
         f"{CHAT_STYLE_PROMPTS[_normalize_style_name(name)]['prompt']} "
-        "风格仅是分析框架，不冒充人物，不输出确定性投资建议。"
+        "这里的风格同时约束自称、口吻和分析框架；不要声称自己真的是该人物，也不要输出确定性投资建议。"
     )
+
+
+def _style_memory_note(name: str) -> str:
+    normalized = _normalize_style_name(name)
+    return (
+        f"默认对话风格和分析框架保持同步：{normalized}。"
+        "除非我再次使用 /style set 修改，否则始终按这个风格执行。"
+    )
+
+
+def _is_style_related_memory(content: str) -> bool:
+    normalized = _normalize_memory_key(content)
+    return any(_normalize_memory_key(hint) in normalized for hint in _STYLE_MEMORY_HINTS)
+
+
+def _sync_style_memory(
+    data: dict[str, list[dict[str, str]]],
+    name: str | None,
+) -> dict[str, list[dict[str, str]]]:
+    for kind in ("persona", "preferences"):
+        data[kind] = [
+            item
+            for item in data.get(kind, [])
+            if not _is_style_related_memory(item.get("content", ""))
+        ]
+    if name is not None:
+        _upsert_long_term_memory(data, "preferences", _style_memory_note(name))
+    return data
 
 
 @dataclass
@@ -348,6 +399,8 @@ class ChatSession:
             return False
         if action == "clear":
             self.style_name = _save_chat_style_name(None)
+            self.long_term_memory = _sync_style_memory(self.long_term_memory, None)
+            save_long_term_memory(self.long_term_memory)
             self._emit(f"已清除自定义风格，当前风格：{self.style_name}（默认）。")
             return False
         if action == "set":
@@ -359,7 +412,9 @@ class ChatSession:
                 self._emit(f"未知风格：{candidate}。可选：{_format_style_options()}")
                 return False
             self.style_name = _save_chat_style_name(candidate)
-            self._emit(f"已设置风格：{_style_summary(self.style_name)}")
+            self.long_term_memory = _sync_style_memory(self.long_term_memory, self.style_name)
+            save_long_term_memory(self.long_term_memory)
+            self._emit(f"已同步设置对话风格和分析框架：{_style_summary(self.style_name)}")
             return False
         self._emit("用法：/style、/style list、/style set <name>、/style show、/style clear")
         return False
@@ -450,6 +505,7 @@ def run_chat() -> None:
     console.print(
         "[bold #1B365D]young chat[/] — 输入 /help 查看命令，/exit 退出。"
         f"\n可选风格：{_format_style_options()}；当前风格：{session.style_name}。"
+        "\n可用 `/style set <name>` 同步设置对话风格、自称口吻和分析框架，例如 `/style set buffett`。"
     )
     while True:
         try:

@@ -1,5 +1,4 @@
 import json
-import os
 import sys
 from types import SimpleNamespace
 
@@ -509,8 +508,9 @@ def test_cli_init_bootstraps_local_state(monkeypatch, tmp_path):
 
     assert result.exit_code == 0
     assert "初始化完成" in result.output
-    assert "young daily --format summary" in result.output
-    assert "young replay" in result.output
+    assert "young config show" in result.output
+    assert "young config llm --help" in result.output
+    assert "可选：完成配置后再运行 young daily --format summary / young daily --llm / young report" in result.output
     assert (tmp_path / "young-home" / "config.json").exists()
     assert (tmp_path / "young-home" / "reports").exists()
     assert (tmp_path / "profile.json").exists()
@@ -606,7 +606,7 @@ def test_cli_daily_llm_uses_enhanced_path(monkeypatch, tmp_path):
     ]
 
 
-def test_cli_daily_llm_reuses_existing_md_and_pdf(monkeypatch, tmp_path):
+def test_cli_daily_llm_reuses_existing_markdown(monkeypatch, tmp_path):
     from click.testing import CliRunner
 
     monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
@@ -618,25 +618,19 @@ def test_cli_daily_llm_reuses_existing_md_and_pdf(monkeypatch, tmp_path):
     report_dir = tmp_path / "reports" / "20260618"
     report_dir.mkdir(parents=True)
     markdown = report_dir / "20260618-盘后-A股深度复盘.md"
-    pdf = report_dir / "20260618-盘后-A股深度复盘.pdf"
     markdown.write_text("# deep replay\n", encoding="utf-8")
-    pdf.write_text("pdf", encoding="utf-8")
 
     llm_calls = []
-    export_calls = []
     monkeypatch.setattr(cli_module, "_run_llm_replay", lambda *args, **kwargs: llm_calls.append((args, kwargs)))
-    monkeypatch.setattr("young_stock.pdf.export_report_pdf", lambda *args, **kwargs: export_calls.append((args, kwargs)))
 
     result = CliRunner().invoke(cli, ["daily", "--llm"])
 
     assert result.exit_code == 0
     assert llm_calls == []
-    assert export_calls == []
     assert str(markdown) in result.output
-    assert str(pdf) in result.output
 
 
-def test_cli_daily_llm_exports_pdf_from_existing_markdown(monkeypatch, tmp_path):
+def test_cli_daily_llm_existing_markdown_does_not_export_pdf(monkeypatch, tmp_path):
     from click.testing import CliRunner
 
     monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
@@ -648,59 +642,19 @@ def test_cli_daily_llm_exports_pdf_from_existing_markdown(monkeypatch, tmp_path)
     report_dir = tmp_path / "reports" / "20260618"
     report_dir.mkdir(parents=True)
     markdown = report_dir / "20260618-盘后-A股深度复盘.md"
-    pdf = report_dir / "20260618-盘后-A股深度复盘.pdf"
     markdown.write_text("# deep replay\n", encoding="utf-8")
 
     llm_calls = []
-    export_calls = []
     monkeypatch.setattr(cli_module, "_run_llm_replay", lambda *args, **kwargs: llm_calls.append((args, kwargs)))
-    monkeypatch.setattr(
-        "young_stock.pdf.export_report_pdf",
-        lambda *args, **kwargs: export_calls.append((args, kwargs)) or (markdown, pdf),
-    )
 
     result = CliRunner().invoke(cli, ["daily", "--llm"])
 
     assert result.exit_code == 0
     assert llm_calls == []
-    assert len(export_calls) == 1
-    assert str(pdf) in result.output
+    assert "PDF:" not in result.output
 
 
-def test_cli_daily_llm_exports_pdf_for_requested_identity_without_mtime_hack(monkeypatch, tmp_path):
-    from click.testing import CliRunner
-
-    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
-    monkeypatch.setenv("YOUNG_STOCK_PROFILE", str(tmp_path / "profile.json"))
-    monkeypatch.setattr(cli_module._core, "nearest_trade_date", lambda: "20260618")
-    monkeypatch.setattr(cli_module._core, "cache_clear_old", lambda days: None)
-    monkeypatch.setattr(cli_module, "load_profile", lambda: {"stocks": ["600519"], "funds": []})
-
-    report_dir = tmp_path / "reports" / "20260618"
-    report_dir.mkdir(parents=True)
-    requested = report_dir / "20260618-盘后-A股深度复盘.md"
-    newer = report_dir / "20260618-盘后-A股投资日报.md"
-    requested.write_text("# deep replay\n", encoding="utf-8")
-    newer.write_text("# daily report\n", encoding="utf-8")
-    os.utime(requested, (1, 1))
-    os.utime(newer, (2, 2))
-
-    export_calls = []
-    monkeypatch.setattr(cli_module, "_run_llm_replay", lambda *args, **kwargs: requested)
-    monkeypatch.setattr(
-        "young_stock.pdf.export_report_pdf",
-        lambda *args, **kwargs: export_calls.append((args, kwargs)) or (requested, requested.with_suffix(".pdf")),
-    )
-
-    result = CliRunner().invoke(cli, ["daily", "--llm", "--refresh"])
-
-    assert result.exit_code == 0
-    assert len(export_calls) == 1
-    assert export_calls[0][1]["markdown_path"] == requested
-    assert newer.stat().st_mtime == 2
-
-
-def test_cli_daily_llm_refresh_rebuilds_markdown_and_pdf(monkeypatch, tmp_path):
+def test_cli_daily_llm_refresh_rebuilds_markdown_only(monkeypatch, tmp_path):
     from click.testing import CliRunner
 
     monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
@@ -712,27 +666,20 @@ def test_cli_daily_llm_refresh_rebuilds_markdown_and_pdf(monkeypatch, tmp_path):
     report_dir = tmp_path / "reports" / "20260618"
     report_dir.mkdir(parents=True)
     markdown = report_dir / "20260618-盘后-A股深度复盘.md"
-    pdf = report_dir / "20260618-盘后-A股深度复盘.pdf"
     markdown.write_text("# old replay\n", encoding="utf-8")
-    pdf.write_text("old", encoding="utf-8")
 
     llm_calls = []
-    export_calls = []
     monkeypatch.setattr(
         cli_module,
         "_run_llm_replay",
         lambda date_str, kind="replay", symbol=None: llm_calls.append((date_str, kind, symbol)) or markdown,
-    )
-    monkeypatch.setattr(
-        "young_stock.pdf.export_report_pdf",
-        lambda *args, **kwargs: export_calls.append((args, kwargs)) or (markdown, pdf),
     )
 
     result = CliRunner().invoke(cli, ["daily", "--llm", "--refresh"])
 
     assert result.exit_code == 0
     assert llm_calls == [("20260618", "replay", None)]
-    assert len(export_calls) == 1
+    assert "PDF:" not in result.output
 
 
 def test_cli_daily_llm_falls_back_without_configuration(monkeypatch, tmp_path):

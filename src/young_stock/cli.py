@@ -145,8 +145,6 @@ def _run_daily_llm(
     order: str | None,
     quick: bool,
 ) -> None:
-    from .pdf import export_report_pdf
-
     profile = load_profile()
     if not profile.get("stocks") and not profile.get("funds"):
         _print_first_use_guide()
@@ -155,17 +153,14 @@ def _run_daily_llm(
     identity = _llm_report_identity(date_str)
     artifacts = ReportArtifacts(date_str)
     markdown_path = artifacts.path(identity.prefix, "md")
-    pdf_path = artifacts.path(identity.prefix, "pdf")
 
-    if not refresh and markdown_path.exists() and pdf_path.exists():
+    if not refresh and markdown_path.exists():
         click.echo(f"Markdown: {markdown_path}")
-        click.echo(f"PDF: {pdf_path}")
         return
 
     try:
         if refresh or not markdown_path.exists():
             markdown_path = _run_llm_replay(date_str)
-        _, pdf_path = export_report_pdf(date_str, core=_core, profile=profile, markdown_path=markdown_path)
     except LLMNotConfigured:
         _fallback_daily_without_llm(
             date_str,
@@ -177,11 +172,8 @@ def _run_daily_llm(
             quick=quick,
         )
         return
-    except (RuntimeError, ValueError) as exc:
-        raise click.ClickException(str(exc)) from exc
 
     click.echo(f"Markdown: {markdown_path}")
-    click.echo(f"PDF: {pdf_path}")
 
 
 @cli.command(help="A-share dashboard: indices, ZT/DT pool, verified A-share fund flow, boards.")
@@ -917,10 +909,12 @@ def init() -> None:
     click.echo(f"PDF: {'已就绪' if pdf_ready else '当前环境未检测到 PDF 渲染能力'}")
     if not pdf_ready:
         click.echo("若当前环境缺少 PDF 渲染能力，请重新执行 `uv tool install --force 'young-stock-cli'`。")
-    click.echo("下一步：")
-    click.echo("1. young daily --format summary")
-    click.echo("2. young replay")
-    click.echo("3. young config llm --help")
+    click.echo("下一步建议：")
+    click.echo("1. young config show")
+    click.echo("2. young config llm --help")
+    click.echo("3. young profile add-stock 600519 --buy-date 2026-01-15 --quantity 100")
+    click.echo("   或 young profile add-fund 161725 --buy-date 2026-01-10 --quantity 1000")
+    click.echo("4. 可选：完成配置后再运行 young daily --format summary / young daily --llm / young report")
 
 
 @cli.command(help="Show common examples.")

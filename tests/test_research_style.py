@@ -45,7 +45,7 @@ def test_to_research_evidence_is_pure_and_contains_no_internal_names():
     assert "growth_board_count" not in text
     assert "degrade_mode" not in text
     assert "科创板与创业板活跃样本数" in text
-    assert "本模块证据暂缺" in text
+    assert "相关指标当日未披露" in text
 
 
 def test_review_research_report_handles_markdown_wrapped_engineering_phrases():
@@ -69,7 +69,7 @@ def test_review_research_report_handles_markdown_wrapped_engineering_phrases():
         ".py",
     )
     assert all(word not in reviewed for word in forbidden)
-    assert "本模块证据暂缺" in reviewed
+    assert "相关指标当日未披露" in reviewed
     assert "科创板与创业板活跃样本数为 14 家" in reviewed
 
 
@@ -85,7 +85,18 @@ def test_review_research_report_strips_fixed_preamble_and_layout_noise():
 
     assert "资深A股交易员" not in reviewed
     assert "Kami-compatible editorial layout" not in reviewed
+    assert reviewed.count("本文来自公开市场数据。仅供复盘参考，不构成投资建议。") == 1
     assert "市场震荡整理" in reviewed
+
+
+def test_review_research_report_removes_placeholder_only_line_but_keeps_context_sentence():
+    reviewed = review_research_report(
+        "# 复盘\n\n- 本模块证据暂缺。\n这句话只是提示本模块证据暂缺导致样本不足。\n",
+        sample_evidence(),
+    )
+
+    assert "- 本模块证据暂缺。" not in reviewed
+    assert "这句话只是提示本模块证据暂缺导致样本不足。" in reviewed
 
 
 def test_review_research_report_rejects_unrecognized_internal_field():

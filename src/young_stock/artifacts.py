@@ -9,26 +9,21 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from .calendar import a_share_session
 from .local_store import young_home
 
 
 def market_session(now: datetime | None = None) -> str:
-    now = now or datetime.now()
-    minute = now.hour * 60 + now.minute
-    if 9 * 60 <= minute < 11 * 60 + 30:
-        return "早盘"
-    if 11 * 60 + 30 <= minute < 13 * 60:
-        return "午间"
-    if 13 * 60 <= minute < 15 * 60:
-        return "盘中"
-    return "盘后"
+    session = a_share_session(now)
+    return "盘后" if session == "休市" else session
 
 
 def report_session(trade_date: str, now: datetime | None = None) -> str:
     now = now or datetime.now()
     if trade_date != now.strftime("%Y%m%d"):
         return "盘后"
-    return market_session(now)
+    session = market_session(now)
+    return "盘后" if session == "盘前" else session
 
 
 @dataclass(frozen=True)

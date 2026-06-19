@@ -20,15 +20,18 @@ Born out of a real workflow: every trading day after close I wanted the same fiv
 Recommended for CLI isolation:
 
 ```bash
-uv tool install young-stock-cli
-young init
+uv tool install young-stock-cli && young init
 ```
 
 Or install into the active Python environment:
 
 ```bash
-python3 -m pip install young-stock-cli
+python3 -m pip install --upgrade young-stock-cli && young init
 ```
+
+If you need the plain install form for an existing environment, `python3 -m pip install young-stock-cli` still works.
+If you upgraded from an older uv-managed environment, `uv tool install --force 'young-stock-cli'` is the quick
+refresh path.
 
 Requires Python 3.9+.
 
@@ -47,8 +50,9 @@ uv tool install --upgrade young-stock-cli
 ```
 
 `young init` creates the local home/profile files, verifies whether PDF rendering is available in the current
-environment, and prints the recommended next steps. You only need to install the tool once per environment; you do
-not need to reinstall it before every report.
+environment, and prints the recommended next steps. It only initializes and verifies; it does not auto-edit your
+shell environment or install extra packages. You only need to install the tool once per environment; you do not need
+to reinstall it before every report.
 
 If `python3 -m pip install --upgrade young-stock-cli` succeeds but `young --version` still shows an older release,
 you are probably running a different executable entrypoint than the interpreter you just upgraded. A quick check:
@@ -80,15 +84,16 @@ young profile add-fund 021528 --buy-date 2026-01-10 --quantity 1000
 young profile list
 young profile clear-stocks  # clear all saved stocks/ETFs only
 young profile clear-funds   # clear all saved funds only
-young daily --format summary      # concise personalized daily report
-young daily --format key-points   # short report with trend/risk points
-young daily --format full         # full personalized daily report
-young daily --llm                # evidence-driven deep replay with your configured LLM
-young init                       # initialize local state and verify report/LLM readiness
-young replay                     # deep M1-M6 market replay
+young daily --format summary      # deterministic watchlist daily report
+young daily --format key-points   # short deterministic report with trend/risk points
+young daily --format full         # full deterministic watchlist daily report
+young daily --llm                # deep after-hours / latest-trading-day replay; closes MD+PDF
+young daily --llm --refresh       # rebuild the same identity from scratch
+young init                       # initialize local state and verify report/PDF readiness
+young replay                     # deprecated alias for young daily --llm
 young analyze 600519             # deep single-stock analysis
 young chat                       # Rich chat mode with slash commands
-young report                     # export latest Markdown as a Kami-style PDF
+young report                     # export the latest Markdown report to PDF
 young send                       # send latest Markdown + PDF to configured channels
 young daily --only 基金,A股 --quick
 young news 3690.HK      # multi-source news only
@@ -190,8 +195,8 @@ young config llm --provider ark --model "<ark-model-or-endpoint-id>" --api-key-e
 young config llm --provider kimi --model "<moonshot-model-id>" --api-key-env MOONSHOT_API_KEY
 ```
 
-Start the interactive mode with `young chat`. Slash commands reuse the same Click command tree, so traditional CLI
-and chat behavior stay aligned:
+Start the interactive mode with `young chat`. A curated authoritative whitelist routes selected safe/read-only
+commands through Click:
 
 ```text
 /a
@@ -201,19 +206,29 @@ and chat behavior stay aligned:
 /daily --llm
 /daily-llm
 /replay
-/analyze 600519
 /profile list
+/style
+/style list
+/style set balanced
+/style show
+/style clear
 /report
-/send
 ```
 
 The chat keeps the five most recent user/assistant turns. If no LLM is configured, enhanced commands fail with a
-configuration hint while `/a`, `/stock`, `/daily`, and every other deterministic command continue working.
+configuration hint while `/a`, `/stock`, `/daily`, and every other deterministic command continue working. Chat is
+authoritative and only exposes a white-listed command surface: do not expect `/market` or `/trend`, and `/send`,
+`/config`, `/update`, and `/uninstall` are intentionally blocked from chat. `/daily-llm` and `/replay` are kept as
+deprecated aliases that route to `/daily --llm`.
+
+The style commands persist under chat config and only change the analysis frame, not persona identity. Supported
+styles are `balanced`, `buffett`, `munger`, `graham`, and `dalio`.
 
 ### Evidence-driven deep replay
 
-`young replay`, `young daily --llm`, and `/replay` build an Evidence Pack entirely from the structured values returned
-by `young_stock._core`. The model is used for synthesis, not data collection.
+`young daily --llm` builds an Evidence Pack entirely from the structured values returned by `young_stock._core`.
+`young replay` and `/replay` are deprecated aliases for the same workflow. The model is used for synthesis, not data
+collection.
 
 The report follows the six-module method from
 [`AdvancingTitans/stock-analysis`](https://github.com/AdvancingTitans/stock-analysis):
@@ -228,9 +243,9 @@ The report follows the six-module method from
 Before each LLM replay, young checks the remote `stock-analysis` version. It installs a text-only update only when
 the remote semantic version is greater than the locally cached/bundled version. `SKILL.md`, output discipline,
 data-source strategy, M1-M6 methodology files, and report templates are downloaded together, SHA-256 recorded in
-`~/.young_stock/methodologies/stock-analysis/manifest.json`, and verified when read. Remote code is never executed.
-If checking, downloading, or validation fails, young keeps the last verified local specification or bundled 4.2.0
-guidance.
+`~/.young_stock/methodologies/stock-analysis/manifest.json`, and verified when read. Remote code is never executed,
+and the browser or external repo is not a chat runtime dependency. If checking, downloading, or validation fails,
+young keeps the last verified local specification or bundled guidance.
 
 Each module has an evidence score. Missing fields remain missing rather than being rendered as zero. Low-quality
 evidence automatically produces a shorter report limited to verified indices, holdings, risks, and next-session
@@ -246,8 +261,11 @@ report-writing context. The returned Markdown is reviewed again before it can be
 use only these source phrases:
 
 - normal data: `据公开市场数据`, `据交易所及财经终端披露`
-- missing data: `该指标当日未披露`, `历史数据不可得`, `本模块证据暂缺`
+- missing data: `该指标当日未披露`, `历史数据不可得`
 - historical lookback: `按惯例回溯至该日`, `历史口径回溯`
+
+The mechanical placeholder `本模块证据暂缺` is cleaned from the final publication text and should not be treated as a
+recommended output phrase.
 
 Report artifacts include the date, market session, and topic:
 
@@ -266,7 +284,7 @@ is retained.
 The standard install already includes PDF support. If you upgraded from an older environment, refresh the tool once:
 
 ```bash
-uv tool install --force 'young-stock-cli'
+uv tool install --upgrade young-stock-cli
 ```
 
 If `young` was installed into the active Python environment instead:
@@ -275,7 +293,7 @@ If `young` was installed into the active Python environment instead:
 python3 -m pip install --upgrade young-stock-cli
 ```
 
-Then export the latest report:
+Then export the latest Markdown report to PDF:
 
 ```bash
 young report
@@ -283,8 +301,12 @@ young report --date 20260618
 ```
 
 If no Markdown report exists for the selected date, `young report` first reuses a saved diary entry when available,
-otherwise it automatically generates a deterministic full daily report. Run `young init` first if you want a quick
-readiness check for PDF rendering, config, and local storage paths.
+otherwise it automatically generates the latest available deterministic daily report. It is a Markdown-to-PDF export
+command, not a stdout time-slice report. Run `young init` first if you want a quick readiness check for PDF
+rendering, config, and local storage paths.
+
+The PDF header is intentionally short, news links stay clickable, and the final report keeps the publication text
+clean rather than echoing mechanical placeholders.
 
 The bundled Equity Report layout follows the
 [`tw93/Kami`](https://github.com/tw93/Kami) editorial language: parchment `#f5f4ed`, ink blue `#1B365D`,
@@ -315,7 +337,7 @@ young config channel remove feishu work
 One-click workflow:
 
 ```bash
-young replay
+young daily --llm
 young report
 young send
 
@@ -355,8 +377,10 @@ The internals are being split into focused modules: `young_stock.calendar` handl
 - **Multiple public quote sources** — Sina Finance and Tencent Finance are the default stable quote path; market-specific public interfaces stay behind the CLI fallback layer when no better source is available.
 - **Single-stock lookup** — `young stock 600519`, `young stock 0700.HK`, or `young stock AAPL` prints a compact quote snapshot with source, trade date, price, change, volume, turnover, market cap, PE/PB, 52-week range when available, and optional news.
 - **Fund holding lookup** — `young fund 161725` prints the fund's same-day estimated change, latest NAV date, top holdings, holding-stock quotes, rough contribution estimate, and same-day holding-stock news. Official fund NAVs usually update at night, so intraday/close values are clearly labeled as estimates.
-- **Personal daily report** — `young daily` reads your local investment memory from `~/.young_stock/profile.json`, then prints saved stock/ETF trends, fund estimates, only the markets relevant to your stocks and fund top holdings, and portfolio-style suggestions grounded in your funds, stocks, holding dates, quantities, and available news. First use requires a verified symbol plus `--buy-date` and `--quantity`, for example `young profile add-stock 600519 --buy-date 2026-01-15 --quantity 100` or `young profile add-fund 161725 --buy-date 2026-01-10 --quantity 1000`.
+- **Personal daily report** — `young daily` is the deterministic watchlist report from your local investment memory in `~/.young_stock/profile.json`; it prints saved stock/ETF trends, fund estimates, only the markets relevant to your symbols and fund top holdings, and portfolio-style suggestions grounded in your funds, stocks, holding dates, quantities, and available news. First use requires a verified symbol plus `--buy-date` and `--quantity`, for example `young profile add-stock 600519 --buy-date 2026-01-15 --quantity 100` or `young profile add-fund 161725 --buy-date 2026-01-10 --quantity 1000`.
+- **LLM replay** — `young daily --llm` performs the deep after-hours / latest-trading-day replay, then writes the matching Markdown and PDF under the same report identity; `--refresh` forces a rebuild of that identity. `young replay`, `/replay`, and `/daily-llm` are compatibility aliases only.
 - **Short report modes** — `young daily --format summary` keeps terminal output compact; `--format key-points` adds a few trend/risk bullets; `--only`, `--order`, and `--quick` trim slower or irrelevant sections.
+- **Chat style control** — `/style list|set|show|clear` persists a framework-only style choice. `balanced`, `buffett`, `munger`, `graham`, and `dalio` are analysis frames, not personas.
 - **Investment memory management** — list, remove, clear, and group saved stocks/funds with `young profile list`, `remove-stock`, `remove-fund`, `clear`, `clear-stocks`, `clear-funds`, and `profile group create/add`.
 - **Local workflow helpers** — lightweight `portfolio`, `alert`, `note`, and `diary` commands store local records for portfolio experiments, reminder rules, investment notes, and saved daily-report text.
 - **Diagnostics** — `young diagnose` summarizes recent source health and suggests cache/quick-mode fallbacks when public APIs are unstable; `young diagnose --json` prints read-only, machine-readable support info with Python/version/path/source-health details.
@@ -375,7 +399,7 @@ The internals are being split into focused modules: `young_stock.calendar` handl
 - **Same-day news discipline** — news sections only show items published on the requested trading date, up to five items, with a clear empty-state message when nothing valid is available.
 - **Readable news links** — linked news items are checked for obvious empty/404/no-content pages and replaced by other same-day news when possible.
 - **Sector boards via browser fallback** — when Eastmoney's board API rate-limits, falls back to rendering the public web page (optional, requires a local browser engine).
-- **Local updater/uninstaller** — `young update` runs `python -m pip install --upgrade young-stock-cli`; `young uninstall` runs `python -m pip uninstall -y young-stock-cli` with the same interpreter that launched the CLI.
+- **Local updater/uninstaller** — `young update` runs `python -m pip install --upgrade young-stock-cli`; `young uninstall` runs `python -m pip uninstall -y young-stock-cli` with the same interpreter that launched the CLI. For fresh setups, prefer `uv tool install young-stock-cli && young init`, or `python3 -m pip install --upgrade young-stock-cli && young init` in an active interpreter.
 
 ## Library usage
 

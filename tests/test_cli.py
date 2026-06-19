@@ -1,4 +1,5 @@
 import json
+import os
 import sys
 from types import SimpleNamespace
 
@@ -588,12 +589,205 @@ def test_cli_daily_llm_uses_enhanced_path(monkeypatch, tmp_path):
     monkeypatch.setattr(cli_module._core, "cache_clear_old", lambda days: None)
     monkeypatch.setattr(cli_module, "load_profile", lambda: {"stocks": ["600519"], "funds": []})
     calls = []
-    monkeypatch.setattr(cli_module, "_run_llm_replay", lambda date_str, kind="replay", symbol=None: calls.append((date_str, kind, symbol)))
+    monkeypatch.setattr(
+        cli_module,
+        "_run_daily_llm",
+        lambda date_str, **kwargs: calls.append((date_str, kwargs)),
+    )
 
     result = CliRunner().invoke(cli, ["daily", "--llm"])
 
     assert result.exit_code == 0
-    assert calls == [("20260618", "replay", None)]
+    assert calls == [
+        (
+            "20260618",
+            {"refresh": False, "no_news": False, "report_format": "full", "only": None, "order": None, "quick": False},
+        )
+    ]
+
+
+def test_cli_daily_llm_reuses_existing_md_and_pdf(monkeypatch, tmp_path):
+    from click.testing import CliRunner
+
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
+    monkeypatch.setenv("YOUNG_STOCK_PROFILE", str(tmp_path / "profile.json"))
+    monkeypatch.setattr(cli_module._core, "nearest_trade_date", lambda: "20260618")
+    monkeypatch.setattr(cli_module._core, "cache_clear_old", lambda days: None)
+    monkeypatch.setattr(cli_module, "load_profile", lambda: {"stocks": ["600519"], "funds": []})
+
+    report_dir = tmp_path / "reports" / "20260618"
+    report_dir.mkdir(parents=True)
+    markdown = report_dir / "20260618-盘后-A股深度复盘.md"
+    pdf = report_dir / "20260618-盘后-A股深度复盘.pdf"
+    markdown.write_text("# deep replay\n", encoding="utf-8")
+    pdf.write_text("pdf", encoding="utf-8")
+
+    llm_calls = []
+    export_calls = []
+    monkeypatch.setattr(cli_module, "_run_llm_replay", lambda *args, **kwargs: llm_calls.append((args, kwargs)))
+    monkeypatch.setattr("young_stock.pdf.export_report_pdf", lambda *args, **kwargs: export_calls.append((args, kwargs)))
+
+    result = CliRunner().invoke(cli, ["daily", "--llm"])
+
+    assert result.exit_code == 0
+    assert llm_calls == []
+    assert export_calls == []
+    assert str(markdown) in result.output
+    assert str(pdf) in result.output
+
+
+def test_cli_daily_llm_exports_pdf_from_existing_markdown(monkeypatch, tmp_path):
+    from click.testing import CliRunner
+
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
+    monkeypatch.setenv("YOUNG_STOCK_PROFILE", str(tmp_path / "profile.json"))
+    monkeypatch.setattr(cli_module._core, "nearest_trade_date", lambda: "20260618")
+    monkeypatch.setattr(cli_module._core, "cache_clear_old", lambda days: None)
+    monkeypatch.setattr(cli_module, "load_profile", lambda: {"stocks": ["600519"], "funds": []})
+
+    report_dir = tmp_path / "reports" / "20260618"
+    report_dir.mkdir(parents=True)
+    markdown = report_dir / "20260618-盘后-A股深度复盘.md"
+    pdf = report_dir / "20260618-盘后-A股深度复盘.pdf"
+    markdown.write_text("# deep replay\n", encoding="utf-8")
+
+    llm_calls = []
+    export_calls = []
+    monkeypatch.setattr(cli_module, "_run_llm_replay", lambda *args, **kwargs: llm_calls.append((args, kwargs)))
+    monkeypatch.setattr(
+        "young_stock.pdf.export_report_pdf",
+        lambda *args, **kwargs: export_calls.append((args, kwargs)) or (markdown, pdf),
+    )
+
+    result = CliRunner().invoke(cli, ["daily", "--llm"])
+
+    assert result.exit_code == 0
+    assert llm_calls == []
+    assert len(export_calls) == 1
+    assert str(pdf) in result.output
+
+
+def test_cli_daily_llm_exports_pdf_for_requested_identity_without_mtime_hack(monkeypatch, tmp_path):
+    from click.testing import CliRunner
+
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
+    monkeypatch.setenv("YOUNG_STOCK_PROFILE", str(tmp_path / "profile.json"))
+    monkeypatch.setattr(cli_module._core, "nearest_trade_date", lambda: "20260618")
+    monkeypatch.setattr(cli_module._core, "cache_clear_old", lambda days: None)
+    monkeypatch.setattr(cli_module, "load_profile", lambda: {"stocks": ["600519"], "funds": []})
+
+    report_dir = tmp_path / "reports" / "20260618"
+    report_dir.mkdir(parents=True)
+    requested = report_dir / "20260618-盘后-A股深度复盘.md"
+    newer = report_dir / "20260618-盘后-A股投资日报.md"
+    requested.write_text("# deep replay\n", encoding="utf-8")
+    newer.write_text("# daily report\n", encoding="utf-8")
+    os.utime(requested, (1, 1))
+    os.utime(newer, (2, 2))
+
+    export_calls = []
+    monkeypatch.setattr(cli_module, "_run_llm_replay", lambda *args, **kwargs: requested)
+    monkeypatch.setattr(
+        "young_stock.pdf.export_report_pdf",
+        lambda *args, **kwargs: export_calls.append((args, kwargs)) or (requested, requested.with_suffix(".pdf")),
+    )
+
+    result = CliRunner().invoke(cli, ["daily", "--llm", "--refresh"])
+
+    assert result.exit_code == 0
+    assert len(export_calls) == 1
+    assert export_calls[0][1]["markdown_path"] == requested
+    assert newer.stat().st_mtime == 2
+
+
+def test_cli_daily_llm_refresh_rebuilds_markdown_and_pdf(monkeypatch, tmp_path):
+    from click.testing import CliRunner
+
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
+    monkeypatch.setenv("YOUNG_STOCK_PROFILE", str(tmp_path / "profile.json"))
+    monkeypatch.setattr(cli_module._core, "nearest_trade_date", lambda: "20260618")
+    monkeypatch.setattr(cli_module._core, "cache_clear_old", lambda days: None)
+    monkeypatch.setattr(cli_module, "load_profile", lambda: {"stocks": ["600519"], "funds": []})
+
+    report_dir = tmp_path / "reports" / "20260618"
+    report_dir.mkdir(parents=True)
+    markdown = report_dir / "20260618-盘后-A股深度复盘.md"
+    pdf = report_dir / "20260618-盘后-A股深度复盘.pdf"
+    markdown.write_text("# old replay\n", encoding="utf-8")
+    pdf.write_text("old", encoding="utf-8")
+
+    llm_calls = []
+    export_calls = []
+    monkeypatch.setattr(
+        cli_module,
+        "_run_llm_replay",
+        lambda date_str, kind="replay", symbol=None: llm_calls.append((date_str, kind, symbol)) or markdown,
+    )
+    monkeypatch.setattr(
+        "young_stock.pdf.export_report_pdf",
+        lambda *args, **kwargs: export_calls.append((args, kwargs)) or (markdown, pdf),
+    )
+
+    result = CliRunner().invoke(cli, ["daily", "--llm", "--refresh"])
+
+    assert result.exit_code == 0
+    assert llm_calls == [("20260618", "replay", None)]
+    assert len(export_calls) == 1
+
+
+def test_cli_daily_llm_falls_back_without_configuration(monkeypatch, tmp_path):
+    from click.testing import CliRunner
+
+    from young_stock.llm import LLMNotConfigured
+
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
+    monkeypatch.setenv("YOUNG_STOCK_PROFILE", str(tmp_path / "profile.json"))
+    monkeypatch.setattr(cli_module._core, "nearest_trade_date", lambda: "20260618")
+    monkeypatch.setattr(cli_module._core, "cache_clear_old", lambda days: None)
+    monkeypatch.setattr(cli_module, "load_profile", lambda: {"stocks": ["600519"], "funds": []})
+
+    daily_calls = []
+    monkeypatch.setattr(
+        cli_module,
+        "_run_llm_replay",
+        lambda *args, **kwargs: (_ for _ in ()).throw(LLMNotConfigured("未配置 LLM，请运行 `young config llm --help`。")),
+    )
+    monkeypatch.setattr(
+        cli_module._core,
+        "run_daily_report",
+        lambda date_str, profile, include_news=True, report_format="full", only=None, order=None, quick=False: daily_calls.append(
+            (date_str, profile, include_news, report_format, only, order, quick)
+        ),
+    )
+
+    result = CliRunner().invoke(cli, ["daily", "--llm", "--no-news", "--format", "summary", "--only", "funds", "--quick"])
+
+    assert result.exit_code == 0
+    assert "已回退到普通 daily" in result.output
+    assert "young config llm --help" in result.output
+    assert daily_calls == [("20260618", {"stocks": ["600519"], "funds": []}, False, "summary", "funds", None, True)]
+
+
+def test_cli_daily_llm_does_not_swallow_other_llm_errors(monkeypatch, tmp_path):
+    import click
+    from click.testing import CliRunner
+
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
+    monkeypatch.setenv("YOUNG_STOCK_PROFILE", str(tmp_path / "profile.json"))
+    monkeypatch.setattr(cli_module._core, "nearest_trade_date", lambda: "20260618")
+    monkeypatch.setattr(cli_module._core, "cache_clear_old", lambda days: None)
+    monkeypatch.setattr(cli_module, "load_profile", lambda: {"stocks": ["600519"], "funds": []})
+    monkeypatch.setattr(
+        cli_module,
+        "_run_llm_replay",
+        lambda *args, **kwargs: (_ for _ in ()).throw(click.ClickException("认证失败")),
+    )
+
+    result = CliRunner().invoke(cli, ["daily", "--llm"])
+
+    assert result.exit_code != 0
+    assert "认证失败" in result.output
+    assert "已回退到普通 daily" not in result.output
 
 
 def test_cli_report_and_send_render_friendly_errors(monkeypatch):

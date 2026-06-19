@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.5] - 2026-06-19
+
+### Added
+- Added an authoritative chat slash-command whitelist and persistent `balanced`, `buffett`, `munger`, `graham`, and `dalio` analysis styles.
+- Added A-share session detection for closed, pre-market, morning, midday, intraday, and after-hours report routing.
+- Added safe clickable HTTP(S) news links to Markdown and PDF reports.
+
+### Changed
+- `young daily --llm` now generates or reuses matching Markdown and PDF artifacts; `--refresh` forces a rebuild.
+- `young replay`, `/replay`, and `/daily-llm` remain compatibility aliases but now direct users to `young daily --llm`.
+- `young report` remains a Markdown-to-PDF exporter and defaults to the latest available trading-date report.
+- Public reports now use one concise disclosure under the title and natural missing-data language instead of mechanical placeholder paragraphs.
+- Updated README guidance to match the current command surface: `young daily` is the deterministic watchlist report, `young daily --llm` is the deep after-hours replay with shared identity and `--refresh` rebuilds, `young replay`/`/daily-llm`/`/replay` are deprecated aliases, and chat documents its curated authoritative whitelist plus the `/style` framework.
+- Updated install and export guidance to emphasize `young init` as an initialization/verification step, `young report` as the Markdown-to-PDF export path, and the PDF/report hygiene rules that keep links clickable and remove mechanical placeholder wording.
+
+### Fixed
+- Prevented chat from recommending nonexistent commands or invoking blocked configuration, delivery, update, uninstall, and other mutating command paths.
+- Made PDF export select an explicit report identity instead of relying on modification-time ordering when multiple same-day reports exist.
+- Kept missing LLM configuration recoverable through deterministic daily output while preserving authentication and network failures as errors.
+
 ## [0.2.4] - 2026-06-19
 
 ### Added
@@ -58,7 +78,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Added versioned LLM and delivery-channel configuration in `~/.young_stock/config.json`, including masked display and environment-based API key lookup.
 - Added OpenAI-compatible providers (OpenAI, DeepSeek, Qwen, Ollama) plus Anthropic message support with timeouts, retries, and safe errors.
-- Added `young chat`, a Rich interactive REPL whose slash commands reuse the existing Click command tree.
+- Added `young chat`, a Rich interactive REPL whose curated authoritative whitelist routes selected safe/read-only commands through Click.
 - Added evidence-driven `young replay`, `young daily --llm`, and `young analyze <symbol>` workflows based on the stock-analysis M1-M6 methodology and quality-score degradation.
 - Added persistent report/evidence artifacts under `~/.young_stock/reports/YYYYMMDD/`.
 - Added `young report` with automatic deterministic-report fallback and optional WeasyPrint PDF export using a Kami-compatible Equity Report layout.

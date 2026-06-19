@@ -11,6 +11,8 @@ import click
 
 from . import __version__, _core
 from .artifacts import ReportArtifacts, ReportIdentity, report_session
+from .calendar import latest_report_trade_date
+from .calendar import nearest_trade_date as calendar_nearest_trade_date
 from .config import (
     add_feishu_channel,
     config_path,
@@ -21,7 +23,7 @@ from .config import (
     update_llm_config,
 )
 from .evidence import build_daily_evidence, build_stock_evidence
-from .llm import LLMClient, LLMError
+from .llm import LLMClient, LLMError, LLMNotConfigured
 from .local_store import load_store, now_label, save_store, young_home
 from .methodology import sync_stock_analysis_methodology
 from .profile import (
@@ -82,6 +84,104 @@ def _print_first_use_guide() -> None:
 
 def _current_report_date() -> str:
     return datetime.now().strftime("%Y%m%d")
+
+
+def _llm_report_identity(date_str: str, symbol: str | None = None) -> ReportIdentity:
+    topic = f"{symbol}深度分析" if symbol else "A股深度复盘"
+    return ReportIdentity(date_str, report_session(date_str), topic)
+
+
+def _run_plain_daily(
+    date_str: str,
+    profile: dict[str, object],
+    *,
+    no_news: bool,
+    report_format: str,
+    only: str | None,
+    order: str | None,
+    quick: bool,
+) -> None:
+    _core.run_daily_report(
+        date_str,
+        profile,
+        include_news=not no_news,
+        report_format=report_format,
+        only=only,
+        order=order,
+        quick=quick,
+    )
+
+
+def _fallback_daily_without_llm(
+    date_str: str,
+    profile: dict[str, object],
+    *,
+    no_news: bool,
+    report_format: str,
+    only: str | None,
+    order: str | None,
+    quick: bool,
+) -> None:
+    click.echo("未配置可用 LLM，已回退到普通 daily。", err=True)
+    click.echo("可先运行 `young config llm --help`，再用 `young config models --provider <provider>` 查看模型。", err=True)
+    _run_plain_daily(
+        date_str,
+        profile,
+        no_news=no_news,
+        report_format=report_format,
+        only=only,
+        order=order,
+        quick=quick,
+    )
+
+
+def _run_daily_llm(
+    date_str: str,
+    *,
+    refresh: bool,
+    no_news: bool,
+    report_format: str,
+    only: str | None,
+    order: str | None,
+    quick: bool,
+) -> None:
+    from .pdf import export_report_pdf
+
+    profile = load_profile()
+    if not profile.get("stocks") and not profile.get("funds"):
+        _print_first_use_guide()
+        return
+
+    identity = _llm_report_identity(date_str)
+    artifacts = ReportArtifacts(date_str)
+    markdown_path = artifacts.path(identity.prefix, "md")
+    pdf_path = artifacts.path(identity.prefix, "pdf")
+
+    if not refresh and markdown_path.exists() and pdf_path.exists():
+        click.echo(f"Markdown: {markdown_path}")
+        click.echo(f"PDF: {pdf_path}")
+        return
+
+    try:
+        if refresh or not markdown_path.exists():
+            markdown_path = _run_llm_replay(date_str)
+        _, pdf_path = export_report_pdf(date_str, core=_core, profile=profile, markdown_path=markdown_path)
+    except LLMNotConfigured:
+        _fallback_daily_without_llm(
+            date_str,
+            profile,
+            no_news=no_news,
+            report_format=report_format,
+            only=only,
+            order=order,
+            quick=quick,
+        )
+        return
+    except (RuntimeError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    click.echo(f"Markdown: {markdown_path}")
+    click.echo(f"PDF: {pdf_path}")
 
 
 @cli.command(help="A-share dashboard: indices, ZT/DT pool, verified A-share fund flow, boards.")
@@ -272,12 +372,28 @@ def daily(
         _print_first_use_guide()
         return
     if use_llm:
-        _run_llm_replay(date_str)
+        _run_daily_llm(
+            date_str,
+            refresh=refresh,
+            no_news=no_news,
+            report_format=report_format,
+            only=only,
+            order=order,
+            quick=quick,
+        )
         return
-    _core.run_daily_report(date_str, profile, include_news=not no_news, report_format=report_format, only=only, order=order, quick=quick)
+    _run_plain_daily(
+        date_str,
+        profile,
+        no_news=no_news,
+        report_format=report_format,
+        only=only,
+        order=order,
+        quick=quick,
+    )
 
 
-def _run_llm_replay(date_str: str, kind: str = "replay", symbol: str | None = None) -> None:
+def _run_llm_replay(date_str: str, kind: str = "replay", symbol: str | None = None):
     profile = load_profile()
     evidence = (
         build_stock_evidence(_core, symbol, date_str)
@@ -285,9 +401,7 @@ def _run_llm_replay(date_str: str, kind: str = "replay", symbol: str | None = No
         else build_daily_evidence(_core, date_str, profile)
     )
     artifacts = ReportArtifacts(date_str)
-    session = report_session(date_str)
-    topic = f"{symbol}深度分析" if symbol else "A股深度复盘"
-    identity = ReportIdentity(date_str, session, topic)
+    identity = _llm_report_identity(date_str, symbol)
     artifacts.write_json(f"{identity.prefix}-evidence", evidence.to_dict())
     config = load_config(strict=False).get("llm", {})
     methodology = sync_stock_analysis_methodology()
@@ -297,6 +411,8 @@ def _run_llm_replay(date_str: str, kind: str = "replay", symbol: str | None = No
             LLMClient(config),
             methodology=methodology.text,
         )
+    except LLMNotConfigured:
+        raise
     except LLMError as exc:
         raise click.ClickException(str(exc)) from exc
     metadata["stock_analysis_version"] = methodology.version
@@ -304,13 +420,14 @@ def _run_llm_replay(date_str: str, kind: str = "replay", symbol: str | None = No
     path = artifacts.write_report_markdown(identity, markdown)
     artifacts.write_json(
         f"{identity.prefix}-metadata",
-        {"kind": kind, "session": session, "topic": topic, **metadata},
+        {"kind": kind, "session": identity.session, "topic": identity.topic, **metadata},
     )
     from rich.console import Console
     from rich.markdown import Markdown
 
     Console().print(Markdown(markdown))
     click.echo(f"\nSaved: {path}")
+    return path
 
 
 @cli.command(help="Generate an evidence-driven deep market replay with the configured LLM.")
@@ -319,7 +436,16 @@ def _run_llm_replay(date_str: str, kind: str = "replay", symbol: str | None = No
 def replay(date: str | None, refresh: bool) -> None:
     if refresh:
         _core.NO_CACHE = True
-    _run_llm_replay(date or _current_report_date())
+    click.echo("Warning: `young replay` 已弃用，请改用 `young daily --llm`。", err=True)
+    _run_daily_llm(
+        date or calendar_nearest_trade_date(),
+        refresh=refresh,
+        no_news=False,
+        report_format="full",
+        only=None,
+        order=None,
+        quick=False,
+    )
 
 
 @cli.command(help="Generate deep analysis for one stock using verified young-stock data.")
@@ -526,7 +652,7 @@ def report(date: str | None) -> None:
 
     try:
         markdown_path, pdf_path = export_report_pdf(
-            date or _current_report_date(),
+            date or latest_report_trade_date(),
             core=_core,
             profile=load_profile(),
         )

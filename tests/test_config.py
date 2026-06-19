@@ -65,7 +65,16 @@ def test_save_config_is_atomic_and_keeps_required_defaults(monkeypatch, tmp_path
     stored = load_config()
     assert stored["schema_version"] == 1
     assert stored["llm"] == {}
+    assert stored["chat"] == {}
     assert not list(tmp_path.glob("*.tmp"))
+
+
+def test_chat_config_section_round_trips(monkeypatch, tmp_path):
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
+
+    save_config({"chat": {"style": "buffett"}})
+
+    assert load_config()["chat"]["style"] == "buffett"
 
 
 def test_feishu_channel_accepts_preissued_tenant_token(monkeypatch, tmp_path):

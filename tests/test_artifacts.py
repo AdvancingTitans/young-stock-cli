@@ -46,6 +46,7 @@ def test_generate_llm_daily_report_uses_evidence_and_returns_metadata():
 
 
 def test_market_session_labels():
+    assert market_session(datetime(2026, 6, 18, 8, 50)) == "盘前"
     assert market_session(datetime(2026, 6, 18, 9, 10)) == "早盘"
     assert market_session(datetime(2026, 6, 18, 9, 41)) == "早盘"
     assert market_session(datetime(2026, 6, 18, 10, 30)) == "早盘"
@@ -56,7 +57,8 @@ def test_market_session_labels():
 
 def test_report_session_uses_after_close_for_historical_trade_date():
     assert report_session("20260618", datetime(2026, 6, 19, 9, 41)) == "盘后"
-    assert report_session("20260619", datetime(2026, 6, 19, 9, 41)) == "早盘"
+    assert report_session("20260619", datetime(2026, 6, 19, 8, 50)) == "盘后"
+    assert report_session("20260618", datetime(2026, 6, 18, 9, 41)) == "早盘"
 
 
 def test_report_identity_uses_date_session_and_topic():

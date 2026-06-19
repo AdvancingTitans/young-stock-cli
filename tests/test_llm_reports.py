@@ -37,7 +37,7 @@ def test_llm_report_context_translates_internal_fields_for_research_writing():
     assert "missing_modules" not in prompt
     assert "degrade_mode" not in prompt
     assert "科创板与创业板活跃样本数" in prompt
-    assert "本模块证据暂缺" in prompt
+    assert "相关指标当日未披露" in prompt
     assert "板块强弱与资金流" in prompt
 
 
@@ -68,7 +68,7 @@ def test_llm_report_output_removes_engineering_language():
         "不确定性",
     ):
         assert forbidden not in markdown
-    assert "本模块证据暂缺" in markdown
+    assert "相关指标当日未披露" in markdown
     assert "科创板与创业板活跃样本数为 14 家" in markdown
     assert "相关指标以已披露口径为准" in markdown
     assert "备用路径" not in markdown
@@ -102,3 +102,14 @@ def test_llm_methodology_context_is_research_only():
     assert "fallback" not in system_text
     assert "脚本" not in system_text
     assert ".py" not in system_text
+
+
+def test_llm_report_system_prompt_uses_short_public_disclaimer_contract():
+    client = RecordingClient("# 复盘\n\n据公开市场数据，市场震荡。")
+
+    generate_llm_daily_report({"modules": {}, "_meta": {}}, client)
+
+    system_text = "\n".join(message["content"] for message in client.messages if message["role"] == "system")
+    assert "结尾必须原样包含" not in system_text
+    assert "不构成任何投资建议。股市有风险，投资需谨慎。" not in system_text
+    assert "不要重复免责声明" in system_text

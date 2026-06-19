@@ -8,11 +8,15 @@ from young_stock.cli import cli
 
 def test_replay_and_report_default_to_current_calendar_date(monkeypatch, tmp_path):
     monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
-    monkeypatch.setattr(cli_module._core, "nearest_trade_date", lambda: "20260618")
-    monkeypatch.setattr(cli_module, "_current_report_date", lambda: "20260619")
+    monkeypatch.setattr(cli_module, "calendar_nearest_trade_date", lambda: "20260618")
+    monkeypatch.setattr(cli_module, "latest_report_trade_date", lambda: "20260619")
 
     replay_calls = []
-    monkeypatch.setattr(cli_module, "_run_llm_replay", lambda date_str, kind="replay", symbol=None: replay_calls.append((date_str, kind, symbol)))
+    monkeypatch.setattr(
+        cli_module,
+        "_run_daily_llm",
+        lambda date_str, **kwargs: replay_calls.append((date_str, kwargs)),
+    )
     monkeypatch.setattr(
         "young_stock.pdf.export_report_pdf",
         lambda trade_date, **kwargs: (Path(f"/tmp/{trade_date}.md"), Path(f"/tmp/{trade_date}.pdf")),
@@ -24,5 +28,11 @@ def test_replay_and_report_default_to_current_calendar_date(monkeypatch, tmp_pat
 
     assert replay_result.exit_code == 0
     assert report_result.exit_code == 0
-    assert replay_calls == [("20260619", "replay", None)]
+    assert "已弃用" in replay_result.output
+    assert replay_calls == [
+        (
+            "20260618",
+            {"refresh": False, "no_news": False, "report_format": "full", "only": None, "order": None, "quick": False},
+        )
+    ]
     assert "/tmp/20260619.pdf" in report_result.output

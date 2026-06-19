@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 import json
-import re
 from typing import Any
+from urllib.parse import urlparse
 
 from .research_style import review_research_report, to_research_evidence, to_research_methodology
 
@@ -21,16 +21,16 @@ NEGATIVE_NEWS_KEYWORDS = (
     "下滑", "亏损", "减持", "调查", "处罚", "诉讼", "裁员", "降级", "放缓", "跌破", "风险", "监管", "召回", "违约"
 )
 
-LLM_REPORT_PROMPT_VERSION = "stock-analysis-research-language-v2"
+LLM_REPORT_PROMPT_VERSION = "stock-analysis-research-language-v3"
 LLM_REPORT_SYSTEM_PROMPT = """请基于用户提供的研报证据，撰写正式 A 股投资研究报告。
 你只能使用用户提供的研报证据，不得补写或外推任何缺失数字、日期、来源或持仓。
 按以下顺序输出 Markdown：大盘指数概览、持仓分析、六模块深度复盘、综合持仓建议与风险提示。
 每个有证据的模块给出关键判断、证据、风险/确认条件；建议必须是条件化触发器，不给无条件买卖指令。
 证据完整度不足时，只输出指数、持仓、已验证风险和下一交易日观察清单。
-正文只写投资研究语言。不得出现内部字段名、程序结构、工具名称、本地路径、文件扩展名或技术切换过程。
-正常数据使用“据公开市场数据”或“据交易所及财经终端披露”；缺失数据使用“该指标当日未披露”、
-“历史数据不可得”或“本模块证据暂缺”；回溯数据使用“按惯例回溯至该日”或“历史口径回溯”。
-结尾必须原样包含：以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。"""
+正文只写投资研究语言。不得出现内部字段名、程序结构、工具名称、本地路径、文件扩展名、技术切换过程或机械占位段。
+某模块无证据时优先省略该小节；确需说明时使用“相关指标当日未披露”或“历史数据不可得”等自然表述。
+正常数据使用“据公开市场数据”或“据交易所及财经终端披露”；回溯数据使用“按惯例回溯至该日”或“历史口径回溯”。
+公开版会在标题下统一加入短声明；不要重复免责声明，也不要在结尾追加长免责声明。"""
 
 MODULE_TITLES = {
     "M1": "大盘指数与市场广度",
@@ -155,39 +155,21 @@ def _research_context(evidence: dict[str, Any]) -> dict[str, Any]:
     return context
 
 
-def _sanitize_report_markdown(markdown: str) -> str:
-    text = re.sub(
-        r"证据\s*[:：]\s*modules\.M\d+\.available\s*为\s*false[。.]?",
-        "本模块证据暂缺。",
-        markdown,
-        flags=re.IGNORECASE,
-    )
-    text = re.sub(
-        r"风格信号\s*[:：]\s*growth_board_count\s*为\s*(\d+)[。.]?",
-        r"据公开市场数据，科创板与创业板活跃样本 \1 家。",
-        text,
-        flags=re.IGNORECASE,
-    )
-    text = re.sub(
-        r"(?m)^.*(?:fallback|脚本|采集|本地路径|\b[\w-]+\.(?:py|js|sh)\b).*$",
-        "据公开市场数据，相关指标以已披露口径为准。",
-        text,
-        flags=re.IGNORECASE,
-    )
-    replacements = {
-        "fallback": "备用路径",
-        "脚本": "数据流程",
-        "采集": "汇总",
-        "推测": "判断",
-        "不确定性": "风险边界",
-        "猜测": "主观判断",
-        "降级": "证据范围调整",
-    }
-    for source, target in replacements.items():
-        text = re.sub(re.escape(source), target, text, flags=re.IGNORECASE)
-    text = re.sub(r"(?:[A-Za-z]:)?[/~][^\s，。；：)）]+", "相关数据位置", text)
-    text = re.sub(r"\b[\w-]+\.(?:py|js|sh)\b", "相关数据流程", text, flags=re.IGNORECASE)
-    return text.strip()
+def _safe_news_url(value: Any) -> str | None:
+    candidate = str(value or "").strip()
+    if not candidate:
+        return None
+    parsed = urlparse(candidate)
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+        return None
+    return candidate
+
+
+def _news_markdown_label(core: Any, item: dict[str, Any]) -> str:
+    title = core._clean_news_title(str(item.get("title") or "")) or "相关资讯"
+    safe_title = title.replace("[", r"\[").replace("]", r"\]")
+    url = _safe_news_url(item.get("url")) or _safe_news_url(item.get("link"))
+    return f"[{safe_title}]({url})" if url else safe_title
 
 
 def generate_llm_daily_report(
@@ -286,8 +268,7 @@ def print_daily_watchlist(core: Any, watchlist: dict[str, list[str]] | None, dat
                 )
                 items = news.get("data", []) if "_error" not in news else []
                 if items:
-                    title = core._clean_news_title(str(items[0].get("title") or ""))
-                    print(f"  相关新闻: {title}")
+                    print(f"  相关新闻: {_news_markdown_label(core, items[0])}")
         print()
 
     if funds:

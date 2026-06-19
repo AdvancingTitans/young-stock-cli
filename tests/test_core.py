@@ -895,6 +895,40 @@ def test_run_daily_report_prints_watchlist_and_market_sections(monkeypatch, caps
     assert calls == [("fund", "161725", "20260529", False), ("a", "20260529", False)]
 
 
+def test_run_daily_report_uses_safe_markdown_link_for_watchlist_news(monkeypatch, capsys):
+    monkeypatch.setattr(
+        _core,
+        "get_single_stock_quote",
+        lambda symbol, date: _core.QuoteData(
+            symbol=symbol,
+            name="测试股票",
+            market="cn_market",
+            date="2026-05-29",
+            price=10,
+            change_pct=1.2,
+            source="test",
+        ),
+    )
+    monkeypatch.setattr(_core, "_news_aliases", lambda symbol, name: [symbol, name])
+    monkeypatch.setattr(
+        _core,
+        "combined_news_search",
+        lambda *args, **kwargs: {
+            "data": [
+                {"title": "主标题", "url": "javascript:alert(1)", "link": "https://example.com/news"},
+            ]
+        },
+    )
+    monkeypatch.setattr(_core, "run_a_share", lambda date, include_news=True: None)
+    monkeypatch.setattr(_core, "print_report_footer", lambda: None)
+
+    _core.run_daily_report("20260529", {"stocks": ["600519"], "funds": []}, include_news=True, quick=False)
+
+    output = capsys.readouterr().out
+    assert "相关新闻: [主标题](https://example.com/news)" in output
+    assert "javascript:alert(1)" not in output
+
+
 def test_run_daily_report_uses_only_relevant_stock_markets(monkeypatch, capsys):
     calls = []
 

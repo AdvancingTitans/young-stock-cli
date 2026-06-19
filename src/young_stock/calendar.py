@@ -78,3 +78,26 @@ def nearest_trade_date(dt: datetime | None = None, market: str = "a") -> str:
     while not is_trade_day(dt, market):
         dt -= timedelta(days=1)
     return dt.strftime("%Y%m%d")
+
+
+def a_share_session(dt: datetime | None = None) -> str:
+    dt = dt or datetime.now()
+    if not is_trade_day(dt, "a"):
+        return "休市"
+    minute = dt.hour * 60 + dt.minute
+    if minute < 9 * 60:
+        return "盘前"
+    if minute < 11 * 60 + 30:
+        return "早盘"
+    if minute < 13 * 60:
+        return "午间"
+    if minute < 15 * 60:
+        return "盘中"
+    return "盘后"
+
+
+def latest_report_trade_date(dt: datetime | None = None) -> str:
+    dt = dt or datetime.now()
+    if a_share_session(dt) in {"休市", "盘前"}:
+        return nearest_trade_date(dt, "a")
+    return dt.strftime("%Y%m%d")

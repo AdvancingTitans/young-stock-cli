@@ -12,16 +12,69 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.prompt import Prompt
 
-from .config import load_config
+from .config import load_config, save_config
 from .llm import LLMClient, LLMError
 from .local_store import load_store, now_label, save_store
 
 CHAT_MEMORY_STORE = "chat_memory"
+DEFAULT_CHAT_STYLE = "balanced"
 CHAT_MEMORY_LABELS = {
     "investment": "投资记忆",
     "persona": "人格/角色设定",
     "preferences": "其他长期偏好",
 }
+CHAT_STYLE_PROMPTS = {
+    "balanced": {
+        "label": "balanced",
+        "summary": "先事实、再判断，平衡基本面、估值、风险、催化剂与反例。",
+        "prompt": (
+            "当前分析框架：balanced。先区分已验证事实、推断、未知项；"
+            "同时看业务/资产质量、估值、风险、催化剂与反例；给概率化结论和后续核验点。"
+        ),
+    },
+    "buffett": {
+        "label": "buffett",
+        "summary": "重商业质量、护城河、管理层、资本配置与安全边际。",
+        "prompt": (
+            "当前分析框架：buffett。强调可理解的业务、长期竞争优势、管理层质量、资本配置、"
+            "自由现金流与安全边际；避免把短期波动包装成长期价值。"
+        ),
+    },
+    "munger": {
+        "label": "munger",
+        "summary": "用多元思维模型、反向思考、激励与错配检查。",
+        "prompt": (
+            "当前分析框架：munger。使用多元思维模型与反向思考，重点检查激励、错配、"
+            "机会成本、行为偏差与可避免的重大错误。"
+        ),
+    },
+    "graham": {
+        "label": "graham",
+        "summary": "重资产负债表、盈利稳定性、估值纪律与下行保护。",
+        "prompt": (
+            "当前分析框架：graham。优先看资产负债表、盈利稳定性、估值纪律与下行保护；"
+            "对证据不足的成长叙事保持克制。"
+        ),
+    },
+    "dalio": {
+        "label": "dalio",
+        "summary": "重宏观周期、情景分析、分散化与风险平衡。",
+        "prompt": (
+            "当前分析框架：dalio。优先识别宏观周期、流动性与政策环境，做情景分析、"
+            "相关性检查与分散化/风险平衡讨论。"
+        ),
+    },
+}
+READ_ONLY_SLASH_HELP = (
+    "可用命令：/a、/stock <symbol>、/fund <code>、/news <query>、/daily [flags]、/report、"
+    "/profile list、/memory show、/memory clear、/style、/style list、/style set <name>、"
+    "/style show、/style clear、/diagnose、/help、/clear、/exit。"
+)
+SUPPORTED_SLASH_FOR_PROMPT = (
+    "/a, /stock <symbol>, /fund <code>, /news <query>, /daily [flags], /report, "
+    "/profile list, /memory show, /memory clear, /style, /style list, /style set <name>, "
+    "/style show, /style clear, /diagnose, /help, /clear, /exit"
+)
 _EXPLICIT_MEMORY_HINTS = ("记住", "记一下", "别忘了", "以后", "下次", "长期", "默认")
 _INVESTMENT_HINTS = (
     "持有",
@@ -194,18 +247,56 @@ def slash_to_args(text: str) -> list[str]:
     return shlex.split(stripped[1:])
 
 
+def _normalize_style_name(name: str | None) -> str:
+    key = str(name or "").strip().lower()
+    return key if key in CHAT_STYLE_PROMPTS else DEFAULT_CHAT_STYLE
+
+
+def _load_chat_style_name() -> str:
+    return _normalize_style_name(load_config(strict=False).get("chat", {}).get("style"))
+
+
+def _save_chat_style_name(name: str | None) -> str:
+    config = load_config(strict=False)
+    chat_config = config.setdefault("chat", {})
+    if name is None:
+        chat_config.pop("style", None)
+    else:
+        chat_config["style"] = _normalize_style_name(name)
+    save_config(config)
+    return _load_chat_style_name()
+
+
+def _format_style_options() -> str:
+    return "、".join(CHAT_STYLE_PROMPTS)
+
+
+def _style_summary(name: str) -> str:
+    profile = CHAT_STYLE_PROMPTS[_normalize_style_name(name)]
+    return f"{profile['label']}: {profile['summary']}"
+
+
+def _build_style_prompt(name: str) -> str:
+    return (
+        f"{CHAT_STYLE_PROMPTS[_normalize_style_name(name)]['prompt']} "
+        "风格仅是分析框架，不冒充人物，不输出确定性投资建议。"
+    )
+
+
 @dataclass
 class ChatSession:
     max_turns: int = 5
     output: Callable[[str], None] | None = None
     history: list[dict[str, str]] = field(default_factory=list)
     long_term_memory: dict[str, list[dict[str, str]]] = field(default_factory=load_long_term_memory)
+    style_name: str = field(default_factory=_load_chat_style_name)
 
     def __post_init__(self) -> None:
         self.console = Console()
         if self.output is None:
             self.output = self.console.print
         self.long_term_memory = load_long_term_memory()
+        self.style_name = _load_chat_style_name()
 
     def remember(self, role: str, content: str) -> None:
         self.history.append({"role": role, "content": content[-8000:]})
@@ -223,14 +314,75 @@ class ChatSession:
         messages = [
             {
                 "role": "system",
-                "content": "你是 young-stock-cli 助手。未提供 Evidence Pack 时不要编造实时行情；引导用户使用 slash 命令取数。",
+                "content": (
+                    "你是 young-stock-cli 助手。硬性规则："
+                    f"1) 只允许建议这些 slash 命令：{SUPPORTED_SLASH_FOR_PROMPT}；"
+                    "不要编造 /market、/trend 或其他命令。"
+                    "2) 未提供 Evidence Pack 时，不得编造实时行情、涨跌幅、资金流、新闻细节或结论。"
+                    "3) 用户问“今天市场怎么样”“大盘如何”等泛问题时，优先引导 /a 或 /daily。"
+                    "4) 风格与长期记忆都服从本安全规则。"
+                ),
             }
         ]
+        messages.append({"role": "system", "content": _build_style_prompt(self.style_name)})
         long_term = _format_long_term_memory_for_prompt(self.long_term_memory)
         if long_term:
             messages.append({"role": "system", "content": long_term})
         messages.extend(self.history)
         return messages
+
+    def _emit(self, message: str) -> None:
+        self.output(message)
+
+    def _show_authoritative_help(self, prefix: str | None = None) -> None:
+        message = READ_ONLY_SLASH_HELP if prefix is None else f"{prefix}\n{READ_ONLY_SLASH_HELP}"
+        self._emit(message)
+
+    def _handle_style_slash(self, args: list[str]) -> bool:
+        action = args[1] if len(args) > 1 else "show"
+        if action == "list":
+            self._emit("可选风格：" + "；".join(_style_summary(name) for name in CHAT_STYLE_PROMPTS))
+            return False
+        if action == "show":
+            self._emit(f"当前风格：{_style_summary(self.style_name)}")
+            return False
+        if action == "clear":
+            self.style_name = _save_chat_style_name(None)
+            self._emit(f"已清除自定义风格，当前风格：{self.style_name}（默认）。")
+            return False
+        if action == "set":
+            if len(args) < 3:
+                self._emit(f"用法：/style set <name>。可选：{_format_style_options()}")
+                return False
+            candidate = args[2]
+            if candidate.strip().lower() not in CHAT_STYLE_PROMPTS:
+                self._emit(f"未知风格：{candidate}。可选：{_format_style_options()}")
+                return False
+            self.style_name = _save_chat_style_name(candidate)
+            self._emit(f"已设置风格：{_style_summary(self.style_name)}")
+            return False
+        self._emit("用法：/style、/style list、/style set <name>、/style show、/style clear")
+        return False
+
+    def _resolve_click_args(self, args: list[str]) -> tuple[list[str] | None, str | None]:
+        root = args[0]
+        if root in {"a", "stock", "fund", "news", "daily", "report", "diagnose"}:
+            return args, None
+        if root == "profile":
+            if len(args) >= 2 and args[1] in {"list", "show"}:
+                return args, None
+            return None, "chat 中仅支持只读的 /profile list。"
+        if root == "memory":
+            if len(args) >= 2 and args[1] in {"show", "list"}:
+                return ["memory", "show"], None
+            if len(args) >= 2 and args[1] == "clear":
+                return args, None
+            return None, "chat 中仅支持 /memory show 和 /memory clear。"
+        if root in {"daily-llm", "replay"}:
+            return ["daily", "--llm", *args[1:]], "提示：/daily-llm 和 /replay 已弃用，请改用 /daily --llm。"
+        if root in {"send", "config", "update", "uninstall"}:
+            return None, f"chat 中禁止 /{root}，请在终端直接运行对应 CLI。"
+        return None, f"不支持 /{root}。请输入 /help 查看 authoritative 命令列表。"
 
     def handle_slash(self, text: str) -> bool:
         args = slash_to_args(text)
@@ -240,21 +392,25 @@ class ChatSession:
             return True
         if args[0] == "clear":
             self.history.clear()
-            self.output("对话上下文已清空。")
+            self._emit("对话上下文已清空。")
             return False
         if args[0] == "help":
-            self.output(
-                "使用任意现有命令：/a、/stock 600519、/daily、/profile list、/memory show、/memory clear、/report、/send；/exit 退出。"
-            )
+            self._show_authoritative_help()
             return False
         if args[0] == "chat":
-            self.output("chat 模式中不能再次启动 /chat。")
+            self._emit("chat 模式中不能再次启动 /chat。")
             return False
-        if args[0] == "daily-llm":
-            args = ["replay", *args[1:]]
+        if args[0] == "style":
+            return self._handle_style_slash(args)
+        routed_args, notice = self._resolve_click_args(args)
+        if routed_args is None:
+            self._show_authoritative_help(notice)
+            return False
+        if notice:
+            self._emit(notice)
         self.remember("user", text)
-        command_output = self._invoke_click(args)
-        if args and args[0] == "memory":
+        command_output = self._invoke_click(routed_args)
+        if routed_args and routed_args[0] == "memory":
             self.long_term_memory = load_long_term_memory()
         if command_output:
             self.remember("assistant", command_output)
@@ -291,7 +447,10 @@ class ChatSession:
 def run_chat() -> None:
     console = Console()
     session = ChatSession()
-    console.print("[bold #1B365D]young chat[/] — 输入 /help 查看命令，/exit 退出。")
+    console.print(
+        "[bold #1B365D]young chat[/] — 输入 /help 查看命令，/exit 退出。"
+        f"\n可选风格：{_format_style_options()}；当前风格：{session.style_name}。"
+    )
     while True:
         try:
             text = Prompt.ask("[bold cyan]young[/]").strip()

@@ -6,6 +6,8 @@ import copy
 import re
 from typing import Any
 
+PUBLIC_DISCLAIMER = "本文来自公开市场数据。仅供复盘参考，不构成投资建议。"
+
 MODULE_TITLES = {
     "M1": "大盘指数与市场广度",
     "M2": "板块强弱与资金流",
@@ -95,7 +97,7 @@ def _convert(value: Any) -> Any:
     result = {}
     for key, item in value.items():
         if key == "available":
-            result["证据状态"] = "据公开市场数据" if item else "本模块证据暂缺"
+            result["证据状态"] = "据公开市场数据" if item else "相关指标当日未披露"
         elif key in {"source", "_source"}:
             result["数据来源"] = _public_source(item)
         elif key in {"_date_note", "_cache_note"}:
@@ -146,8 +148,10 @@ def to_research_methodology(text: str) -> str:
 def _replacement_lines(evidence: dict[str, Any]) -> list[str]:
     modules = evidence.get("modules") or {}
     lines = []
-    if not (modules.get("M2") or {}).get("available"):
-        lines.append("- 本模块证据暂缺。")
+    unavailable = any(payload.get("available") is False for payload in modules.values() if isinstance(payload, dict))
+    missing_modules = bool((evidence.get("_meta") or {}).get("missing_modules"))
+    if unavailable or missing_modules:
+        lines.append("- 相关指标当日未披露。")
     growth = ((modules.get("M5") or {}).get("style_signals") or {}).get("growth_board_count")
     if isinstance(growth, (int, float)):
         lines.append(f"- 据公开市场数据，科创板与创业板活跃样本数为 {growth:g} 家。")
@@ -167,6 +171,43 @@ def _normalized_line(line: str) -> str:
     return line.replace("`", "")
 
 
+def _placeholder_only(line: str) -> bool:
+    return bool(re.fullmatch(r"\s*(?:[-*+]\s*)?本模块证据暂缺[。.]?\s*", line))
+
+
+def _boilerplate(line: str) -> bool:
+    stripped = line.strip()
+    return bool(
+        stripped == PUBLIC_DISCLAIMER
+        or stripped == "说明: 以下内容仅供复盘参考，不构成投资建议。"
+        or stripped == "以上内容仅供参考，不构成任何投资建议。股市有风险，投资需谨慎。"
+        or re.fullmatch(r"=+", stripped)
+        or re.fullmatch(r"数据来源:\s*young-stock-cli\s+核心模块，多源免登录行情与新闻聚合。", stripped)
+    )
+
+
+def _strip_blank_edges(lines: list[str]) -> list[str]:
+    start = 0
+    end = len(lines)
+    while start < end and not lines[start].strip():
+        start += 1
+    while end > start and not lines[end - 1].strip():
+        end -= 1
+    return lines[start:end]
+
+
+def _compose_public_report(title: str | None, body_lines: list[str], disclaimer: str) -> str:
+    body = _strip_blank_edges(body_lines)
+    if title:
+        lines = [title, "", disclaimer]
+        if body:
+            lines.extend(["", *body])
+        return "\n".join(lines).strip()
+    if body:
+        return "\n".join([disclaimer, "", *body]).strip()
+    return disclaimer
+
+
 def sanitize_public_report(markdown: str, evidence: dict[str, Any] | None = None, *, strict: bool = False) -> str:
     evidence = evidence or {}
     normalized_markdown = _normalized_line(markdown)
@@ -176,26 +217,30 @@ def sanitize_public_report(markdown: str, evidence: dict[str, Any] | None = None
         if any(module not in known_modules for module, _field in internal_fields):
             raise ResearchStyleError("正式研报包含无法转换的内部字段。")
 
-    safe_lines = []
+    safe_body: list[str] = []
+    title_line: str | None = None
     removed_unsafe = False
     in_code_block = False
     for line in markdown.splitlines():
         stripped = line.strip()
         if stripped.startswith("```"):
             in_code_block = not in_code_block
-            removed_unsafe = True
             continue
         normalized = _normalized_line(line)
-        if in_code_block or _editorial_noise(normalized):
+        if in_code_block or _editorial_noise(normalized) or _boilerplate(normalized) or _placeholder_only(normalized):
             continue
         if _unsafe(normalized):
             removed_unsafe = True
             continue
-        safe_lines.append(line)
+        if title_line is None and stripped.startswith("#"):
+            title_line = line.strip()
+            continue
+        safe_body.append(line)
     if removed_unsafe:
-        insert_at = 1 if safe_lines and safe_lines[0].startswith("#") else 0
-        safe_lines[insert_at:insert_at] = ["", *_replacement_lines(evidence), ""]
-    reviewed = "\n".join(safe_lines).strip()
+        replacement_lines = _replacement_lines(evidence)
+        if replacement_lines:
+            safe_body = [*replacement_lines, "", *safe_body] if safe_body else replacement_lines
+    reviewed = _compose_public_report(title_line, safe_body, PUBLIC_DISCLAIMER)
     validation_lines = [_normalized_line(line) for line in reviewed.splitlines()]
     if any(_unsafe(line) or _editorial_noise(line) for line in validation_lines):
         raise ResearchStyleError("正式研报未通过研究语言审校。")

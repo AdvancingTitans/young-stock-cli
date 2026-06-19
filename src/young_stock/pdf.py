@@ -14,6 +14,7 @@ from datetime import datetime
 from importlib import resources
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import urlparse
 
 from .artifacts import ReportArtifacts, ReportIdentity, report_session
 from .local_store import load_store
@@ -24,12 +25,68 @@ class PDFDependencyError(RuntimeError):
     """The optional PDF renderer is unavailable."""
 
 
-def _inline(text: str) -> str:
+def _inline_text(text: str) -> str:
     escaped = html.escape(text, quote=False)
     escaped = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", escaped)
     escaped = re.sub(r"==(.+?)==", r'<strong class="highlight">\1</strong>', escaped)
     escaped = re.sub(r"`(.+?)`", r"<code>\1</code>", escaped)
     return escaped
+
+
+def _safe_link_href(raw: str) -> str | None:
+    candidate = html.unescape(raw).strip()
+    if not candidate:
+        return None
+    parsed = urlparse(candidate)
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+        return None
+    return candidate
+
+
+def _parse_markdown_link(text: str, start: int) -> tuple[int, str, str] | None:
+    if start < 0 or start >= len(text) or text[start] != "[":
+        return None
+    label_end = text.find("]", start + 1)
+    if label_end <= start + 1 or label_end + 1 >= len(text) or text[label_end + 1] != "(":
+        return None
+    depth = 1
+    cursor = label_end + 2
+    href_chars: list[str] = []
+    while cursor < len(text):
+        char = text[cursor]
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                return cursor + 1, text[start + 1:label_end], "".join(href_chars)
+        href_chars.append(char)
+        cursor += 1
+    return None
+
+
+def _inline(text: str) -> str:
+    parts: list[str] = []
+    cursor = 0
+    while cursor < len(text):
+        link_start = text.find("[", cursor)
+        if link_start < 0:
+            parts.append(_inline_text(text[cursor:]))
+            break
+        parts.append(_inline_text(text[cursor:link_start]))
+        parsed = _parse_markdown_link(text, link_start)
+        if parsed is None:
+            parts.append(_inline_text(text[link_start]))
+            cursor = link_start + 1
+            continue
+        link_end, label, href = parsed
+        safe_href = _safe_link_href(href)
+        if safe_href:
+            parts.append(f'<a href="{html.escape(safe_href, quote=True)}">{_inline_text(label)}</a>')
+        else:
+            parts.append(_inline_text(text[link_start:link_end]))
+        cursor = link_end
+    return "".join(parts)
 
 
 def markdown_to_html(markdown: str) -> str:
@@ -133,6 +190,19 @@ def _load_related_evidence(markdown_path: Path) -> dict[str, Any] | None:
     return None
 
 
+def _resolve_requested_markdown_path(artifacts: ReportArtifacts, trade_date: str, markdown_path: Path | str) -> Path:
+    candidate = Path(markdown_path).expanduser()
+    if candidate.suffix.lower() != ".md":
+        raise ValueError("markdown_path 必须指向 .md Markdown 报告文件。")
+    if not candidate.exists():
+        raise ValueError(f"Markdown 不存在: {candidate}")
+    candidate = candidate.resolve()
+    report_dir = artifacts.directory.resolve()
+    if candidate.parent != report_dir:
+        raise ValueError(f"Markdown 必须位于 {trade_date} 报告目录下: {report_dir}")
+    return candidate
+
+
 def _canonicalize_markdown(
     artifacts: ReportArtifacts,
     trade_date: str,
@@ -203,12 +273,17 @@ def export_report_pdf(
     *,
     core: Any = None,
     profile: dict[str, Any] | None = None,
+    markdown_path: Path | str | None = None,
     daily_markdown_factory: Callable[[], str] | None = None,
     render: Callable[[Path, Path], None] | None = None,
     now: datetime | None = None,
 ) -> tuple[Path, Path]:
     artifacts = ReportArtifacts(trade_date)
-    markdown_path = ReportArtifacts.latest_markdown(trade_date)
+    markdown_path = (
+        _resolve_requested_markdown_path(artifacts, trade_date, markdown_path)
+        if markdown_path is not None
+        else ReportArtifacts.latest_markdown(trade_date)
+    )
     if markdown_path is None:
         diary = load_store("diaries", {}).get(trade_date, {})
         diary_text = str(diary.get("text") or "") if isinstance(diary, dict) else ""

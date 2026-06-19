@@ -725,6 +725,53 @@ def test_cli_config_llm_with_api_key_env_persists_fallback(monkeypatch, tmp_path
     assert config["llm"]["api_key"] == "env-secret"
 
 
+def test_cli_config_llm_uses_saved_key_after_env_changes(monkeypatch, tmp_path):
+    from click.testing import CliRunner
+
+    from young_stock.llm import LLMClient
+
+    class FakeSession:
+        def __init__(self, responses):
+            self.responses = list(responses)
+            self.calls = []
+
+        def post(self, url, **kwargs):
+            self.calls.append((url, kwargs))
+            return self.responses.pop(0)
+
+    def response(status, payload):
+        return SimpleNamespace(status_code=status, json=lambda: payload, text=str(payload), headers={})
+
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
+    monkeypatch.setenv("MODEL_KEY", "  'saved-secret'  ")
+    runner = CliRunner()
+
+    saved = runner.invoke(
+        cli,
+        [
+            "config",
+            "llm",
+            "--provider",
+            "deepseek",
+            "--model",
+            "deepseek-chat",
+            "--api-key-env",
+            "MODEL_KEY",
+        ],
+    )
+    assert saved.exit_code == 0
+
+    monkeypatch.setenv("MODEL_KEY", "wrong-secret")
+    client = LLMClient(
+        json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))["llm"],
+        session=FakeSession([response(200, {"choices": [{"message": {"content": "ok"}}]})]),
+    )
+
+    client.chat([{"role": "user", "content": "hi"}])
+
+    assert client.session.calls[0][1]["headers"]["Authorization"] == "Bearer saved-secret"
+
+
 def test_cli_config_channel_add_persists_app_delivery_fields(monkeypatch, tmp_path):
     from click.testing import CliRunner
 

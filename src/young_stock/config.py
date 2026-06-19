@@ -24,6 +24,13 @@ def config_path() -> Path:
     return young_home() / "config.json"
 
 
+def normalize_api_key(value: Any) -> str:
+    text = str(value or "").strip()
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in {'"', "'"}:
+        text = text[1:-1].strip()
+    return text
+
+
 def _with_defaults(data: dict[str, Any] | None) -> dict[str, Any]:
     result = copy.deepcopy(DEFAULT_CONFIG)
     if not isinstance(data, dict):
@@ -91,10 +98,19 @@ def update_llm_config(**values: Any) -> dict[str, Any]:
     if env_name and values.get("api_key") is None:
         resolved = os.environ.get(env_name)
         if resolved:
-            values["api_key"] = resolved
+            values["api_key"] = normalize_api_key(resolved)
     for key, value in values.items():
         if value is not None:
-            llm[key] = value
+            if key == "api_key":
+                normalized = normalize_api_key(value)
+                if normalized:
+                    llm[key] = normalized
+            elif key == "api_key_env":
+                env_value = str(value).strip()
+                if env_value:
+                    llm[key] = env_value
+            else:
+                llm[key] = value
     return save_config(config)
 
 

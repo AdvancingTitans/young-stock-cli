@@ -337,6 +337,7 @@ def test_run_chat_banner_shows_style_options(monkeypatch, tmp_path, capsys):
     def raise_eof(*args, **kwargs):
         raise EOFError
 
+    monkeypatch.setattr(chat_module, "_prompt_toolkit_prompt", None)
     monkeypatch.setattr("builtins.input", raise_eof)
 
     run_chat()
@@ -349,7 +350,22 @@ def test_run_chat_banner_shows_style_options(monkeypatch, tmp_path, capsys):
     assert "对话风格、自称口吻和分析框架" in captured
 
 
-def test_run_chat_uses_fixed_plain_prompt(monkeypatch, tmp_path):
+def test_run_chat_uses_prompt_toolkit_with_fixed_prompt(monkeypatch, tmp_path):
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
+    prompts = []
+
+    def fake_prompt(prompt):
+        prompts.append(prompt)
+        raise EOFError
+
+    monkeypatch.setattr(chat_module, "_prompt_toolkit_prompt", fake_prompt)
+
+    run_chat()
+
+    assert prompts == ["young "]
+
+
+def test_run_chat_falls_back_to_builtins_input_when_prompt_toolkit_unavailable(monkeypatch, tmp_path):
     monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
     prompts = []
 
@@ -357,6 +373,7 @@ def test_run_chat_uses_fixed_plain_prompt(monkeypatch, tmp_path):
         prompts.append(prompt)
         raise EOFError
 
+    monkeypatch.setattr(chat_module, "_prompt_toolkit_prompt", None)
     monkeypatch.setattr("builtins.input", fake_input)
 
     run_chat()

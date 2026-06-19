@@ -88,14 +88,14 @@ def test_anthropic_provider_maps_response():
     assert result.content == "谨慎看多"
 
 
-def test_api_key_env_takes_precedence(monkeypatch):
+def test_saved_api_key_takes_precedence_over_env(monkeypatch):
     monkeypatch.setenv("MODEL_KEY", "env-secret")
     session = FakeSession([response(200, {"choices": [{"message": {"content": "ok"}}]})])
     client = LLMClient(
         {
             "provider": "openai",
             "model": "gpt-test",
-            "api_key": "inline-secret",
+            "api_key": '  "saved-secret"  ',
             "api_key_env": "MODEL_KEY",
         },
         session=session,
@@ -103,7 +103,7 @@ def test_api_key_env_takes_precedence(monkeypatch):
 
     client.chat([{"role": "user", "content": "hi"}])
 
-    assert session.calls[0][1]["headers"]["Authorization"] == "Bearer env-secret"
+    assert session.calls[0][1]["headers"]["Authorization"] == "Bearer saved-secret"
 
 
 def test_api_key_falls_back_to_saved_secret_when_env_missing(monkeypatch):
@@ -122,6 +122,23 @@ def test_api_key_falls_back_to_saved_secret_when_env_missing(monkeypatch):
     client.chat([{"role": "user", "content": "hi"}])
 
     assert session.calls[0][1]["headers"]["Authorization"] == "Bearer saved-secret"
+
+
+def test_api_key_env_falls_back_when_saved_secret_missing(monkeypatch):
+    monkeypatch.setenv("MODEL_KEY", "  'env-secret'  ")
+    session = FakeSession([response(200, {"choices": [{"message": {"content": "ok"}}]})])
+    client = LLMClient(
+        {
+            "provider": "openai",
+            "model": "gpt-test",
+            "api_key_env": "MODEL_KEY",
+        },
+        session=session,
+    )
+
+    client.chat([{"role": "user", "content": "hi"}])
+
+    assert session.calls[0][1]["headers"]["Authorization"] == "Bearer env-secret"
 
 
 def test_openai_compatible_model_discovery():

@@ -9,13 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - `young chat` now auto-uses the existing `reach` bridge for explicit finance/news lookup requests, but only feeds compact evidence excerpts to the model instead of exposing raw search captures in the terminal.
-- `young chat` input now uses a fixed `young ` prompt prefix so line editing no longer eats the visible prompt label.
+- `young chat` input now uses `prompt_toolkit` with a fixed, non-editable `young ` prompt prefix for reliable backspace and cursor movement on macOS terminals.
 - Help text now makes the command boundary clearer: `young daily --llm` is the strict stock-analysis M1-M6 Markdown replay, `young replay` is only a deprecated alias, and `young report` is PDF export only.
 
 ### Fixed
 - Fixed chat search flows that previously surfaced raw `/reach` output or still nudged users to run `/reach` manually instead of returning a summarized answer directly.
 - Hardened LLM replay prompts so `young daily --llm` stays on the stock-analysis six-module framework and does not drift into persona-style investment templates.
 - Fixed LLM config persistence so `young config llm --api-key-env ...` also stores a local fallback key, which keeps `young chat` working across fresh terminal sessions without forcing users to re-export the secret every time.
+- Fixed stale shell environment variables overriding the saved API key after terminal restarts; saved credentials now take precedence and accidental outer quotes or whitespace are normalized.
 
 ## [0.2.8] - 2026-06-19
 

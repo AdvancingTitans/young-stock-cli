@@ -30,7 +30,7 @@ def test_config_round_trip_uses_young_home(monkeypatch, tmp_path):
 
 def test_config_persists_api_key_env_fallback(monkeypatch, tmp_path):
     monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
-    monkeypatch.setenv("MODEL_KEY", "env-secret")
+    monkeypatch.setenv("MODEL_KEY", '  "env-secret"  ')
 
     config = update_llm_config(
         provider="deepseek",
@@ -41,6 +41,20 @@ def test_config_persists_api_key_env_fallback(monkeypatch, tmp_path):
     assert config["llm"]["api_key_env"] == "MODEL_KEY"
     assert config["llm"]["api_key"] == "env-secret"
     assert load_config()["llm"]["api_key"] == "env-secret"
+
+
+def test_config_normalizes_direct_api_key_before_persisting(monkeypatch, tmp_path):
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
+
+    config = update_llm_config(
+        provider="deepseek",
+        model="deepseek-chat",
+        api_key='  "secret-value"  ',
+        api_base="https://api.deepseek.com",
+    )
+
+    assert config["llm"]["api_key"] == "secret-value"
+    assert load_config()["llm"]["api_key"] == "secret-value"
 
 
 def test_config_masks_secrets_and_webhook_tokens():

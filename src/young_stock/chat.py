@@ -17,10 +17,10 @@ from click.testing import CliRunner
 from rich.console import Console
 from rich.markdown import Markdown
 
-try:  # ponytail: best-effort line editing on local terminals; falls back harmlessly if unavailable.
-    import readline  # noqa: F401
-except Exception:  # pragma: no cover - platform dependent
-    readline = None
+try:  # pragma: no cover - optional dependency may be absent in some envs.
+    from prompt_toolkit import prompt as _prompt_toolkit_prompt
+except Exception:  # pragma: no cover - dependency missing or broken
+    _prompt_toolkit_prompt = None
 
 try:  # pragma: no cover - import path differs across Python builds
     from zoneinfo import ZoneInfo
@@ -295,6 +295,17 @@ def _current_time_system_note() -> str:
         f"{verification}"
         "涉及“今天”“当前”“最近”“最新”这类相对时间时，必须以这个北京时间为准，不要自行猜测日期。"
     )
+
+
+def _read_chat_input(prompt_text: str = "young ") -> str:
+    if callable(_prompt_toolkit_prompt):
+        try:
+            return _prompt_toolkit_prompt(prompt_text)
+        except (EOFError, KeyboardInterrupt):
+            raise
+        except Exception:
+            pass
+    return builtins.input(prompt_text)
 
 
 def _is_time_query(text: str) -> bool:
@@ -788,7 +799,7 @@ def run_chat() -> None:
     )
     while True:
         try:
-            text = builtins.input("young ").strip()
+            text = _read_chat_input().strip()
         except (EOFError, KeyboardInterrupt):
             console.print("\n再见。")
             return

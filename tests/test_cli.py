@@ -659,6 +659,106 @@ def test_cli_config_llm_saves_and_masks_secret(monkeypatch, tmp_path):
     assert "deepseek-chat" in shown.output
 
 
+def test_cli_config_llm_persists_all_core_fields(monkeypatch, tmp_path):
+    from click.testing import CliRunner
+
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
+    monkeypatch.setenv("MODEL_KEY", "env-secret")
+    runner = CliRunner()
+
+    result = runner.invoke(
+        cli,
+        [
+            "config",
+            "llm",
+            "--provider",
+            "deepseek",
+            "--model",
+            "deepseek-chat",
+            "--api-key-env",
+            "MODEL_KEY",
+            "--api-base",
+            "https://api.deepseek.com",
+            "--timeout",
+            "45",
+            "--max-tokens",
+            "8192",
+        ],
+    )
+
+    assert result.exit_code == 0
+    config = json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))
+    llm = config["llm"]
+    assert llm["provider"] == "deepseek"
+    assert llm["model"] == "deepseek-chat"
+    assert llm["api_key_env"] == "MODEL_KEY"
+    assert llm["api_key"] == "env-secret"
+    assert llm["api_base"] == "https://api.deepseek.com"
+    assert llm["timeout"] == 45
+    assert llm["max_tokens"] == 8192
+
+
+def test_cli_config_llm_with_api_key_env_persists_fallback(monkeypatch, tmp_path):
+    from click.testing import CliRunner
+
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
+    monkeypatch.setenv("MODEL_KEY", "env-secret")
+    runner = CliRunner()
+
+    saved = runner.invoke(
+        cli,
+        [
+            "config",
+            "llm",
+            "--provider",
+            "deepseek",
+            "--model",
+            "deepseek-chat",
+            "--api-key-env",
+            "MODEL_KEY",
+        ],
+    )
+
+    assert saved.exit_code == 0
+    config = json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))
+    assert config["llm"]["api_key_env"] == "MODEL_KEY"
+    assert config["llm"]["api_key"] == "env-secret"
+
+
+def test_cli_config_channel_add_persists_app_delivery_fields(monkeypatch, tmp_path):
+    from click.testing import CliRunner
+
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
+    runner = CliRunner()
+
+    result = runner.invoke(
+        cli,
+        [
+            "config",
+            "channel",
+            "add",
+            "feishu",
+            "work",
+            "--app-id",
+            "cli_a1",
+            "--app-secret",
+            "secret-123",
+            "--receive-id",
+            "oc_test_chat",
+            "--receive-id-type",
+            "chat_id",
+        ],
+    )
+
+    assert result.exit_code == 0
+    config = json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))
+    channel = config["channels"]["feishu"]["work"]
+    assert channel["app_id"] == "cli_a1"
+    assert channel["app_secret"] == "secret-123"
+    assert channel["receive_id"] == "oc_test_chat"
+    assert channel["receive_id_type"] == "chat_id"
+
+
 def test_cli_daily_llm_uses_enhanced_path(monkeypatch, tmp_path):
     from click.testing import CliRunner
 

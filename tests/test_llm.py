@@ -106,6 +106,24 @@ def test_api_key_env_takes_precedence(monkeypatch):
     assert session.calls[0][1]["headers"]["Authorization"] == "Bearer env-secret"
 
 
+def test_api_key_falls_back_to_saved_secret_when_env_missing(monkeypatch):
+    monkeypatch.delenv("MODEL_KEY", raising=False)
+    session = FakeSession([response(200, {"choices": [{"message": {"content": "ok"}}]})])
+    client = LLMClient(
+        {
+            "provider": "openai",
+            "model": "gpt-test",
+            "api_key": "saved-secret",
+            "api_key_env": "MODEL_KEY",
+        },
+        session=session,
+    )
+
+    client.chat([{"role": "user", "content": "hi"}])
+
+    assert session.calls[0][1]["headers"]["Authorization"] == "Bearer saved-secret"
+
+
 def test_openai_compatible_model_discovery():
     session = FakeSession(
         [

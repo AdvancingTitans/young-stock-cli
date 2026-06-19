@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Fixed chat search flows that previously surfaced raw `/reach` output or still nudged users to run `/reach` manually instead of returning a summarized answer directly.
 - Hardened LLM replay prompts so `young daily --llm` stays on the stock-analysis six-module framework and does not drift into persona-style investment templates.
+- Fixed LLM config persistence so `young config llm --api-key-env ...` also stores a local fallback key, which keeps `young chat` working across fresh terminal sessions without forcing users to re-export the secret every time.
 
 ## [0.2.8] - 2026-06-19
 

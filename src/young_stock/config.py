@@ -87,6 +87,11 @@ def save_config(data: dict[str, Any]) -> dict[str, Any]:
 def update_llm_config(**values: Any) -> dict[str, Any]:
     config = load_config(strict=False)
     llm = config.setdefault("llm", {})
+    env_name = str(values.get("api_key_env") or "").strip()
+    if env_name and values.get("api_key") is None:
+        resolved = os.environ.get(env_name)
+        if resolved:
+            values["api_key"] = resolved
     for key, value in values.items():
         if value is not None:
             llm[key] = value

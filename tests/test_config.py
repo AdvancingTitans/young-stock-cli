@@ -28,6 +28,21 @@ def test_config_round_trip_uses_young_home(monkeypatch, tmp_path):
     assert stat.S_IMODE((tmp_path / "config.json").stat().st_mode) & 0o077 == 0
 
 
+def test_config_persists_api_key_env_fallback(monkeypatch, tmp_path):
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
+    monkeypatch.setenv("MODEL_KEY", "env-secret")
+
+    config = update_llm_config(
+        provider="deepseek",
+        model="deepseek-chat",
+        api_key_env="MODEL_KEY",
+    )
+
+    assert config["llm"]["api_key_env"] == "MODEL_KEY"
+    assert config["llm"]["api_key"] == "env-secret"
+    assert load_config()["llm"]["api_key"] == "env-secret"
+
+
 def test_config_masks_secrets_and_webhook_tokens():
     masked = mask_config(
         {
@@ -97,3 +112,22 @@ def test_feishu_channel_accepts_preissued_tenant_token(monkeypatch, tmp_path):
     )
 
     assert config["channels"]["feishu"]["token-app"]["tenant_access_token"] == "token"
+
+
+def test_feishu_channel_round_trips_app_credentials(monkeypatch, tmp_path):
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
+
+    config = add_feishu_channel(
+        "work",
+        {
+            "app_id": "cli_a1",
+            "app_secret": "secret-123",
+            "receive_id": "oc_test_chat",
+            "receive_id_type": "chat_id",
+        },
+    )
+
+    channel = config["channels"]["feishu"]["work"]
+    assert channel["app_id"] == "cli_a1"
+    assert channel["app_secret"] == "secret-123"
+    assert load_config()["channels"]["feishu"]["work"]["receive_id"] == "oc_test_chat"

@@ -3,9 +3,11 @@ from __future__ import annotations
 
 import json
 import platform
+import shutil
 import subprocess
 import sys
 from datetime import datetime
+from pathlib import Path
 
 import click
 
@@ -91,6 +93,21 @@ def _llm_report_identity(date_str: str, symbol: str | None = None) -> ReportIden
     return ReportIdentity(date_str, report_session(date_str), topic)
 
 
+def _print_markdown_report(path: Path) -> None:
+    from rich.console import Console
+    from rich.markdown import Markdown
+
+    Console().print(Markdown(path.read_text(encoding="utf-8")))
+
+
+def _run_external_command(command: list[str], *, missing_hint: str) -> None:
+    if not shutil.which(command[0]):
+        raise click.ClickException(missing_hint)
+    result = subprocess.run(command, check=False)
+    if result.returncode != 0:
+        raise click.ClickException(f"外部能力执行失败（exit={result.returncode}）：{' '.join(command)}")
+
+
 def _run_plain_daily(
     date_str: str,
     profile: dict[str, object],
@@ -155,6 +172,7 @@ def _run_daily_llm(
     markdown_path = artifacts.path(identity.prefix, "md")
 
     if not refresh and markdown_path.exists():
+        _print_markdown_report(markdown_path)
         click.echo(f"Markdown: {markdown_path}")
         return
 
@@ -414,10 +432,7 @@ def _run_llm_replay(date_str: str, kind: str = "replay", symbol: str | None = No
         f"{identity.prefix}-metadata",
         {"kind": kind, "session": identity.session, "topic": identity.topic, **metadata},
     )
-    from rich.console import Console
-    from rich.markdown import Markdown
-
-    Console().print(Markdown(markdown))
+    _print_markdown_report(path)
     click.echo(f"\nSaved: {path}")
     return path
 
@@ -448,6 +463,40 @@ def analyze(symbol: str, date: str | None, refresh: bool) -> None:
     if refresh:
         _core.NO_CACHE = True
     _run_llm_replay(date or _core.nearest_trade_date(), kind="analyze", symbol=symbol)
+
+
+@cli.command(help="Optional Agent-Reach bridge for external web/company research.")
+@click.argument("query_parts", nargs=-1)
+@click.option("--url", default=None, help="Read one webpage through the Agent-Reach web path.")
+@click.option("--limit", default=5, show_default=True, type=int, help="Search result count for Exa search.")
+@click.option("--doctor", is_flag=True, help="Run `agent-reach doctor` if Agent-Reach is installed.")
+def reach(query_parts: tuple[str, ...], url: str | None, limit: int, doctor: bool) -> None:
+    query = " ".join(part for part in query_parts if part).strip()
+    if doctor:
+        _run_external_command(
+            ["agent-reach", "doctor"],
+            missing_hint="未检测到 `agent-reach`。请先按 Agent-Reach 技能文档安装后再运行 `young reach --doctor`。",
+        )
+        return
+    if url:
+        _run_external_command(
+            ["curl", "-s", f"https://r.jina.ai/{url}"],
+            missing_hint="当前环境缺少 `curl`，无法走 Agent-Reach 网页阅读桥接。",
+        )
+        return
+    if not query:
+        raise click.ClickException("请提供查询词，或使用 --url / --doctor。")
+    _run_external_command(
+        [
+            "mcporter",
+            "call",
+            f'exa.web_search_exa(query: "{query}", numResults: {limit})',
+        ],
+        missing_hint=(
+            "未检测到 `mcporter`。请先安装 Agent-Reach / Exa 通道，"
+            "或先用 `young reach --doctor` 检查外部能力。"
+        ),
+    )
 
 
 @cli.command(help="Enter Rich interactive chat with slash commands.")

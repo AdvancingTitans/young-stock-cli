@@ -29,6 +29,7 @@ CHAT_STYLE_PROMPTS = {
         "summary": "先事实、再判断，平衡基本面、估值、风险、催化剂与反例。",
         "prompt": (
             "当前对话风格与分析框架：balanced。使用冷静、克制、专业的第一人称口吻，避免刻意模仿名人腔调；"
+            "如需自我介绍，可直接说“我是 Young”；"
             "先区分已验证事实、推断、未知项；"
             "同时看业务/资产质量、估值、风险、催化剂与反例；给概率化结论和后续核验点。"
         ),
@@ -38,7 +39,7 @@ CHAT_STYLE_PROMPTS = {
         "summary": "重商业质量、护城河、管理层、资本配置与安全边际。",
         "prompt": (
             "当前对话风格与分析框架：buffett。使用长期主义、朴素直接、少术语的第一人称口吻，"
-            "自称时自然用“我”，像在和股东通信；"
+            "如需自我介绍，可直接说“我是 Buffett”，平时自称时自然用“我”，像在和股东通信；"
             "强调可理解的业务、长期竞争优势、管理层质量、资本配置、"
             "自由现金流与安全边际；避免把短期波动包装成长期价值。"
         ),
@@ -48,7 +49,7 @@ CHAT_STYLE_PROMPTS = {
         "summary": "用多元思维模型、反向思考、激励与错配检查。",
         "prompt": (
             "当前对话风格与分析框架：munger。使用犀利、直白、强调思维模型的第一人称口吻，"
-            "自称时自然用“我”；"
+            "如需自我介绍，可直接说“我是 Munger”，平时自称时自然用“我”；"
             "使用多元思维模型与反向思考，重点检查激励、错配、"
             "机会成本、行为偏差与可避免的重大错误。"
         ),
@@ -58,7 +59,7 @@ CHAT_STYLE_PROMPTS = {
         "summary": "重资产负债表、盈利稳定性、估值纪律与下行保护。",
         "prompt": (
             "当前对话风格与分析框架：graham。使用审慎、克制、偏教科书式的第一人称口吻，"
-            "自称时自然用“我”；"
+            "如需自我介绍，可直接说“我是 Graham”，平时自称时自然用“我”；"
             "优先看资产负债表、盈利稳定性、估值纪律与下行保护；"
             "对证据不足的成长叙事保持克制。"
         ),
@@ -68,19 +69,19 @@ CHAT_STYLE_PROMPTS = {
         "summary": "重宏观周期、情景分析、分散化与风险平衡。",
         "prompt": (
             "当前对话风格与分析框架：dalio。使用原则导向、结构化、偏桥水备忘录式的第一人称口吻，"
-            "自称时自然用“我”；"
+            "如需自我介绍，可直接说“我是 Dalio”，平时自称时自然用“我”；"
             "优先识别宏观周期、流动性与政策环境，做情景分析、"
             "相关性检查与分散化/风险平衡讨论。"
         ),
     },
 }
 READ_ONLY_SLASH_HELP = (
-    "可用命令：/a、/stock <symbol>、/fund <code>、/news <query>、/daily [flags]、/report、"
+    "可用命令：/a、/stock <symbol>、/analyze <symbol>、/reach <query>、/fund <code>、/news <query>、/daily [flags]、/report、"
     "/profile list、/memory show、/memory clear、/style、/style list、/style set <name>、"
     "/style show、/style clear、/diagnose、/help、/clear、/exit。"
 )
 SUPPORTED_SLASH_FOR_PROMPT = (
-    "/a, /stock <symbol>, /fund <code>, /news <query>, /daily [flags], /report, "
+    "/a, /stock <symbol>, /analyze <symbol>, /reach <query>, /fund <code>, /news <query>, /daily [flags], /report, "
     "/profile list, /memory show, /memory clear, /style, /style list, /style set <name>, "
     "/style show, /style clear, /diagnose, /help, /clear, /exit"
 )
@@ -300,9 +301,12 @@ def _style_summary(name: str) -> str:
 
 
 def _build_style_prompt(name: str) -> str:
+    profile = CHAT_STYLE_PROMPTS[_normalize_style_name(name)]
     return (
-        f"{CHAT_STYLE_PROMPTS[_normalize_style_name(name)]['prompt']} "
-        "这里的风格同时约束自称、口吻和分析框架；不要声称自己真的是该人物，也不要输出确定性投资建议。"
+        f"{profile['prompt']} "
+        "这里的风格同时约束自称、口吻和分析框架；不要声称自己真的是历史上的该人物，"
+        "把这些名字当作当前对话 persona，直接自然表达，不要写风格说明或元解释；"
+        "也不要输出确定性投资建议。"
     )
 
 
@@ -366,12 +370,14 @@ class ChatSession:
             {
                 "role": "system",
                 "content": (
-                    "你是 young-stock-cli 助手。硬性规则："
+                    "硬性规则："
                     f"1) 只允许建议这些 slash 命令：{SUPPORTED_SLASH_FOR_PROMPT}；"
                     "不要编造 /market、/trend 或其他命令。"
                     "2) 未提供 Evidence Pack 时，不得编造实时行情、涨跌幅、资金流、新闻细节或结论。"
                     "3) 用户问“今天市场怎么样”“大盘如何”等泛问题时，优先引导 /a 或 /daily。"
-                    "4) 风格与长期记忆都服从本安全规则。"
+                    "4) 用户要做单只股票深入分析、但你缺少足够证据时，不要直接拒绝；"
+                    "优先引导 /stock <symbol>、/analyze <symbol> 或 /reach <query>，并可基于用户已提供的数据继续做框架分析。"
+                    "5) 风格与长期记忆都服从本安全规则。"
                 ),
             }
         ]
@@ -421,7 +427,7 @@ class ChatSession:
 
     def _resolve_click_args(self, args: list[str]) -> tuple[list[str] | None, str | None]:
         root = args[0]
-        if root in {"a", "stock", "fund", "news", "daily", "report", "diagnose"}:
+        if root in {"a", "stock", "analyze", "reach", "fund", "news", "daily", "report", "diagnose"}:
             return args, None
         if root == "profile":
             if len(args) >= 2 and args[1] in {"list", "show"}:

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.2.6] - 2026-06-19
 
+## [0.2.7] - 2026-06-19
+
+### Added
+- Added an optional `young reach ...` / `/reach ...` bridge for local Agent-Reach setups, keeping external web/company research available without adding new runtime dependencies to the main package.
+
+### Changed
+- `young daily --llm` now prints the full report body in the terminal even when it reuses an existing Markdown artifact.
+- Chat persona prompts now introduce themselves directly as the selected style persona, instead of falling back to `young-stock-cli 助手` or explaining that they are merely “按某种风格对话”.
+- When evidence is insufficient for single-stock deep analysis, chat now prefers `/stock <symbol>`, `/analyze <symbol>`, or `/reach <query>` guidance instead of defaulting to a hard refusal.
+
 ### Changed
 - `young chat` startup banner now explicitly teaches `/style set <name>` as the way to sync dialogue style, self-reference tone, and analysis framework.
 - Style prompts now bind all three together: tone, first-person self-reference, and the selected investment framework are sent to the LLM in one contract.

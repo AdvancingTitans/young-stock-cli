@@ -92,6 +92,7 @@ young daily --llm --refresh       # rebuild the same identity from scratch
 young init                       # initialize local state and verify report/PDF readiness
 young replay                     # deprecated alias for young daily --llm
 young analyze 600519             # deep single-stock analysis
+young reach 贵州茅台 盈利 新闻    # optional Agent-Reach bridge for external web/company research
 young chat                       # Rich chat mode with slash commands
 young report                     # export the latest Markdown report to PDF
 young send                       # send latest Markdown + PDF to configured channels
@@ -202,6 +203,7 @@ commands through Click:
 /a
 /stock 600519
 /fund 161725
+/reach 贵州茅台 盈利 新闻
 /daily --format summary
 /daily --llm
 /daily-llm
@@ -223,6 +225,11 @@ deprecated aliases that route to `/daily --llm`.
 
 The style commands persist under chat config and synchronously set dialogue tone, self-reference style, and analysis
 framework. Supported styles are `balanced`, `buffett`, `munger`, `graham`, and `dalio`.
+
+`young reach ...` and `/reach ...` are optional bridges to a local Agent-Reach setup. They do not add new runtime
+dependencies to `young-stock-cli`: if `mcporter`, `curl`, or `agent-reach` are not installed, young prints an install
+hint instead of silently failing. Use them when you need external company news, earnings context, or webpage reading
+without making the main CLI package heavy.
 
 ### Evidence-driven deep replay
 

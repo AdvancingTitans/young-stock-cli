@@ -2,6 +2,8 @@ import json
 import sys
 from types import SimpleNamespace
 
+import click
+
 import young_stock.cli as cli_module
 from young_stock import __version__
 from young_stock.cli import cli
@@ -64,6 +66,7 @@ def test_cli_subcommands_registered():
         "a", "hk", "us", "global", "indices", "zt-pool", "flow", "block-trades", "stock", "fund", "news",
         "daily", "profile", "portfolio", "alert", "note", "diary", "diagnose", "guide", "example", "init",
         "cache-clear", "update", "uninstall", "config", "chat", "replay", "analyze", "report", "send",
+        "reach",
     ]:
         assert sub in result.output, f"subcommand `{sub}` missing from help"
 
@@ -76,6 +79,7 @@ def test_cli_top_level_command_help_is_available():
         "a", "hk", "us", "global", "indices", "zt-pool", "flow", "block-trades", "stock", "fund", "news",
         "daily", "profile", "portfolio", "alert", "note", "diary", "diagnose", "guide", "example", "init",
         "cache-clear", "update", "uninstall", "config", "chat", "replay", "analyze", "report", "send",
+        "reach",
     ]
 
     for command in commands:
@@ -260,6 +264,59 @@ def test_cli_update_failure_mentions_python_version(monkeypatch):
     assert result.exit_code != 0
     assert "Python 3.9+" in result.output
     assert "python3 -m pip install --upgrade young-stock-cli" in result.output
+
+
+def test_cli_reach_runs_mcporter_search(monkeypatch):
+    from click.testing import CliRunner
+
+    calls = []
+
+    monkeypatch.setattr(cli_module.shutil, "which", lambda name: "/usr/bin/mock" if name == "mcporter" else None)
+    monkeypatch.setattr(
+        cli_module.subprocess,
+        "run",
+        lambda cmd, check=False: calls.append((cmd, check)) or SimpleNamespace(returncode=0),
+    )
+
+    result = CliRunner().invoke(cli, ["reach", "贵州茅台", "盈利", "新闻", "--limit", "3"])
+
+    assert result.exit_code == 0
+    assert calls == [(
+        ["mcporter", "call", 'exa.web_search_exa(query: "贵州茅台 盈利 新闻", numResults: 3)'],
+        False,
+    )]
+
+
+def test_cli_reach_url_uses_jina_bridge(monkeypatch):
+    from click.testing import CliRunner
+
+    calls = []
+
+    monkeypatch.setattr(cli_module.shutil, "which", lambda name: "/usr/bin/mock" if name == "curl" else None)
+    monkeypatch.setattr(
+        cli_module.subprocess,
+        "run",
+        lambda cmd, check=False: calls.append((cmd, check)) or SimpleNamespace(returncode=0),
+    )
+
+    result = CliRunner().invoke(cli, ["reach", "--url", "https://example.com/article"])
+
+    assert result.exit_code == 0
+    assert calls == [(
+        ["curl", "-s", "https://r.jina.ai/https://example.com/article"],
+        False,
+    )]
+
+
+def test_cli_reach_missing_mcporter_shows_install_hint(monkeypatch):
+    from click.testing import CliRunner
+
+    monkeypatch.setattr(cli_module.shutil, "which", lambda name: None)
+
+    result = CliRunner().invoke(cli, ["reach", "腾讯", "新闻"])
+
+    assert result.exit_code != 0
+    assert "mcporter" in result.output
 
 
 def test_cli_config_models_lists_provider_models(monkeypatch):
@@ -627,6 +684,7 @@ def test_cli_daily_llm_reuses_existing_markdown(monkeypatch, tmp_path):
 
     assert result.exit_code == 0
     assert llm_calls == []
+    assert "deep replay" in result.output
     assert str(markdown) in result.output
 
 
@@ -669,16 +727,18 @@ def test_cli_daily_llm_refresh_rebuilds_markdown_only(monkeypatch, tmp_path):
     markdown.write_text("# old replay\n", encoding="utf-8")
 
     llm_calls = []
-    monkeypatch.setattr(
-        cli_module,
-        "_run_llm_replay",
-        lambda date_str, kind="replay", symbol=None: llm_calls.append((date_str, kind, symbol)) or markdown,
-    )
+    def fake_run_llm_replay(date_str, kind="replay", symbol=None):
+        llm_calls.append((date_str, kind, symbol))
+        click.echo("# fresh replay")
+        return markdown
+
+    monkeypatch.setattr(cli_module, "_run_llm_replay", fake_run_llm_replay)
 
     result = CliRunner().invoke(cli, ["daily", "--llm", "--refresh"])
 
     assert result.exit_code == 0
     assert llm_calls == [("20260618", "replay", None)]
+    assert "fresh replay" in result.output
     assert "PDF:" not in result.output
 
 

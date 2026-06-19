@@ -34,6 +34,26 @@ def test_chat_executes_existing_click_command():
     assert "Stocks:" in session.history[-1]["content"]
 
 
+def test_chat_allows_analyze_slash(monkeypatch):
+    outputs = []
+    session = ChatSession(output=outputs.append)
+    calls = []
+    monkeypatch.setattr(session, "_invoke_click", lambda args: calls.append(args) or "")
+
+    assert session.handle_slash("/analyze 600519") is False
+    assert calls == [["analyze", "600519"]]
+
+
+def test_chat_allows_reach_slash(monkeypatch):
+    outputs = []
+    session = ChatSession(output=outputs.append)
+    calls = []
+    monkeypatch.setattr(session, "_invoke_click", lambda args: calls.append(args) or "")
+
+    assert session.handle_slash("/reach 贵州茅台 盈利 新闻") is False
+    assert calls == [["reach", "贵州茅台", "盈利", "新闻"]]
+
+
 def test_chat_unknown_command_does_not_exit():
     outputs = []
     session = ChatSession(output=outputs.append)
@@ -154,9 +174,39 @@ def test_style_set_affects_llm_prompt(monkeypatch, tmp_path):
     session.handle_message("怎么看护城河？")
 
     style_prompt = captured_messages[0][1]["content"]
+    safety_prompt = captured_messages[0][0]["content"]
+    assert "young-stock-cli 助手" not in safety_prompt
     assert "当前对话风格与分析框架：buffett" in style_prompt
     assert "股东通信" in style_prompt
-    assert "自称时自然用“我”" in style_prompt
+    assert "我是 Buffett" in style_prompt
+    assert "按这个风格对话" not in style_prompt
+    assert "不要声称自己真的是历史上的该人物" in style_prompt
+    assert "/analyze <symbol>" in safety_prompt
+    assert "/reach <query>" in safety_prompt
+    assert "不要直接拒绝" in safety_prompt
+
+
+def test_style_set_uses_selected_persona_name_in_prompt(monkeypatch, tmp_path):
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
+    captured_messages = []
+
+    class DummyClient:
+        def __init__(self, config):
+            self.config = config
+
+        def chat(self, messages):
+            captured_messages.append(messages)
+            return type("Response", (), {"content": "收到"})()
+
+    monkeypatch.setattr(chat_module, "LLMClient", DummyClient)
+    session = ChatSession(output=lambda _: None)
+
+    assert session.handle_slash("/style set graham") is False
+    session.handle_message("先自我介绍一下。")
+
+    style_prompt = captured_messages[0][1]["content"]
+    assert "我是 Graham" in style_prompt
+    assert "young-stock-cli 助手" not in style_prompt
 
 
 def test_run_chat_banner_shows_style_options(monkeypatch, tmp_path, capsys):

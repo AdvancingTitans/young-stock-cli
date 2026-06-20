@@ -9,6 +9,8 @@ from typing import Any
 
 import requests
 
+from .config import normalize_api_key
+
 PROVIDER_BASES = {
     "openai": "https://api.openai.com/v1",
     "ark": "https://ark.cn-beijing.volces.com/api/v3",
@@ -84,10 +86,13 @@ class LLMClient:
         return sorted(dict.fromkeys(models))
 
     def _api_key(self) -> str:
-        env_name = str(self.config.get("api_key_env") or "")
+        saved = normalize_api_key(self.config.get("api_key"))
+        if saved:
+            return saved
+        env_name = str(self.config.get("api_key_env") or "").strip()
         if env_name and os.environ.get(env_name):
-            return str(os.environ[env_name])
-        return str(self.config.get("api_key") or "")
+            return normalize_api_key(os.environ[env_name])
+        return ""
 
     def _post(self, url: str, **kwargs: Any) -> Any:
         timeout = float(self.config.get("timeout") or 60)

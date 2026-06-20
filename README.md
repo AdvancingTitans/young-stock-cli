@@ -84,18 +84,17 @@ young profile add-fund 021528 --buy-date 2026-01-10 --quantity 1000
 young profile list
 young profile clear-stocks  # clear all saved stocks/ETFs only
 young profile clear-funds   # clear all saved funds only
-young daily --format summary      # deterministic watchlist daily report
-young daily --format key-points   # short deterministic report with trend/risk points
-young daily --format full         # full deterministic watchlist daily report
-young daily --llm                # deep after-hours / latest-trading-day replay; saves Markdown
+young daily --format summary      # deterministic watchlist daily report; no LLM needed
+young daily --format key-points   # short deterministic report with trend/risk points; no LLM needed
+young daily --format full         # full deterministic watchlist daily report; no LLM needed
+young daily --llm                 # the only deep after-hours / latest-trading-day replay entry; saves Markdown
 young daily --llm --refresh       # rebuild the same identity from scratch
 young init                       # initialize local state and verify report/PDF readiness
-young replay                     # deprecated alias for young daily --llm
 young analyze 600519             # deep single-stock analysis
 young reach 贵州茅台 盈利 新闻    # optional Agent-Reach bridge for external web/company research
 young chat                       # Rich chat mode with slash commands
 young report                     # export the latest Markdown report to PDF
-young send                       # send latest Markdown + PDF to configured channels
+young send                       # send latest Markdown + summary; attach same-name PDF only if it exists
 young daily --only 基金,A股 --quick
 young news 3690.HK      # multi-source news only
 young diagnose          # network/source diagnostic
@@ -206,8 +205,6 @@ commands through Click:
 /reach 贵州茅台 盈利 新闻
 /daily --format summary
 /daily --llm
-/daily-llm
-/replay
 /profile list
 /style
 /style list
@@ -218,10 +215,10 @@ commands through Click:
 ```
 
 The chat keeps the five most recent user/assistant turns. If no LLM is configured, enhanced commands fail with a
-configuration hint while `/a`, `/stock`, `/daily`, and every other deterministic command continue working. Chat is
-authoritative and only exposes a white-listed command surface: do not expect `/market` or `/trend`, and `/send`,
-`/config`, `/update`, and `/uninstall` are intentionally blocked from chat. `/daily-llm` and `/replay` are kept as
-deprecated aliases that route to `/daily --llm`.
+configuration hint while `/a`, `/stock`, `/daily`, and every other deterministic command continue working. `/daily`
+without `--llm` stays deterministic and does not require LLM. Chat is authoritative and only exposes a white-listed
+command surface: do not expect `/market` or `/trend`, and `/send`, `/config`, `/update`, and `/uninstall` are
+intentionally blocked from chat.
 
 The style commands persist under chat config and synchronously set dialogue tone, self-reference style, and analysis
 framework. Supported styles are `balanced`, `buffett`, `munger`, `graham`, and `dalio`.
@@ -233,9 +230,8 @@ without making the main CLI package heavy.
 
 ### Evidence-driven deep replay
 
-`young daily --llm` builds an Evidence Pack entirely from the structured values returned by `young_stock._core`.
-`young replay` and `/replay` are deprecated aliases for the same workflow. The model is used for synthesis, not data
-collection.
+`young daily --llm` builds an Evidence Pack entirely from the structured values returned by `young_stock._core`. It is
+the only LLM replay entry. The model is used for synthesis, not data collection.
 
 The report follows the six-module method from
 [`AdvancingTitans/stock-analysis`](https://github.com/AdvancingTitans/stock-analysis):
@@ -329,7 +325,7 @@ young config channel add feishu work \
   --webhook "https://open.feishu.cn/open-apis/bot/v2/hook/..."
 ```
 
-App mode uploads and sends both Markdown and PDF:
+App mode uploads and sends Markdown first, then adds the same-name PDF when it exists:
 
 ```bash
 young config channel add feishu research-app \
@@ -384,8 +380,8 @@ The internals are being split into focused modules: `young_stock.calendar` handl
 - **Multiple public quote sources** — Sina Finance and Tencent Finance are the default stable quote path; market-specific public interfaces stay behind the CLI fallback layer when no better source is available.
 - **Single-stock lookup** — `young stock 600519`, `young stock 0700.HK`, or `young stock AAPL` prints a compact quote snapshot with source, trade date, price, change, volume, turnover, market cap, PE/PB, 52-week range when available, and optional news.
 - **Fund holding lookup** — `young fund 161725` prints the fund's same-day estimated change, latest NAV date, top holdings, holding-stock quotes, rough contribution estimate, and same-day holding-stock news. Official fund NAVs usually update at night, so intraday/close values are clearly labeled as estimates.
-- **Personal daily report** — `young daily` is the deterministic watchlist report from your local investment memory in `~/.young_stock/profile.json`; it prints saved stock/ETF trends, fund estimates, only the markets relevant to your symbols and fund top holdings, and portfolio-style suggestions grounded in your funds, stocks, holding dates, quantities, and available news. First use requires a verified symbol plus `--buy-date` and `--quantity`, for example `young profile add-stock 600519 --buy-date 2026-01-15 --quantity 100` or `young profile add-fund 161725 --buy-date 2026-01-10 --quantity 1000`.
-- **LLM replay** — `young daily --llm` performs the deep after-hours / latest-trading-day replay, writes the matching Markdown artifact under the same report identity, and prints it in the terminal; `young report` is the dedicated PDF export step, and `--refresh` rebuilds the Markdown identity. `young replay`, `/replay`, and `/daily-llm` are compatibility aliases only.
+- **Personal daily report** — `young daily` is the deterministic watchlist report from your local investment memory in `~/.young_stock/profile.json`; it does not require LLM, and it prints saved stock/ETF trends, fund estimates, only the markets relevant to your symbols and fund top holdings, and portfolio-style suggestions grounded in your funds, stocks, holding dates, quantities, and available news. First use requires a verified symbol plus `--buy-date` and `--quantity`, for example `young profile add-stock 600519 --buy-date 2026-01-15 --quantity 100` or `young profile add-fund 161725 --buy-date 2026-01-10 --quantity 1000`.
+- **LLM replay** — `young daily --llm` performs the deep after-hours / latest-trading-day replay, writes the matching Markdown artifact under the same report identity, and prints it in the terminal; `young report` is the dedicated PDF export step, and `--refresh` rebuilds the Markdown identity.
 - **Short report modes** — `young daily --format summary` keeps terminal output compact; `--format key-points` adds a few trend/risk bullets; `--only`, `--order`, and `--quick` trim slower or irrelevant sections.
 - **Chat style control** — `/style list|set|show|clear` persists one synchronized style choice for tone, self-reference, and analysis framework. `balanced`, `buffett`, `munger`, `graham`, and `dalio` are style contracts, not identity claims.
 - **Investment memory management** — list, remove, clear, and group saved stocks/funds with `young profile list`, `remove-stock`, `remove-fund`, `clear`, `clear-stocks`, `clear-funds`, and `profile group create/add`.

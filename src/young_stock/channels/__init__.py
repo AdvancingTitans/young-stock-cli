@@ -11,12 +11,13 @@ from .feishu import FeishuChannel
 
 
 def send_report(trade_date: str | None, *, channel_name: str | None = None) -> list[DeliveryResult]:
-    if not trade_date:
-        raise ValueError("没有报告日期；请先运行 `young report`。")
     markdown = ReportArtifacts.latest_markdown(trade_date)
-    pdf = markdown.with_suffix(".pdf") if markdown else None
-    if markdown is None or not pdf.exists():
-        raise ValueError(f"{trade_date} 缺少 Markdown/PDF；请先运行 `young report --date {trade_date}`。")
+    if markdown is None:
+        if trade_date:
+            raise ValueError(f"{trade_date} 缺少可发送的 Markdown；请先生成对应日报或 LLM Markdown。")
+        raise ValueError("未找到可发送的 Markdown；请先生成日报或 LLM Markdown。")
+    pdf_candidate = markdown.with_suffix(".pdf")
+    pdf = pdf_candidate if pdf_candidate.exists() else None
     configs = load_config(strict=False).get("channels", {}).get("feishu", {})
     selected = {
         name: config

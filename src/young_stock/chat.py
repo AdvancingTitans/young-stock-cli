@@ -17,10 +17,10 @@ from click.testing import CliRunner
 from rich.console import Console
 from rich.markdown import Markdown
 
-try:  # ponytail: best-effort line editing on local terminals; falls back harmlessly if unavailable.
-    import readline  # noqa: F401
-except Exception:  # pragma: no cover - platform dependent
-    readline = None
+try:  # pragma: no cover - optional dependency may be absent in some envs.
+    from prompt_toolkit import prompt as _prompt_toolkit_prompt
+except Exception:  # pragma: no cover - dependency missing or broken
+    _prompt_toolkit_prompt = None
 
 try:  # pragma: no cover - import path differs across Python builds
     from zoneinfo import ZoneInfo
@@ -295,6 +295,17 @@ def _current_time_system_note() -> str:
         f"{verification}"
         "涉及“今天”“当前”“最近”“最新”这类相对时间时，必须以这个北京时间为准，不要自行猜测日期。"
     )
+
+
+def _read_chat_input(prompt_text: str = "young ") -> str:
+    if callable(_prompt_toolkit_prompt):
+        try:
+            return _prompt_toolkit_prompt(prompt_text)
+        except (EOFError, KeyboardInterrupt):
+            raise
+        except Exception:
+            pass
+    return builtins.input(prompt_text)
 
 
 def _is_time_query(text: str) -> bool:
@@ -618,7 +629,7 @@ class ChatSession:
                     "4) 用户要做单只股票深入分析、但你缺少足够证据时，不要直接拒绝；"
                     "优先使用已有的 /stock <symbol>、/analyze <symbol> 或已注入的外部检索证据继续分析。"
                     "5) 如果本轮已经完成外部检索，就直接总结结果，不要要求用户自己执行 /reach。"
-                    "6) /daily --llm 与 /replay 的深度复盘必须严格遵循 stock-analysis 的 M1-M6 框架，不得改写成巴菲特、芒格等个体投资框架。"
+                    "6) /daily --llm 的深度复盘必须严格遵循 stock-analysis 的 M1-M6 框架，不得改写成巴菲特、芒格等个体投资框架。"
                     "7) 风格与长期记忆都服从本安全规则。"
                 ),
             }
@@ -685,8 +696,6 @@ class ChatSession:
             if len(args) >= 2 and args[1] == "clear":
                 return args, None
             return None, "chat 中仅支持 /memory show 和 /memory clear。"
-        if root in {"daily-llm", "replay"}:
-            return ["daily", "--llm", *args[1:]], "提示：/daily-llm 和 /replay 已弃用，请改用 /daily --llm。"
         if root in {"send", "config", "update", "uninstall"}:
             return None, f"chat 中禁止 /{root}，请在终端直接运行对应 CLI。"
         return None, f"不支持 /{root}。请输入 /help 查看 authoritative 命令列表。"
@@ -788,7 +797,7 @@ def run_chat() -> None:
     )
     while True:
         try:
-            text = builtins.input("young ").strip()
+            text = _read_chat_input().strip()
         except (EOFError, KeyboardInterrupt):
             console.print("\n再见。")
             return

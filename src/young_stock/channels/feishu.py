@@ -40,9 +40,15 @@ class FeishuChannel:
             return data
         raise RuntimeError("Feishu request retries exhausted")
 
-    def _preview(self, markdown: Path, pdf: Path, token: str | None = None) -> None:
+    def _preview(self, markdown: Path, pdf: Path | None, token: str | None = None) -> None:
         content = markdown.read_text(encoding="utf-8")[:3000]
-        text = f"{markdown.stem}\n\n{content}\n\nPDF 本地路径: {pdf}"
+        if pdf is None:
+            delivery_note = "未检测到同名 PDF，本次仅发送 Markdown 摘要。"
+        elif token:
+            delivery_note = "同名 PDF 已检测到，将随后的文件消息一并发送。"
+        else:
+            delivery_note = "同名 PDF 已检测到，但 webhook 不支持附件上传。"
+        text = f"{markdown.stem}\n\n{content}\n\n{delivery_note}"
         if token:
             self._send_message("text", {"text": text}, token)
         else:
@@ -89,15 +95,23 @@ class FeishuChannel:
             },
         )
 
-    def send(self, markdown: Path, pdf: Path) -> DeliveryResult:
+    def send(self, markdown: Path, pdf: Path | None) -> DeliveryResult:
         try:
             if self.config.get("webhook"):
                 self._preview(markdown, pdf)
-                return DeliveryResult("feishu", self.name, True, "已发送 Markdown 预览；webhook 不支持附件上传。")
+                if pdf is None:
+                    detail = "已发送 Markdown 摘要；未检测到同名 PDF。"
+                else:
+                    detail = "已发送 Markdown 摘要；检测到同名 PDF，但 webhook 不支持附件上传。"
+                return DeliveryResult("feishu", self.name, True, detail)
             token = self._token()
             self._preview(markdown, pdf, token)
-            for path in (markdown, pdf):
-                self._send_message("file", {"file_key": self._upload(path, token)}, token)
-            return DeliveryResult("feishu", self.name, True, "Markdown 与 PDF 已上传并发送。")
+            self._send_message("file", {"file_key": self._upload(markdown, token)}, token)
+            if pdf is not None:
+                self._send_message("file", {"file_key": self._upload(pdf, token)}, token)
+                detail = "Markdown 与 PDF 已上传并发送。"
+            else:
+                detail = "Markdown 已上传并发送；未检测到同名 PDF。"
+            return DeliveryResult("feishu", self.name, True, detail)
         except Exception as exc:
             return DeliveryResult("feishu", self.name, False, str(exc))

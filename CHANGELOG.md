@@ -5,17 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.11] - 2026-06-20
+
+### Changed
+
+- Removed the deprecated `young replay` compatibility command so `young daily --llm` is now the only LLM deep-replay entry.
+- Tightened the chat slash-command surface by removing the old `/replay` and `/daily-llm` compatibility aliases.
+- Clarified throughout the CLI help and README that plain `young daily` is deterministic and does not require any LLM configuration.
+- Updated `young send` docs to match the current delivery contract: send the latest Markdown plus summary first, and attach the same-name PDF only when it exists.
+
+### Fixed
+
+- Added regression coverage to keep deterministic `young daily` on the non-LLM path unless `--llm` is explicitly requested.
+- Added regression coverage for latest-Markdown selection when `young send` is run without an explicit date.
+
+## [0.2.10] - 2026-06-19
+
+### Fixed
+
+- Hardened persisted LLM auth so saved credentials survive terminal restarts even when a stale environment variable is present.
+- Switched `young chat` input handling to a prompt toolkit-backed editor to reduce backspace/cursor glitches on macOS terminals.
+
 ## [0.2.9] - 2026-06-19
 
 ### Changed
 - `young chat` now auto-uses the existing `reach` bridge for explicit finance/news lookup requests, but only feeds compact evidence excerpts to the model instead of exposing raw search captures in the terminal.
-- `young chat` input now uses a fixed `young ` prompt prefix so line editing no longer eats the visible prompt label.
+- `young chat` input now uses `prompt_toolkit` with a fixed, non-editable `young ` prompt prefix for reliable backspace and cursor movement on macOS terminals.
 - Help text now makes the command boundary clearer: `young daily --llm` is the strict stock-analysis M1-M6 Markdown replay, `young replay` is only a deprecated alias, and `young report` is PDF export only.
 
 ### Fixed
 - Fixed chat search flows that previously surfaced raw `/reach` output or still nudged users to run `/reach` manually instead of returning a summarized answer directly.
 - Hardened LLM replay prompts so `young daily --llm` stays on the stock-analysis six-module framework and does not drift into persona-style investment templates.
 - Fixed LLM config persistence so `young config llm --api-key-env ...` also stores a local fallback key, which keeps `young chat` working across fresh terminal sessions without forcing users to re-export the secret every time.
+- Fixed stale shell environment variables overriding the saved API key after terminal restarts; saved credentials now take precedence and accidental outer quotes or whitespace are normalized.
 
 ## [0.2.8] - 2026-06-19
 

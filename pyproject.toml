@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "young-stock-cli"
-version = "0.2.9"
+version = "0.2.11"
 description = "A-share (China stock market) after-hours CLI — no login, no scraping tricks, just data."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -29,6 +29,7 @@ dependencies = [
     "requests>=2.31",
     "rich>=13.0",
     "click>=8.1",
+    "prompt-toolkit>=3.0,<4",
     "weasyprint>=62",
 ]
 

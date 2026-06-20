@@ -49,13 +49,13 @@ class LLMClient:
         provider = str(self.config.get("provider") or "").lower()
         model = str(self.config.get("model") or "")
         if not provider or not model:
-            raise LLMNotConfigured("未配置 LLM，请运行 `young config llm --help`。")
+            raise LLMNotConfigured("未配置 LLM，请运行 `young config models --help`。")
         api_base = str(self.config.get("api_base") or PROVIDER_BASES.get(provider) or "").rstrip("/")
         if not api_base:
-            raise LLMNotConfigured(f"provider {provider} 缺少 api_base")
+            raise LLMNotConfigured(f"provider {provider} 缺少 api_base；请运行 `young config models --help`。")
         api_key = self._api_key()
         if provider != "ollama" and not api_key:
-            raise LLMNotConfigured("未配置 LLM API key；建议使用 api_key_env。")
+            raise LLMNotConfigured("未配置 LLM API key；请运行 `young config models --help`。")
         if provider == "anthropic":
             return self._anthropic(api_base, api_key, model, messages)
         return self._openai_compatible(api_base, api_key, provider, model, messages)
@@ -63,13 +63,13 @@ class LLMClient:
     def list_models(self) -> list[str]:
         provider = str(self.config.get("provider") or "").lower()
         if not provider:
-            raise LLMNotConfigured("未指定 provider，请使用 `young config models --provider ...`。")
+            raise LLMNotConfigured("未指定 provider，请运行 `young config models --help`。")
         api_base = str(self.config.get("api_base") or PROVIDER_BASES.get(provider) or "").rstrip("/")
         if not api_base:
-            raise LLMNotConfigured(f"provider {provider} 缺少 api_base")
+            raise LLMNotConfigured(f"provider {provider} 缺少 api_base；请运行 `young config models --help`。")
         api_key = self._api_key()
         if provider != "ollama" and not api_key:
-            raise LLMNotConfigured("未配置 LLM API key；建议使用 api_key_env。")
+            raise LLMNotConfigured("未配置 LLM API key；请运行 `young config models --help`。")
         headers = {"Accept": "application/json"}
         if provider == "anthropic":
             headers.update({"x-api-key": api_key, "anthropic-version": "2023-06-01"})
@@ -156,9 +156,8 @@ class LLMClient:
             message = f"{message} 服务端提示：{normalized}"
         if provider in {"ark", "openai"}:
             message = (
-                f"{message} 如使用 Ark，建议先运行 "
-                "`young config models --provider ark --api-key-env ARK_API_KEY` "
-                "或用 README 中的 curl 示例核对可用模型 ID。"
+                f"{message} 请运行 `young config models --help` 检查配置方式，"
+                "并用 README 中的 curl 示例核对可用模型 ID。"
             )
         return message
 

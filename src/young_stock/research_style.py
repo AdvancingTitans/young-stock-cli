@@ -62,7 +62,8 @@ FORBIDDEN_PATTERNS = (
 
 EDITORIAL_NOISE_PATTERNS = (
     r"^\s*(?:好的[，,、]?)?.*资深A股交易员.*$",
-    r"Kami-compatible editorial layout",
+    r"young-stock-cli publication layout",
+    r"young-stock-cli editorial layout",
 )
 
 
@@ -139,7 +140,7 @@ def to_research_methodology(text: str) -> str:
             continue
         if in_code_block or _unsafe(line):
             continue
-        if re.search(r"\b(?:API|HTTP|Session|Camofox|Playwright|JSON|evidence)\b", line, re.IGNORECASE):
+        if re.search(r"\b(?:API|HTTP|Session|browser|Playwright|JSON|evidence)\b", line, re.IGNORECASE):
             continue
         safe_lines.append(line)
     return "\n".join(safe_lines).strip()

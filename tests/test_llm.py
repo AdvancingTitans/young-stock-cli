@@ -172,7 +172,7 @@ def test_openai_compatible_model_discovery():
 
 
 def test_missing_configuration_and_auth_errors_are_clear():
-    with pytest.raises(LLMNotConfigured, match="未配置 LLM"):
+    with pytest.raises(LLMNotConfigured, match="young config models --help"):
         LLMClient({}).chat([{"role": "user", "content": "hi"}])
 
     session = FakeSession([response(401, {"error": {"message": "bad secret"}})])
@@ -186,7 +186,7 @@ def test_missing_configuration_and_auth_errors_are_clear():
     assert "认证" in str(exc.value)
 
 
-def test_auth_error_surfaces_provider_hint_without_leaking_secret():
+def test_auth_error_points_to_unified_models_help_without_leaking_secret():
     session = FakeSession(
         [response(401, {"error": {"message": "The API key format is incorrect.", "type": "Unauthorized"}})]
     )
@@ -204,5 +204,6 @@ def test_auth_error_surfaces_provider_hint_without_leaking_secret():
 
     text = str(exc.value)
     assert "API key format is incorrect" in text
-    assert "young config models --provider ark" in text
+    assert "young config models --help" in text
+    assert "young config models --provider" not in text
     assert "ark-secret" not in text

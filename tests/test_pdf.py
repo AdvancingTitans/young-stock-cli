@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from young_stock.artifacts import ReportArtifacts
-from young_stock.pdf import PDFDependencyError, export_report_pdf, markdown_to_html
+from young_stock.pdf import PDFDependencyError, _capture_daily, export_report_pdf, markdown_to_html
 
 
 def test_markdown_to_html_escapes_raw_html():
@@ -11,6 +11,19 @@ def test_markdown_to_html_escapes_raw_html():
     assert "<script>" not in html
     assert "&lt;script&gt;" in html
     assert "<h1>" in html
+
+
+def test_capture_daily_uses_current_daily_report_contract():
+    calls = []
+
+    class Core:
+        @staticmethod
+        def run_daily_report(trade_date, profile, *, include_news, report_format, order):
+            calls.append((trade_date, profile, include_news, report_format, order))
+            print("# daily")
+
+    assert _capture_daily(Core, "20260618", {"stocks": ["600519"]}) == "# daily\n"
+    assert calls == [("20260618", {"stocks": ["600519"]}, True, "full", None)]
 
 
 def test_markdown_to_html_renders_only_safe_http_links():
@@ -109,7 +122,7 @@ def test_export_report_strips_layout_noise_and_fixed_preamble(monkeypatch, tmp_p
         "数据来源: young-stock-cli 核心模块，多源免登录行情与新闻聚合。\n"
         "说明: 以下内容仅供复盘参考，不构成投资建议。\n"
         "好的，作为资深A股交易员，以下是今天的报告。\n"
-        "Kami-compatible editorial layout · 内容仅供复盘参考\n"
+        "young-stock-cli publication layout · 内容仅供复盘参考\n"
         "正文\n",
     )
 
@@ -124,7 +137,7 @@ def test_export_report_strips_layout_noise_and_fixed_preamble(monkeypatch, tmp_p
     assert "说明: 以下内容仅供复盘参考，不构成投资建议。" not in cleaned
     assert "数据来源: young-stock-cli 核心模块，多源免登录行情与新闻聚合。" not in cleaned
     html_text = pdf_path.with_suffix(".html").read_text(encoding="utf-8")
-    assert "Kami-compatible editorial layout" not in html_text
+    assert "young-stock-cli publication layout" not in html_text
     assert "本文来自公开市场数据。仅供复盘参考，不构成投资建议。" in html_text
 
 

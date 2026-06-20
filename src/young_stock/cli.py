@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import platform
 import shutil
 import subprocess
@@ -10,6 +11,7 @@ from datetime import datetime
 from pathlib import Path
 
 import click
+from click.core import ParameterSource
 
 from . import __version__, _core
 from .artifacts import ReportArtifacts, ReportIdentity, report_session
@@ -19,14 +21,16 @@ from .config import (
     config_path,
     load_config,
     mask_config,
+    migrate_legacy_llm_api_key_fallback,
     remove_feishu_channel,
     save_config,
     update_llm_config,
 )
 from .evidence import build_daily_evidence, build_stock_evidence
+from .lens.registry import lens_ids
 from .llm import LLMClient, LLMError, LLMNotConfigured
 from .local_store import load_store, now_label, save_store, young_home
-from .methodology import sync_stock_analysis_methodology
+from .methodology import load_builtin_methodology
 from .profile import (
     add_group,
     add_group_item,
@@ -39,6 +43,8 @@ from .profile import (
     save_profile,
 )
 from .reports import generate_llm_daily_report
+from .research_bridge import RESEARCH_COMMAND_ENV, research_bridge_hint, run_research_bridge
+from .sources.extras import collect_stock_extras, fetch_lhb
 
 
 @click.group(
@@ -91,8 +97,14 @@ def _default_report_trade_date() -> str:
     return latest_report_trade_date()
 
 
-def _llm_report_identity(date_str: str, symbol: str | None = None) -> ReportIdentity:
+def _llm_report_identity(
+    date_str: str,
+    symbol: str | None = None,
+    lens: str = "balanced",
+) -> ReportIdentity:
     topic = f"{symbol}深度分析" if symbol else "A股深度复盘"
+    if lens != "balanced":
+        topic = f"{topic}-{lens}"
     return ReportIdentity(date_str, report_session(date_str), topic)
 
 
@@ -103,31 +115,29 @@ def _print_markdown_report(path: Path) -> None:
     Console().print(Markdown(path.read_text(encoding="utf-8")))
 
 
-def _run_external_command(command: list[str], *, missing_hint: str) -> None:
-    if not shutil.which(command[0]):
-        raise click.ClickException(missing_hint)
-    result = subprocess.run(command, check=False)
-    if result.returncode != 0:
-        raise click.ClickException(f"外部能力执行失败（exit={result.returncode}）：{' '.join(command)}")
+def _internal_research_fallback(symbol: str) -> dict[str, str]:
+    query = f"{symbol} 最新财报 重大公告 公司新闻 投资风险"
+    return run_research_bridge(query)
 
 
-def _capture_external_command(command: list[str], *, missing_hint: str) -> str:
-    if not shutil.which(command[0]):
-        raise click.ClickException(missing_hint)
-    result = subprocess.run(
-        command,
-        check=False,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
-    output = (result.stdout or "").strip()
-    error_output = (result.stderr or "").strip()
+def _uv_tool_executable(tool_name: str) -> str | None:
+    uv = shutil.which("uv")
+    executable = Path(sys.executable).as_posix().lower()
+    tool_path = tool_name.lower()
+    if not uv or (
+        f"/uv/tools/{tool_path}/" not in executable
+        and f"/uv-tools/{tool_path}/" not in executable
+    ):
+        return None
+
+    result = subprocess.run([uv, "tool", "list"], check=False, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if result.returncode != 0:
-        detail = error_output or output or f"exit={result.returncode}"
-        raise click.ClickException(f"外部能力执行失败：{detail}")
-    return output or error_output
+        return None
+
+    for line in (result.stdout or "").splitlines():
+        if line.strip().split()[0:1] == [tool_name]:
+            return uv
+    return None
 
 
 def _run_plain_daily(
@@ -136,18 +146,14 @@ def _run_plain_daily(
     *,
     no_news: bool,
     report_format: str,
-    only: str | None,
     order: str | None,
-    quick: bool,
 ) -> None:
     _core.run_daily_report(
         date_str,
         profile,
         include_news=not no_news,
         report_format=report_format,
-        only=only,
         order=order,
-        quick=quick,
     )
 
 
@@ -157,20 +163,16 @@ def _fallback_daily_without_llm(
     *,
     no_news: bool,
     report_format: str,
-    only: str | None,
     order: str | None,
-    quick: bool,
 ) -> None:
     click.echo("未配置可用 LLM，已回退到普通 daily。", err=True)
-    click.echo("可先运行 `young config llm --help`，再用 `young config models --provider <provider>` 查看模型。", err=True)
+    click.echo("可先运行 `young config models --help` 完成 provider/model 配置或列出可用模型。", err=True)
     _run_plain_daily(
         date_str,
         profile,
         no_news=no_news,
         report_format=report_format,
-        only=only,
         order=order,
-        quick=quick,
     )
 
 
@@ -180,16 +182,18 @@ def _run_daily_llm(
     refresh: bool,
     no_news: bool,
     report_format: str,
-    only: str | None,
     order: str | None,
-    quick: bool,
+    lens: str = "balanced",
+    debate_rounds: int = 3,
+    rich_source: bool = False,
+    browser_fallback: bool = False,
 ) -> None:
     profile = load_profile()
     if not profile.get("stocks") and not profile.get("funds"):
         _print_first_use_guide()
         return
 
-    identity = _llm_report_identity(date_str)
+    identity = _llm_report_identity(date_str, lens=lens)
     artifacts = ReportArtifacts(date_str)
     markdown_path = artifacts.path(identity.prefix, "md")
 
@@ -200,16 +204,22 @@ def _run_daily_llm(
 
     try:
         if refresh or not markdown_path.exists():
-            markdown_path = _run_llm_replay(date_str)
+            replay_options = {}
+            if lens != "balanced" or debate_rounds != 3 or rich_source or browser_fallback:
+                replay_options = {
+                    "lens": lens,
+                    "debate_rounds": debate_rounds,
+                    "rich_source": rich_source,
+                    "browser_fallback": browser_fallback,
+                }
+            markdown_path = _run_llm_replay(date_str, **replay_options)
     except LLMNotConfigured:
         _fallback_daily_without_llm(
             date_str,
             profile,
             no_news=no_news,
             report_format=report_format,
-            only=only,
             order=order,
-            quick=quick,
         )
         return
 
@@ -220,7 +230,9 @@ def _run_daily_llm(
 @_date_opt
 @_refresh_opt
 @click.option("--no-news", is_flag=True, help="Only show market data, skip news lookup.")
-def a(date: str | None, refresh: bool, no_news: bool) -> None:
+@click.option("--browser-fallback", is_flag=True, help="Allow browser fallback if a supporting capability decides it is needed.")
+def a(date: str | None, refresh: bool, no_news: bool, browser_fallback: bool) -> None:
+    _core.BROWSER_FALLBACK = browser_fallback
     _run("a", date, refresh, include_news=not no_news)
 
 
@@ -251,11 +263,21 @@ def global_(date: str | None, refresh: bool) -> None:
 @click.option("--pre", is_flag=True, help="Allow pre-release versions.")
 @click.option("--user", "user_install", is_flag=True, help="Install to the user site-packages directory.")
 def update(pre: bool, user_install: bool) -> None:
-    cmd = [sys.executable, "-m", "pip", "install", "--upgrade", "young-stock-cli"]
-    if pre:
-        cmd.append("--pre")
-    if user_install:
-        cmd.append("--user")
+    uv = _uv_tool_executable("young-stock-cli")
+    if uv:
+        if user_install:
+            raise click.ClickException("--user is a pip-only option; omit it when updating a uv tool install.")
+
+        cmd = [uv, "tool", "install", "--upgrade"]
+        if pre:
+            cmd.extend(["--prerelease", "allow"])
+        cmd.append("young-stock-cli")
+    else:
+        cmd = [sys.executable, "-m", "pip", "install", "--upgrade", "young-stock-cli"]
+        if pre:
+            cmd.append("--pre")
+        if user_install:
+            cmd.append("--user")
 
     click.echo("Running: " + " ".join(cmd))
     result = subprocess.run(cmd, check=False)
@@ -272,7 +294,11 @@ def update(pre: bool, user_install: bool) -> None:
 
 @cli.command(help="Uninstall young-stock-cli from the current Python environment.")
 def uninstall() -> None:
-    cmd = [sys.executable, "-m", "pip", "uninstall", "-y", "young-stock-cli"]
+    uv = _uv_tool_executable("young-stock-cli")
+    if uv:
+        cmd = [uv, "tool", "uninstall", "young-stock-cli"]
+    else:
+        cmd = [sys.executable, "-m", "pip", "uninstall", "-y", "young-stock-cli"]
     click.echo("Running: " + " ".join(cmd))
     result = subprocess.run(cmd, check=False)
     if result.returncode != 0:
@@ -324,29 +350,67 @@ def flow(date: str | None, refresh: bool, symbol: str | None, northbound: bool, 
         _core.print_fund_flow(flow_data)
 
 
-@cli.command(name="block-trades", help="Show A-share block trade records for one stock.")
-@click.argument("symbol")
-@_date_opt
-@_refresh_opt
-@click.option("--limit", default=10, show_default=True, type=int, help="Maximum records to show.")
-def block_trades(symbol: str, date: str | None, refresh: bool, limit: int) -> None:
-    if refresh:
-        _core.NO_CACHE = True
-    date_str = date or _core.nearest_trade_date()
-    _core.run_block_trades_report(symbol, date_str, limit=limit)
-
-
 @cli.command(help="Show one stock by code, e.g. 600519, 0700.HK, AAPL.")
 @click.argument("symbol")
 @_date_opt
 @_refresh_opt
 @click.option("--no-news", is_flag=True, help="Only show quote data, skip news lookup.")
-def stock(symbol: str, date: str | None, refresh: bool, no_news: bool) -> None:
+@click.option("--rich-source", is_flag=True, help="Allow slower optional sources such as akshare/yfinance/social JSON.")
+@click.option("--browser-fallback", is_flag=True, help="Allow browser fallback if a supporting capability decides it is needed.")
+def stock(
+    symbol: str,
+    date: str | None,
+    refresh: bool,
+    no_news: bool,
+    rich_source: bool,
+    browser_fallback: bool,
+) -> None:
     if refresh:
         _core.NO_CACHE = True
+    _core.BROWSER_FALLBACK = browser_fallback
     _core.cache_clear_old(days=7)
     date_str = date or _core.nearest_trade_date()
     _core.run_stock_quote(symbol, date_str, include_news=not no_news)
+    extras = collect_stock_extras(_core, symbol, date_str, rich_source=rich_source)
+    _print_stock_extras(extras.to_dict(), browser_fallback=browser_fallback)
+
+
+def _print_stock_extras(extras: dict[str, object], *, browser_fallback: bool = False) -> None:
+    click.echo("\n## 增强证据")
+    shown = 0
+    for key, title in (
+        ("lhb", "龙虎榜"),
+        ("financial_trends", "五年财务趋势"),
+        ("social_heat", "社交热度"),
+        ("events", "公告与事件"),
+        ("technical_fallback", "技术指标补充"),
+    ):
+        payload = extras.get(key) or {}
+        if isinstance(payload, dict) and (
+            payload.get("_unavailable")
+            or (isinstance(payload.get("rows"), list) and not payload.get("rows"))
+            or (isinstance(payload.get("data"), list) and not payload.get("data"))
+            or not any(not str(name).startswith("_") and value not in ({}, [], None, "") for name, value in payload.items())
+        ):
+            continue
+        if payload in ({}, [], None, ""):
+            continue
+        shown += 1
+        click.echo(f"\n### {title}")
+        click.echo(json.dumps(payload, ensure_ascii=False, indent=2, default=str))
+    if shown == 0:
+        click.echo(f"\n未返回可展示的增强证据。{research_bridge_hint()}")
+    if browser_fallback:
+        click.echo("\n已允许浏览器回退；仅当某项数据能力判断确有必要时才会尝试。")
+
+
+@cli.command(help="Show A-share Dragon-Tiger List (龙虎榜) evidence for one stock.")
+@click.argument("symbol")
+@_date_opt
+@click.option("--limit", default=20, show_default=True, type=click.IntRange(1, 100))
+def lhb(symbol: str, date: str | None, limit: int) -> None:
+    date_str = date or _core.nearest_trade_date()
+    click.echo(json.dumps(fetch_lhb(_core, symbol, date_str, limit=limit), ensure_ascii=False, indent=2, default=str))
 
 
 @cli.command(help="Show one fund estimate, top holdings quotes, and holding-stock news.")
@@ -381,22 +445,27 @@ def news(parts: tuple[str, ...], date: str | None, refresh: bool, limit: int) ->
 @_refresh_opt
 @click.option("--no-news", is_flag=True, help="Only show market data, skip news lookup.")
 @click.option("--format", "report_format", type=click.Choice(["full", "summary", "key-points"]), default="full", show_default=True, help="Output style.")
-@click.option("--only", default=None, help="Only show selected parts, e.g. funds,stocks,a or 基金,A股.")
 @click.option("--order", default=None, help="Custom full-report order, e.g. 基金,A股,港股,美股.")
-@click.option("--quick", is_flag=True, help="Fast mode: skip slower global/news sections.")
 @click.option("--llm", "use_llm", is_flag=True, help="Use the configured LLM for the evidence-driven deep replay; plain daily does not require LLM.")
+@click.option("--lens", type=click.Choice(("balanced", "all", *lens_ids())), default="balanced", show_default=True)
+@click.option("--debate-rounds", default=3, show_default=True, type=click.IntRange(1, 5))
+@click.option("--rich-source", is_flag=True, help="Allow slower optional sources for portfolio evidence.")
+@click.option("--browser-fallback", is_flag=True, help="Allow browser fallback if a supporting capability decides it is needed.")
 def daily(
     date: str | None,
     refresh: bool,
     no_news: bool,
     report_format: str,
-    only: str | None,
     order: str | None,
-    quick: bool,
     use_llm: bool,
+    lens: str,
+    debate_rounds: int,
+    rich_source: bool,
+    browser_fallback: bool,
 ) -> None:
     if refresh:
         _core.NO_CACHE = True
+    _core.BROWSER_FALLBACK = browser_fallback
     _core.cache_clear_old(days=7)
     date_str = date or _default_report_trade_date()
     profile = load_profile()
@@ -404,14 +473,21 @@ def daily(
         _print_first_use_guide()
         return
     if use_llm:
+        llm_options = {}
+        if lens != "balanced" or debate_rounds != 3 or rich_source or browser_fallback:
+            llm_options = {
+                "lens": lens,
+                "debate_rounds": debate_rounds,
+                "rich_source": rich_source,
+                "browser_fallback": browser_fallback,
+            }
         _run_daily_llm(
             date_str,
             refresh=refresh,
             no_news=no_news,
             report_format=report_format,
-            only=only,
             order=order,
-            quick=quick,
+            **llm_options,
         )
         return
     _run_plain_daily(
@@ -419,36 +495,49 @@ def daily(
         profile,
         no_news=no_news,
         report_format=report_format,
-        only=only,
         order=order,
-        quick=quick,
     )
 
 
-def _run_llm_replay(date_str: str, kind: str = "replay", symbol: str | None = None):
+def _run_llm_replay(
+    date_str: str,
+    kind: str = "replay",
+    symbol: str | None = None,
+    lens: str = "balanced",
+    debate_rounds: int = 3,
+    rich_source: bool = False,
+    browser_fallback: bool = False,
+):
     profile = load_profile()
     evidence = (
-        build_stock_evidence(_core, symbol, date_str)
+        build_stock_evidence(_core, symbol, date_str, rich_source=rich_source)
         if symbol
-        else build_daily_evidence(_core, date_str, profile)
+        else build_daily_evidence(_core, date_str, profile, rich_source=rich_source)
     )
+    if symbol and rich_source:
+        evidence.modules["STOCK"]["external_research"] = _internal_research_fallback(symbol)
     artifacts = ReportArtifacts(date_str)
-    identity = _llm_report_identity(date_str, symbol)
+    identity = _llm_report_identity(date_str, symbol, lens)
     artifacts.write_json(f"{identity.prefix}-evidence", evidence.to_dict())
+    migrate_legacy_llm_api_key_fallback()
     config = load_config(strict=False).get("llm", {})
-    methodology = sync_stock_analysis_methodology()
+    methodology = load_builtin_methodology()
     try:
         markdown, metadata = generate_llm_daily_report(
             evidence.to_dict(),
             LLMClient(config),
             methodology=methodology.text,
+            lens=lens,
+            debate_rounds=debate_rounds,
+            daily=symbol is None,
         )
     except LLMNotConfigured:
         raise
     except LLMError as exc:
         raise click.ClickException(str(exc)) from exc
-    metadata["stock_analysis_version"] = methodology.version
-    metadata["stock_analysis_updated"] = methodology.updated
+    metadata["methodology_version"] = methodology.version
+    metadata["methodology_updated"] = methodology.updated
+    metadata["browser_fallback"] = browser_fallback
     path = artifacts.write_report_markdown(identity, markdown)
     artifacts.write_json(
         f"{identity.prefix}-metadata",
@@ -462,50 +551,36 @@ def _run_llm_replay(date_str: str, kind: str = "replay", symbol: str | None = No
 @click.argument("symbol")
 @_date_opt
 @_refresh_opt
-def analyze(symbol: str, date: str | None, refresh: bool) -> None:
+@click.option("--lens", type=click.Choice(("balanced", "all", *lens_ids())), default="balanced", show_default=True)
+@click.option("--debate-rounds", default=3, show_default=True, type=click.IntRange(1, 5))
+@click.option("--rich-source", is_flag=True, help="Allow slower optional financial/social sources.")
+@click.option("--browser-fallback", is_flag=True, help="Allow browser fallback if a supporting capability decides it is needed.")
+def analyze(
+    symbol: str,
+    date: str | None,
+    refresh: bool,
+    lens: str,
+    debate_rounds: int,
+    rich_source: bool,
+    browser_fallback: bool,
+) -> None:
     if refresh:
         _core.NO_CACHE = True
-    _run_llm_replay(date or _default_report_trade_date(), kind="analyze", symbol=symbol)
-
-
-@cli.command(help="Optional Agent-Reach bridge for external web/company research.")
-@click.argument("query_parts", nargs=-1)
-@click.option("--url", default=None, help="Read one webpage through the Agent-Reach web path.")
-@click.option("--limit", default=5, show_default=True, type=int, help="Search result count for Exa search.")
-@click.option("--doctor", is_flag=True, help="Run `agent-reach doctor` if Agent-Reach is installed.")
-def reach(query_parts: tuple[str, ...], url: str | None, limit: int, doctor: bool) -> None:
-    query = " ".join(part for part in query_parts if part).strip()
-    if doctor:
-        output = _capture_external_command(
-            ["agent-reach", "doctor"],
-            missing_hint="未检测到 `agent-reach`。请先按 Agent-Reach 技能文档安装后再运行 `young reach --doctor`。",
+    _core.BROWSER_FALLBACK = browser_fallback
+    replay_options = {}
+    if lens != "balanced" or debate_rounds != 3:
+        replay_options.update(lens=lens, debate_rounds=debate_rounds)
+    if rich_source or browser_fallback:
+        replay_options.update(
+            rich_source=rich_source,
+            browser_fallback=browser_fallback,
         )
-        if output:
-            click.echo(output)
-        return
-    if url:
-        output = _capture_external_command(
-            ["curl", "-s", f"https://r.jina.ai/{url}"],
-            missing_hint="当前环境缺少 `curl`，无法走 Agent-Reach 网页阅读桥接。",
-        )
-        if output:
-            click.echo(output)
-        return
-    if not query:
-        raise click.ClickException("请提供查询词，或使用 --url / --doctor。")
-    output = _capture_external_command(
-        [
-            "mcporter",
-            "call",
-            f'exa.web_search_exa(query: "{query}", numResults: {limit})',
-        ],
-        missing_hint=(
-            "未检测到 `mcporter`。请先安装 Agent-Reach / Exa 通道，"
-            "或先用 `young reach --doctor` 检查外部能力。"
-        ),
+    _run_llm_replay(
+        date or _default_report_trade_date(),
+        kind="analyze",
+        symbol=symbol,
+        **replay_options,
     )
-    if output:
-        click.echo(output)
 
 
 @cli.command(help="Enter Rich interactive chat with slash commands.")
@@ -513,6 +588,42 @@ def chat() -> None:
     from .chat import run_chat
 
     run_chat()
+
+
+@cli.group(help="Show or set the shared chat/investor lens style.")
+def style() -> None:
+    pass
+
+
+@style.command("list", help="List balanced and all registered investor lens styles.")
+def style_list() -> None:
+    from .chat import CHAT_STYLE_PROMPTS, _style_summary
+
+    for name in CHAT_STYLE_PROMPTS:
+        click.echo(_style_summary(name))
+
+
+@style.command("show", help="Show the current shared chat/investor lens style.")
+def style_show() -> None:
+    from .chat import _load_chat_style_name, _style_summary
+
+    click.echo(_style_summary(_load_chat_style_name()))
+
+
+@style.command("set", help="Set the shared chat/investor lens style.")
+@click.argument("name", type=click.Choice(("balanced", *lens_ids())))
+def style_set(name: str) -> None:
+    from .chat import _save_chat_style_name, _style_summary
+
+    click.echo("已设置：" + _style_summary(_save_chat_style_name(name)))
+
+
+@style.command("clear", help="Reset the shared style to balanced.")
+def style_clear() -> None:
+    from .chat import _save_chat_style_name
+
+    _save_chat_style_name(None)
+    click.echo("已清除自定义风格，当前风格：balanced")
 
 
 @cli.group(help="Manage persistent long-term memory for young chat.")
@@ -564,67 +675,69 @@ def config_path_command() -> None:
 
 @config.command("show", help="Show effective configuration with secrets masked.")
 def config_show() -> None:
+    migrate_legacy_llm_api_key_fallback()
     click.echo(json.dumps(mask_config(load_config()), ensure_ascii=False, indent=2))
 
 
-@config.command("llm", help="Configure the LLM provider and model.")
-@click.option(
-    "--provider",
-    required=True,
-    type=click.Choice(["openai", "ark", "kimi", "moonshot", "deepseek", "qwen", "ollama", "anthropic"]),
-)
-@click.option("--model", required=True)
-@click.option("--api-key", default=None, hide_input=True)
-@click.option("--api-key-env", default=None, help="Environment variable containing the API key.")
-@click.option("--api-base", default=None)
-@click.option("--timeout", default=60, show_default=True, type=float)
-@click.option("--max-tokens", default=4000, show_default=True, type=int)
-def config_llm(
-    provider: str,
-    model: str,
-    api_key: str | None,
-    api_key_env: str | None,
-    api_base: str | None,
-    timeout: float,
-    max_tokens: int,
-) -> None:
-    update_llm_config(
-        provider=provider,
-        model=model,
-        api_key=api_key,
-        api_key_env=api_key_env,
-        api_base=api_base,
-        timeout=timeout,
-        max_tokens=max_tokens,
-    )
-    click.echo(f"LLM configured: provider={provider}; model={model}; config={config_path()}")
-
-
-@config.command("models", help="List model IDs exposed by an OpenAI-compatible, Anthropic, or Ollama endpoint.")
+@config.command("models", help="Configure the LLM provider/model, or list model IDs from the resolved endpoint.")
 @click.option(
     "--provider",
     default=None,
     type=click.Choice(["openai", "ark", "kimi", "moonshot", "deepseek", "qwen", "ollama", "anthropic"]),
 )
+@click.option("--model", default=None, help="Persist the model ID; when supplied, this command updates config.")
 @click.option("--api-key", default=None, hide_input=True)
 @click.option("--api-key-env", default=None, help="Environment variable containing the API key.")
 @click.option("--api-base", default=None, help="Provider API base, for example https://api.moonshot.cn/v1.")
 @click.option("--timeout", default=30, show_default=True, type=float)
+@click.option("--max-tokens", default=4000, show_default=True, type=int)
+@click.option("--list", "list_models", is_flag=True, help="List model IDs exposed by the resolved endpoint.")
+@click.pass_context
 def config_models(
+    ctx: click.Context,
     provider: str | None,
+    model: str | None,
     api_key: str | None,
     api_key_env: str | None,
     api_base: str | None,
     timeout: float,
+    max_tokens: int,
+    list_models: bool,
 ) -> None:
+    migrate_legacy_llm_api_key_fallback()
     saved = dict(load_config(strict=False).get("llm") or {})
+    resolved_provider = provider or saved.get("provider")
+    explicit_timeout = ctx.get_parameter_source("timeout") is ParameterSource.COMMANDLINE
+    explicit_max_tokens = ctx.get_parameter_source("max_tokens") is ParameterSource.COMMANDLINE
+    explicit_api_key = ctx.get_parameter_source("api_key") is ParameterSource.COMMANDLINE
+    explicit_api_key_env = ctx.get_parameter_source("api_key_env") is ParameterSource.COMMANDLINE
+    explicit_api_base = ctx.get_parameter_source("api_base") is ParameterSource.COMMANDLINE
+
+    if model:
+        if not resolved_provider:
+            raise click.ClickException("请提供 --provider，或先保存 provider 后再只更新 --model。")
+        update_llm_config(
+            provider=resolved_provider,
+            model=model,
+            api_key=api_key if explicit_api_key else None,
+            api_key_env=api_key_env if explicit_api_key_env else None,
+            api_base=api_base if explicit_api_base else None,
+            timeout=timeout if explicit_timeout else None,
+            max_tokens=max_tokens if explicit_max_tokens else None,
+        )
+        click.echo(f"LLM configured: provider={resolved_provider}; model={model}; config={config_path()}")
+        return
+
+    if not list_models:
+        raise click.ClickException("请提供 --model 保存配置，或使用 --list 查询可用模型 ID。")
+
     query = {
         **saved,
-        "provider": provider or saved.get("provider"),
-        "api_key": api_key if api_key is not None else saved.get("api_key"),
-        "api_key_env": api_key_env if api_key_env is not None else saved.get("api_key_env"),
-        "api_base": api_base or saved.get("api_base"),
-        "timeout": timeout,
+        "provider": resolved_provider,
+        "api_key": api_key if explicit_api_key else saved.get("api_key"),
+        "api_key_env": api_key_env if explicit_api_key_env else saved.get("api_key_env"),
+        "api_base": api_base if explicit_api_base else saved.get("api_base"),
+        "timeout": timeout if explicit_timeout else saved.get("timeout", timeout),
     }
     try:
         models = LLMClient(query).list_models()
@@ -635,6 +748,16 @@ def config_models(
         return
     for model_id in models:
         click.echo(model_id)
+
+
+@config.command(
+    "llm",
+    hidden=True,
+    add_help_option=False,
+    context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
+)
+def config_llm_compat() -> None:
+    raise click.ClickException("`young config llm` 已弃用，请改用 `young config models`。")
 
 
 @config.group("channel", help="Manage notification channels.")
@@ -913,6 +1036,10 @@ def _diagnostic_payload() -> dict:
             "provider": llm_config.get("provider"),
             "model": llm_config.get("model"),
         },
+        "research_bridge": {
+            "configured": bool(os.environ.get(RESEARCH_COMMAND_ENV)),
+            "env": RESEARCH_COMMAND_ENV,
+        },
         "pdf": {"weasyprint": pdf_ready},
         "channels": sorted(config_data.get("channels", {}).get("feishu", {}).keys()),
         "read_only": True,
@@ -922,16 +1049,21 @@ def _diagnostic_payload() -> dict:
 @cli.command(help="Run a lightweight network/source diagnostic.")
 @click.option("--json", "as_json", is_flag=True, help="Print machine-readable diagnostics.")
 def diagnose(as_json: bool) -> None:
+    payload = _diagnostic_payload()
     if as_json:
-        click.echo(json.dumps(_diagnostic_payload(), ensure_ascii=False, indent=2))
+        click.echo(json.dumps(payload, ensure_ascii=False, indent=2))
         return
     click.echo("# 网络诊断")
-    for source in _diagnostic_payload()["sources"]:
+    for source in payload["sources"]:
         name = source["name"]
         snap = _core.SOURCE_HEALTH.snapshot(name)
         state = "建议暂缓使用" if snap.should_skip else "可用/未发现近期异常"
         click.echo(f"{name}: 成功率 {snap.success_rate:.0%}, 平均延迟 {snap.average_latency_ms:.0f}ms, {state}")
-    click.echo("建议: 若接口失败，可先使用缓存、加 --quick/--format summary，或稍后运行 --refresh 重试。")
+    if payload["research_bridge"]["configured"]:
+        click.echo(f"Research bridge: 已配置 {RESEARCH_COMMAND_ENV}；对话与分析可按需补充公开资料。")
+    else:
+        click.echo(f"Research bridge: {research_bridge_hint()}")
+    click.echo("建议: 若接口失败，可先使用缓存、改用 --format summary，或稍后运行 --refresh 重试。")
 
 
 @cli.command(help="New-user guide.")
@@ -952,8 +1084,6 @@ def init() -> None:
     save_config(load_config(strict=False))
     save_profile(load_profile())
     for name, default in (
-        ("notes", []),
-        ("alerts", []),
         ("diaries", {}),
         ("portfolios", {}),
     ):
@@ -969,7 +1099,7 @@ def init() -> None:
         click.echo("若当前环境缺少 PDF 渲染能力，请重新执行 `uv tool install --force 'young-stock-cli'`。")
     click.echo("下一步建议：")
     click.echo("1. young config show")
-    click.echo("2. young config llm --help")
+    click.echo("2. young config models --help")
     click.echo("3. young profile add-stock 600519 --buy-date 2026-01-15 --quantity 100")
     click.echo("   或 young profile add-fund 161725 --buy-date 2026-01-10 --quantity 1000")
     click.echo("4. 可选：完成配置后再运行 young daily --format summary / young daily --llm / young report")
@@ -977,10 +1107,10 @@ def init() -> None:
 
 @cli.command(help="Show common examples.")
 def example() -> None:
-    click.echo("young daily --format summary --quick")
-    click.echo("young daily --format key-points --only 基金,A股")
+    click.echo("young daily --format summary")
+    click.echo("young daily --format key-points --order 基金,A股,港股,美股")
     click.echo("young profile group create 稳健型")
-    click.echo("young alert create 600519 '涨跌幅>5%'")
+    click.echo("young send --channel <name>")
 
 
 @cli.group(help="Manage local portfolios.")
@@ -1026,60 +1156,6 @@ def portfolio_show(name: str) -> None:
 @click.argument("code2")
 def portfolio_compare(code1: str, code2: str) -> None:
     click.echo(f"{code1} vs {code2}: use young stock <code> for detail; historical comparison is on the roadmap.")
-
-
-@cli.group(help="Manage local price/change alerts.")
-def alert() -> None:
-    pass
-
-
-@alert.command("create")
-@click.argument("code")
-@click.argument("condition")
-def alert_create(code: str, condition: str) -> None:
-    data = load_store("alerts", [])
-    data.append({"code": code, "condition": condition, "created_at": now_label()})
-    save_store("alerts", data)
-    click.echo(f"Created alert: {code} {condition}")
-
-
-@alert.command("list")
-def alert_list() -> None:
-    data = load_store("alerts", [])
-    if not data:
-        click.echo("No alerts.")
-    for item in data:
-        click.echo(f"{item.get('code')}: {item.get('condition')} ({item.get('created_at')})")
-
-
-@alert.command("check")
-def alert_check() -> None:
-    data = load_store("alerts", [])
-    click.echo(f"Checked {len(data)} alerts. Realtime trigger evaluation is best-effort and will expand in a later release.")
-
-
-@cli.group(help="Manage investment notes.")
-def note() -> None:
-    pass
-
-
-@note.command("add")
-@click.argument("content", nargs=-1, required=True)
-def note_add(content: tuple[str, ...]) -> None:
-    data = load_store("notes", [])
-    text = " ".join(content)
-    data.append({"content": text, "created_at": now_label()})
-    save_store("notes", data)
-    click.echo("Added note.")
-
-
-@note.command("list")
-def note_list() -> None:
-    data = load_store("notes", [])
-    if not data:
-        click.echo("No notes.")
-    for item in data:
-        click.echo(f"{item.get('created_at')}: {item.get('content')}")
 
 
 @cli.group(help="Save and read local daily-report snapshots.")

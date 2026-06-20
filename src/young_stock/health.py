@@ -57,3 +57,6 @@ class SourceHealthBook:
 
     def should_skip(self, name: str) -> bool:
         return self.snapshot(name).should_skip
+
+
+SOURCE_HEALTH = SourceHealthBook()

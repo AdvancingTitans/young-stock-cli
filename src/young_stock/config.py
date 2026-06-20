@@ -114,6 +114,20 @@ def update_llm_config(**values: Any) -> dict[str, Any]:
     return save_config(config)
 
 
+def migrate_legacy_llm_api_key_fallback() -> bool:
+    config = load_config(strict=False)
+    llm = config.get("llm") or {}
+    env_name = str(llm.get("api_key_env") or "").strip()
+    if not env_name or normalize_api_key(llm.get("api_key")):
+        return False
+    resolved = normalize_api_key(os.environ.get(env_name))
+    if not resolved:
+        return False
+    config.setdefault("llm", {})["api_key"] = resolved
+    save_config(config)
+    return True
+
+
 def mask_secret(value: Any) -> str:
     text = str(value or "")
     if not text:

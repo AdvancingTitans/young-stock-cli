@@ -8,6 +8,7 @@ from young_stock.config import (
     add_feishu_channel,
     load_config,
     mask_config,
+    migrate_legacy_llm_api_key_fallback,
     save_config,
     update_llm_config,
 )
@@ -55,6 +56,54 @@ def test_config_normalizes_direct_api_key_before_persisting(monkeypatch, tmp_pat
 
     assert config["llm"]["api_key"] == "secret-value"
     assert load_config()["llm"]["api_key"] == "secret-value"
+
+
+def test_update_llm_config_preserves_existing_values_when_model_only_changes(monkeypatch, tmp_path):
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
+    monkeypatch.setenv("MODEL_KEY", "env-secret")
+    save_config(
+        {
+            "llm": {
+                "provider": "deepseek",
+                "model": "old-model",
+                "api_key_env": "MODEL_KEY",
+                "api_key": "saved-secret",
+                "api_base": "https://api.deepseek.com",
+                "timeout": 45,
+                "max_tokens": 8192,
+            }
+        }
+    )
+
+    config = update_llm_config(model="new-model")
+
+    assert config["llm"]["model"] == "new-model"
+    assert config["llm"]["api_key_env"] == "MODEL_KEY"
+    assert config["llm"]["api_key"] == "saved-secret"
+    assert config["llm"]["api_base"] == "https://api.deepseek.com"
+    assert config["llm"]["timeout"] == 45
+    assert config["llm"]["max_tokens"] == 8192
+
+
+def test_migrate_legacy_llm_api_key_fallback_persists_normalized_key(monkeypatch, tmp_path):
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
+    monkeypatch.setenv("MODEL_KEY", '  "env-secret"  ')
+    save_config({"llm": {"provider": "deepseek", "model": "deepseek-chat", "api_key_env": "MODEL_KEY"}})
+
+    migrated = migrate_legacy_llm_api_key_fallback()
+
+    assert migrated is True
+    assert load_config()["llm"]["api_key"] == "env-secret"
+
+
+def test_migrate_legacy_llm_api_key_fallback_skips_when_env_missing(monkeypatch, tmp_path):
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
+    save_config({"llm": {"provider": "deepseek", "model": "deepseek-chat", "api_key_env": "MODEL_KEY"}})
+
+    migrated = migrate_legacy_llm_api_key_fallback()
+
+    assert migrated is False
+    assert "api_key" not in load_config()["llm"]
 
 
 def test_config_masks_secrets_and_webhook_tokens():

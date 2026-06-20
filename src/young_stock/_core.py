@@ -35,7 +35,7 @@ from pathlib import Path
 from typing import Any
 
 from .calendar import nearest_trade_date as calendar_nearest_trade_date
-from .health import SourceHealthBook
+from .health import SOURCE_HEALTH
 from .market_routes import route_board_data
 
 # ------------------------------------------------------------------
@@ -54,10 +54,11 @@ VOLUME_THRESHOLD_INDEX = 1_000_000
 VOLUME_THRESHOLD_STOCK = 1_000
 
 # 缓存目录
-CACHE_DIR = Path.home() / ".cache" / "stock-analysis"
+CACHE_DIR = Path.home() / ".cache" / "young-stock-cli"
 
 # 全局开关：是否强制忽略缓存
 NO_CACHE = False
+BROWSER_FALLBACK = False
 
 # A股配置
 INDEX_SECIDS = "1.000001,0.399001,0.399006,1.000688,0.399005,0.899050"
@@ -205,9 +206,6 @@ TENCENT_QUOTE_URL = "https://qt.gtimg.cn/q={codes}"
 # 诊断记录
 DIAGNOSTICS: list[str] = []
 NEWS_URL_VALIDATION_CACHE: dict[str, bool] = {}
-SOURCE_HEALTH = SourceHealthBook()
-
-
 def diag(msg: str) -> None:
     DIAGNOSTICS.append(msg)
 
@@ -2026,9 +2024,10 @@ def get_fund_flow(date_str: str, *, strict_date: bool = True) -> dict[str, str]:
         activity = online_reference(date_str)
         if activity:
             return activity
-    browser_flow = fetch_browser_fund_flow_snapshot(date_str)
-    if browser_flow:
-        return browser_flow
+    if BROWSER_FALLBACK:
+        browser_flow = fetch_browser_fund_flow_snapshot(date_str)
+        if browser_flow:
+            return browser_flow
     for market_reference in (fetch_sina_market_activity_snapshot, fetch_tencent_market_activity_snapshot):
         activity = market_reference(date_str)
         if activity:
@@ -2204,15 +2203,16 @@ def fetch_eastmoney_board_list(board_type: str, date_str: str, limit: int = 100)
 
 
 def get_board_list(board_type: str, date_str: str, limit: int = 100) -> dict[str, Any]:
-    """Return board rankings through the stock-analysis source order."""
+    """Return board rankings through the young source order."""
     return route_board_data(
         board_type,
         date_str,
         direct=fetch_eastmoney_board_list,
-        camofox=camofox_board_list,
+        browser_service=browser_board_list,
         playwright=playwright_board_list,
         limit=limit,
         current_trade_date=nearest_trade_date(),
+        browser_fallback=BROWSER_FALLBACK,
     )
 
 
@@ -2309,7 +2309,7 @@ def futu_news_search(keyword: str, size: int = 10, lang: str = "en", news_type: 
     })
     url = f"{FUTU_NEWS_URL}?{params}"
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "stock-analysis/3.1.1"})
+        req = urllib.request.Request(url, headers={"User-Agent": "young-stock-cli/0.3.0"})
         with urllib.request.urlopen(req, timeout=10) as resp:
             return json.loads(resp.read().decode())
     except Exception as e:
@@ -2322,7 +2322,7 @@ def futu_stock_feed(keyword: str, size: int = 30) -> dict[str, Any]:
     params = urllib.parse.urlencode({"keyword": keyword, "size": size})
     url = f"{FUTU_FEED_URL}?{params}"
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "stock-analysis/3.1.1"})
+        req = urllib.request.Request(url, headers={"User-Agent": "young-stock-cli/0.3.0"})
         with urllib.request.urlopen(req, timeout=10) as resp:
             return json.loads(resp.read().decode())
     except Exception as e:
@@ -2753,10 +2753,10 @@ def rank_symbols_by_news_heat(
 
 
 # ------------------------------------------------------------------
-# 板块榜（camofox 降级层）
+# 板块榜（可选浏览器服务降级层）
 # ------------------------------------------------------------------
 
-def _parse_camofox_board_snapshot(markdown: str) -> list[dict[str, Any]]:
+def _parse_browser_board_snapshot(markdown: str) -> list[dict[str, Any]]:
     rows = []
     for line in markdown.splitlines():
         line = line.strip()
@@ -2811,18 +2811,18 @@ def playwright_board_list(board_type: str = "industry") -> dict[str, Any]:
     if not html_text:
         return {"board_type": board_type, "rows": [], "_unavailable": "browser unavailable"}
     text = re.sub(r"<[^>]+>", "  ", html.unescape(html_text))
-    rows = _parse_camofox_board_snapshot(
+    rows = _parse_browser_board_snapshot(
         "\n".join(f'row "{line.strip()}"' for line in text.splitlines() if re.match(r"^\s*\d+\s+", line))
     )
     return {"board_type": board_type, "rows": rows, "count": len(rows), "_source": "公开财经页面"}
 
 
-def camofox_board_list(board_type: str = "industry") -> dict[str, Any]:
-    base = os.environ.get("CAMOFOX_URL", "http://localhost:9377")
-    user_id = os.environ.get("CAMOFOX_USER_ID", "")
-    session_key = os.environ.get("CAMOFOX_SESSION_KEY", "")
+def browser_board_list(board_type: str = "industry") -> dict[str, Any]:
+    base = os.environ.get("YOUNG_STOCK_BROWSER_URL", "http://localhost:9377")
+    user_id = os.environ.get("YOUNG_STOCK_BROWSER_USER_ID", "")
+    session_key = os.environ.get("YOUNG_STOCK_BROWSER_SESSION_KEY", "")
     if not user_id or not session_key:
-        return {"_skipped": "camofox env not set"}
+        return {"_skipped": "browser service env not set"}
 
     anchor = "industry_board" if board_type == "industry" else "concept_board"
     target_url = f"https://quote.eastmoney.com/center/gridlist.html#{anchor}"
@@ -2849,10 +2849,10 @@ def camofox_board_list(board_type: str = "industry") -> dict[str, Any]:
         with urllib.request.urlopen(urllib.request.Request(snap_url, method="GET"), timeout=15) as resp:
             md = resp.read().decode("utf-8", errors="ignore")
 
-        rows = _parse_camofox_board_snapshot(md)
+        rows = _parse_browser_board_snapshot(md)
         return {"board_type": board_type, "rows": rows, "count": len(rows)}
     except Exception as e:
-        diag(f"camofox board {board_type}: {e}")
+        diag(f"browser service board {board_type}: {e}")
         return {"_error": str(e)}
 
 
@@ -3805,9 +3805,7 @@ def run_daily_report(
     watchlist: dict[str, list[str]] | None = None,
     include_news: bool = True,
     report_format: str = "full",
-    only: str | None = None,
     order: str | None = None,
-    quick: bool = False,
 ) -> None:
     from .reports import run_daily_report as _run_daily_report
 
@@ -3817,9 +3815,7 @@ def run_daily_report(
         watchlist,
         include_news=include_news,
         report_format=report_format,
-        only=only,
         order=order,
-        quick=quick,
     )
 
 

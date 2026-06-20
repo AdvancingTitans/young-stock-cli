@@ -1,4 +1,4 @@
-"""Kami-compatible Markdown to PDF report export."""
+"""young-stock-cli Markdown to PDF report export."""
 
 from __future__ import annotations
 
@@ -137,16 +137,9 @@ def markdown_to_html(markdown: str) -> str:
 
 
 def _template_text() -> str:
-    override = os.environ.get("YOUNG_STOCK_KAMI_TEMPLATE")
+    override = os.environ.get("YOUNG_STOCK_REPORT_TEMPLATE")
     if override and Path(override).expanduser().exists():
         return Path(override).expanduser().read_text(encoding="utf-8")
-    kami_home = os.environ.get("YOUNG_STOCK_KAMI_HOME")
-    if kami_home:
-        candidate = Path(kami_home).expanduser() / "assets" / "templates" / "equity-report.html"
-        if candidate.exists():
-            external = candidate.read_text(encoding="utf-8")
-            if all(placeholder in external for placeholder in ("{{TITLE}}", "{{DATE}}", "{{BODY}}")):
-                return external
     return (
         resources.files("young_stock")
         .joinpath("templates/equity-report.html")
@@ -221,7 +214,7 @@ def _canonicalize_markdown(
 
 
 def _clean_document_html(document: str) -> str:
-    return re.sub(r"Kami-compatible editorial layout\s*·?\s*", "", document, flags=re.IGNORECASE)
+    return document
 
 
 def _load_weasyprint() -> Any:
@@ -261,9 +254,7 @@ def _capture_daily(core: Any, trade_date: str, profile: dict[str, Any] | None) -
             profile or {},
             include_news=True,
             report_format="full",
-            only=None,
             order=None,
-            quick=False,
         )
     return stream.getvalue()
 

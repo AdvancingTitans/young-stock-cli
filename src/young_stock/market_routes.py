@@ -14,17 +14,20 @@ def route_board_data(
     trade_date: str,
     *,
     direct: Callable[[str, str, int], dict[str, Any]],
-    camofox: Callable[[str], dict[str, Any]],
+    browser_service: Callable[[str], dict[str, Any]],
     playwright: Callable[[str], dict[str, Any]],
     limit: int = 100,
     current_trade_date: str | None = None,
+    browser_fallback: bool = False,
 ) -> dict[str, Any]:
     result = direct(board_type, trade_date, limit)
     if _rows(result):
         return result
     if current_trade_date and trade_date != current_trade_date:
         return {"board_type": board_type, "rows": [], "_unavailable": "历史数据不可得"}
-    for browser_source in (camofox, playwright):
+    if not browser_fallback:
+        return result or {"board_type": board_type, "rows": [], "_unavailable": "本模块证据暂缺"}
+    for browser_source in (browser_service, playwright):
         candidate = browser_source(board_type)
         if _rows(candidate):
             return candidate

@@ -1,5 +1,8 @@
 from types import SimpleNamespace
 
+import pytest
+
+from young_stock.llm import LLMError
 from young_stock.reports import generate_llm_daily_report
 
 
@@ -11,6 +14,16 @@ class RecordingClient:
     def chat(self, messages):
         self.messages = messages
         return SimpleNamespace(content=self.content, provider="test", model="test-model", usage={})
+
+
+class SequencedClient:
+    def __init__(self, contents):
+        self.contents = list(contents)
+        self.calls = []
+
+    def chat(self, messages):
+        self.calls.append(messages)
+        return SimpleNamespace(content=self.contents.pop(0), provider="test", model="test-model", usage={})
 
 
 def test_llm_report_context_translates_internal_fields_for_research_writing():
@@ -93,11 +106,12 @@ def test_llm_methodology_context_is_research_only():
     generate_llm_daily_report(
         {"modules": {}, "_meta": {}},
         client,
-        methodology="报告固定顺序。\nfallback 写入 evidence。\n运行 tools/a.py 脚本采集。",
+        methodology="young-stock-cli 内置研究框架。\n报告固定顺序。\nfallback 写入 evidence。\n运行 tools/a.py 脚本采集。",
     )
 
     system_text = "\n".join(message["content"] for message in client.messages if message["role"] == "system")
     assert "资深A股交易员" not in system_text
+    assert "young-stock-cli 内置研究框架" in system_text
     assert "报告固定顺序" in system_text
     assert "fallback" not in system_text
     assert "脚本" not in system_text
@@ -121,6 +135,54 @@ def test_llm_report_system_prompt_rejects_persona_framework_drift():
     generate_llm_daily_report({"modules": {}, "_meta": {}}, client)
 
     system_text = "\n".join(message["content"] for message in client.messages if message["role"] == "system")
-    assert "不得替换、弱化或改写成巴菲特、芒格、格雷厄姆、达利欧" in system_text
+    assert "young-stock-cli 的 M1-M6 框架" in system_text
     assert "### M1 大盘指数与市场广度" in system_text
     assert "### M6 抗跌方向" in system_text
+
+
+def test_llm_report_adds_m7_and_hidden_committee_when_lens_all():
+    client = RecordingClient("# 复盘\n\n## M7 机构化综合判断\n\n总体态度：中性。")
+
+    _, metadata = generate_llm_daily_report(
+        {"modules": {}, "_meta": {}},
+        client,
+        lens="all",
+        debate_rounds=3,
+    )
+
+    system_text = "\n".join(message["content"] for message in client.messages if message["role"] == "system")
+    assert "## M7 机构化综合判断" in system_text
+    assert "内部完成 3 轮" in system_text
+    assert "不要向用户展示辩论过程" in system_text
+    assert metadata["lens"] == "all"
+    assert metadata["debate_rounds"] == 3
+
+
+def test_llm_report_repairs_once_when_gate_fails_then_returns_valid_output():
+    client = SequencedClient(
+        [
+            "# 复盘\n\n总体态度：偏看多\n风险：估值。\n行动建议：持有。",
+            "# 复盘\n\n总体态度：偏看多\n详细结论：景气延续但估值抬升。\n证据：据公开数据，ROE 为 20%。\n风险：估值波动。\n行动建议：持有观察。\n观察清单：跟踪下一季订单。",
+        ]
+    )
+
+    markdown, metadata = generate_llm_daily_report(
+        {"modules": {"STOCK": {"roe": "20%"}}, "_meta": {}},
+        client,
+    )
+
+    assert len(client.calls) == 2
+    assert "观察清单" in markdown
+    assert all(metadata["mechanical_checks"].values())
+
+
+def test_llm_report_raises_llm_error_after_failed_repair_and_does_not_save_invalid_output():
+    client = SequencedClient(
+        [
+            "# 复盘\n\n总体态度：偏看多\n风险：估值。\n行动建议：持有。",
+            "# 复盘\n\n总体态度：偏看多\n风险：估值。\n行动建议：持有。",
+        ]
+    )
+
+    with pytest.raises(LLMError):
+        generate_llm_daily_report({"modules": {}, "_meta": {}}, client)

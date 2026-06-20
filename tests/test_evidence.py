@@ -2,6 +2,7 @@ import json
 from types import SimpleNamespace
 
 from young_stock.evidence import build_daily_evidence, build_stock_evidence
+from young_stock.health import SourceHealthBook
 
 
 def fake_core():
@@ -17,6 +18,7 @@ def fake_core():
         currency="CNY",
     )
     return SimpleNamespace(
+        normalize_stock_symbol=lambda symbol: (symbol, "cn_market"),
         get_index=lambda date: [
             {"f12": "000001", "f14": "上证指数", "f2": 3000.0, "f3": 0.8, "f6": 500_000_000, "_source": "test"}
         ],
@@ -30,6 +32,12 @@ def fake_core():
         get_zt_pool=lambda date: {"data": {"tc": 2, "pool": [{"n": "甲", "c": "000001", "hybk": "白酒", "fbt": 93000, "zttj": {"days": 2}}]}},
         get_dt_pool=lambda date: {"data": {"tc": 1, "pool": [{"n": "乙", "c": "000002"}]}},
         get_zb_pool=lambda date: {"data": {"tc": 1, "pool": [{"n": "丙", "c": "000003"}]}},
+        fetch_cn_stocks_sina=lambda symbols, date: [quote],
+        fetch_cn_stocks_tencent=lambda symbols, date: [quote],
+        fetch_cn_stocks_direct=lambda symbols, date: [quote],
+        eastmoney_fast_news=lambda keyword, **kwargs: {"data": [{"title": "公司公告", "source": "eastmoney"}]},
+        sina_roll_news=lambda keyword, **kwargs: {"data": []},
+        futu_news_search=lambda keyword, **kwargs: {"data": []},
         get_single_stock_quote=lambda symbol, date: quote,
     )
 
@@ -68,8 +76,9 @@ def test_missing_modules_lower_quality_without_fabricating_zero():
 
 def test_board_evidence_uses_browser_rows_when_lightweight_source_is_empty():
     core = fake_core()
+    core.BROWSER_FALLBACK = True
     core.fetch_eastmoney_board_list = lambda kind, date, limit=100: {"rows": []}
-    core.camofox_board_list = lambda kind: {
+    core.browser_board_list = lambda kind: {
         "rows": [{"name": f"{kind}-浏览器", "change_pct": 1.5, "up_count": 6, "down_count": 2}]
     }
 
@@ -83,7 +92,7 @@ def test_board_evidence_uses_browser_rows_when_lightweight_source_is_empty():
 def test_fund_flow_keeps_module_two_available_when_board_rows_are_missing():
     core = fake_core()
     core.fetch_eastmoney_board_list = lambda kind, date, limit=100: {"rows": []}
-    core.camofox_board_list = lambda kind: {"rows": []}
+    core.browser_board_list = lambda kind: {"rows": []}
 
     evidence = build_daily_evidence(core, "20260618", {"stocks": [], "funds": []})
 
@@ -95,7 +104,7 @@ def test_stock_evidence_includes_quote_flow_trades_and_news():
     core = fake_core()
     core.fetch_stock_fund_flow_daily = lambda symbol, date, limit=20: {"rows": [{"date": date, "main_net": 10}]}
     core.fetch_block_trades = lambda symbol, date, limit=10: {"rows": [{"date": date, "amount": 20}]}
-    core.combined_news_search = lambda keyword, **kwargs: {"data": [{"title": "公司公告", "source": "test"}]}
+    core.eastmoney_fast_news = lambda keyword, **kwargs: {"data": [{"title": "公司公告", "source": "test"}]}
     core._news_aliases = lambda symbol, name="": [symbol, name]
 
     evidence = build_stock_evidence(core, "600519", "20260618")
@@ -105,3 +114,42 @@ def test_stock_evidence_includes_quote_flow_trades_and_news():
     assert stock["fund_flow"]["rows"]
     assert stock["block_trades"]["rows"]
     assert stock["news"]["data"][0]["title"] == "公司公告"
+
+
+def test_stock_evidence_quote_resolution_uses_source_health_fallback():
+    core = fake_core()
+    calls = []
+    quote_primary = SimpleNamespace(symbol="600519", name="茅台", market="cn_market", date="20260618", price=1.0, source="sina")
+    quote_fallback = SimpleNamespace(symbol="600519", name="茅台", market="cn_market", date="20260618", price=2.0, source="tencent")
+    core.fetch_cn_stocks_sina = lambda symbols, date: calls.append("sina") or [quote_primary]
+    core.fetch_cn_stocks_tencent = lambda symbols, date: calls.append("tencent") or [quote_fallback]
+    core.fetch_cn_stocks_direct = lambda symbols, date: calls.append("eastmoney") or []
+    core.fetch_stock_fund_flow_daily = lambda symbol, date, limit=20: {"rows": []}
+    core.fetch_block_trades = lambda symbol, date, limit=10: {"rows": []}
+    core.eastmoney_fast_news = lambda *args, **kwargs: {"data": []}
+    core._news_aliases = lambda symbol, name="": [symbol, name]
+    health = SourceHealthBook(window_size=3)
+    for _ in range(3):
+        health.record("sina", ok=False, latency_ms=1)
+
+    evidence = build_stock_evidence(core, "600519", "20260618", health=health)
+
+    assert evidence.modules["STOCK"]["quote"]["price"] == 2.0
+    assert calls == ["eastmoney", "tencent"]
+    assert "sina" not in calls
+    assert evidence.meta["source_events"][0].startswith("quote:tencent")
+
+
+def test_stock_evidence_omits_optional_sections_when_resolved_unavailable():
+    core = fake_core()
+    core.fetch_stock_fund_flow_daily = lambda symbol, date, limit=20: {"rows": [], "_error": "down"}
+    core.fetch_block_trades = lambda symbol, date, limit=10: {"rows": [], "_error": "down"}
+    core.eastmoney_fast_news = lambda *args, **kwargs: {"data": [], "source": "none", "all_count": 0}
+    core._news_aliases = lambda symbol, name="": [symbol, name]
+
+    evidence = build_stock_evidence(core, "600519", "20260618")
+
+    stock = evidence.modules["STOCK"]
+    assert "fund_flow" not in stock
+    assert "block_trades" not in stock
+    assert "news" not in stock

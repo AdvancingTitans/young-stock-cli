@@ -1,13 +1,21 @@
+import inspect
 from datetime import datetime
 
 import pytest
 
-from young_stock import _core
+from young_stock import _core, reports
 
 
 @pytest.fixture(autouse=True)
 def disable_ths_flow_network(monkeypatch):
     monkeypatch.setattr(_core, "fetch_ths_concept_money_flow_snapshot", lambda date_str: {})
+
+
+def test_daily_report_internal_api_no_longer_exposes_only_or_quick():
+    assert "only" not in inspect.signature(_core.run_daily_report).parameters
+    assert "quick" not in inspect.signature(_core.run_daily_report).parameters
+    assert "only" not in inspect.signature(reports.run_daily_report).parameters
+    assert "quick" not in inspect.signature(reports.run_daily_report).parameters
 
 
 def test_format_helpers():
@@ -234,6 +242,7 @@ def test_fetch_eastmoney_board_list_parses_industry_rows(monkeypatch):
 
 
 def test_get_board_list_uses_browser_when_lightweight_source_is_empty(monkeypatch):
+    monkeypatch.setattr(_core, "BROWSER_FALLBACK", True)
     monkeypatch.setattr(
         _core,
         "fetch_eastmoney_board_list",
@@ -241,7 +250,7 @@ def test_get_board_list_uses_browser_when_lightweight_source_is_empty(monkeypatc
     )
     monkeypatch.setattr(
         _core,
-        "camofox_board_list",
+        "browser_board_list",
         lambda board_type: {"rows": [{"name": "半导体", "change_pct": 2.34}]},
     )
 
@@ -250,13 +259,13 @@ def test_get_board_list_uses_browser_when_lightweight_source_is_empty(monkeypatc
     assert data["rows"][0]["name"] == "半导体"
 
 
-def test_parse_camofox_board_snapshot_returns_structured_rows():
+def test_parse_browser_board_snapshot_returns_structured_rows():
     markdown = (
         'row "1  半导体  2.34%  80  12  测试龙头  8.80%"\n'
         'row "2  白酒  -1.20%  15  40  贵州茅台  -0.50%"\n'
     )
 
-    rows = _core._parse_camofox_board_snapshot(markdown)
+    rows = _core._parse_browser_board_snapshot(markdown)
 
     assert rows[0] == {
         "rank": 1,
@@ -922,7 +931,7 @@ def test_run_daily_report_uses_safe_markdown_link_for_watchlist_news(monkeypatch
     monkeypatch.setattr(_core, "run_a_share", lambda date, include_news=True: None)
     monkeypatch.setattr(_core, "print_report_footer", lambda: None)
 
-    _core.run_daily_report("20260529", {"stocks": ["600519"], "funds": []}, include_news=True, quick=False)
+    _core.run_daily_report("20260529", {"stocks": ["600519"], "funds": []}, include_news=True)
 
     output = capsys.readouterr().out
     assert "相关新闻: [主标题](https://example.com/news)" in output
@@ -1045,7 +1054,6 @@ def test_daily_key_points_use_portfolio_specific_advice(monkeypatch, capsys):
         },
         include_news=True,
         report_format="key-points",
-        only="stocks,funds",
     )
 
     output = capsys.readouterr().out
@@ -1085,7 +1093,6 @@ def test_daily_key_points_support_fund_only_positions(monkeypatch, capsys):
         },
         include_news=False,
         report_format="key-points",
-        only="funds",
     )
 
     output = capsys.readouterr().out
@@ -1127,7 +1134,6 @@ def test_daily_key_points_support_stock_only_positions(monkeypatch, capsys):
         },
         include_news=True,
         report_format="key-points",
-        only="stocks",
     )
 
     output = capsys.readouterr().out

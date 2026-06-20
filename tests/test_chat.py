@@ -43,14 +43,14 @@ def test_chat_allows_analyze_slash(monkeypatch):
     assert calls == [(["analyze", "600519"], True)]
 
 
-def test_chat_allows_reach_slash(monkeypatch):
+def test_chat_allows_send_slash(monkeypatch):
     outputs = []
     session = ChatSession(output=outputs.append)
     calls = []
     monkeypatch.setattr(session, "_invoke_click", lambda args, echo=True: calls.append((args, echo)) or "")
 
-    assert session.handle_slash("/reach 贵州茅台 盈利 新闻") is False
-    assert calls == [(["reach", "贵州茅台", "盈利", "新闻"], True)]
+    assert session.handle_slash("/send --channel feishu") is False
+    assert calls == [(["send", "--channel", "feishu"], True)]
 
 
 def test_chat_unknown_command_does_not_exit():
@@ -66,12 +66,12 @@ def test_chat_unknown_command_does_not_exit():
 @pytest.mark.parametrize(
     ("command", "message"),
     [
-        ("/send", "禁止 /send"),
         ("/config", "禁止 /config"),
         ("/update", "禁止 /update"),
         ("/uninstall", "禁止 /uninstall"),
         ("/profile add-stock 600519", "仅支持只读的 /profile list"),
         ("/memory reset", "仅支持 /memory show 和 /memory clear"),
+        ("/reach 贵州茅台", "不支持 /reach"),
     ],
 )
 def test_chat_blocks_write_or_mutating_slash_without_invoking_click(command, message):
@@ -139,6 +139,18 @@ def test_chat_style_slash_persists_across_sessions(monkeypatch, tmp_path):
     assert ChatSession(output=lambda _: None).style_name == "balanced"
 
 
+def test_style_supports_every_registered_investor_lens(monkeypatch, tmp_path):
+    from young_stock.lens.registry import lens_ids
+
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
+    session = ChatSession(output=lambda _: None)
+
+    for lens_id in lens_ids():
+        assert session.handle_slash(f"/style set {lens_id}") is False
+        assert session.style_name == lens_id
+        assert load_config(strict=False)["chat"]["analysis_framework"] == lens_id
+
+
 def test_style_set_replaces_conflicting_style_memory(monkeypatch, tmp_path):
     monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
     outputs = []
@@ -186,8 +198,17 @@ def test_style_set_affects_llm_prompt(monkeypatch, tmp_path):
     assert "按这个风格对话" not in style_prompt
     assert "不要声称自己真的是历史上的该人物" in style_prompt
     assert "/analyze <symbol>" in safety_prompt
-    assert "/reach <query>" in safety_prompt
+    assert "/send" in safety_prompt
+    assert "/reach <query>" not in safety_prompt
     assert "不要直接拒绝" in safety_prompt
+
+
+def test_chat_allowed_query_slashes_exist_in_click_registry():
+    from young_stock.cli import cli
+
+    allowed_click_roots = {"a", "stock", "analyze", "fund", "news", "daily", "report", "diagnose", "send", "profile", "memory"}
+
+    assert allowed_click_roots <= set(cli.commands)
 
 
 def test_style_set_uses_selected_persona_name_in_prompt(monkeypatch, tmp_path):
@@ -240,7 +261,7 @@ def test_chat_time_query_uses_beijing_system_time(monkeypatch):
     assert session.history[-1]["content"] == outputs[0]
 
 
-def test_chat_injects_current_time_and_auto_reach_context(monkeypatch):
+def test_chat_injects_current_time_and_auto_research_context(monkeypatch):
     captured_messages = []
 
     class DummyClient:
@@ -265,16 +286,16 @@ def test_chat_injects_current_time_and_auto_reach_context(monkeypatch):
     )
     session = ChatSession(output=lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
-        session,
-        "_invoke_click",
-        lambda args, echo=True: """
+        chat_module,
+        "run_research_bridge",
+        lambda query: {"summary_material": """
 title: Tesla Q1 2026 earnings
 营收 120 亿美元，同比增长 12%
 毛利率 18.4%
 净利润 21 亿美元
 现金流改善
 https://example.com/raw
-""".strip() if not echo else "",
+""".strip()},
     )
 
     session.handle_message("帮我搜索一下贵州茅台最新新闻和盈利情况")
@@ -282,13 +303,13 @@ https://example.com/raw
     system_contents = [item["content"] for item in captured_messages[0] if item["role"] == "system"]
     assert any("当前系统时间（北京时间，UTC+8）是 2026-06-19 16:08:09" in content for content in system_contents)
     assert any("联网时钟与本地时钟交叉校验" in content for content in system_contents)
-    assert any("本轮已自动完成外部检索" in content for content in system_contents)
+    assert any("本轮已自动完成外部研究补充" in content for content in system_contents)
     assert any("营收 120 亿美元" in content for content in system_contents)
     assert all("https://example.com/raw" not in content for content in system_contents)
     assert all("title:" not in content for content in system_contents)
 
 
-def test_chat_auto_reach_never_echoes_raw_capture(monkeypatch):
+def test_chat_auto_research_never_echoes_raw_capture(monkeypatch):
     outputs: list[str] = []
 
     class DummyClient:
@@ -311,11 +332,28 @@ def test_chat_auto_reach_never_echoes_raw_capture(monkeypatch):
         },
     )
     session = ChatSession(output=outputs.append)
-    monkeypatch.setattr(session, "_invoke_click", lambda args, echo=True: "营收 120 亿美元\n毛利率 18.4%" if not echo else "")
+    monkeypatch.setattr(
+        chat_module,
+        "run_research_bridge",
+        lambda query: {"summary_material": "营收 120 亿美元\n毛利率 18.4%"},
+    )
 
     session.handle_message("搜索特斯拉 2026 年第一季度财报")
 
     assert outputs == ["已总结"]
+
+
+def test_hidden_research_uses_bridge_with_raw_query(monkeypatch):
+    session = ChatSession(output=lambda _: None)
+    calls = []
+    monkeypatch.setattr(
+        chat_module,
+        "run_research_bridge",
+        lambda query: calls.append(query) or {"summary_material": "ok"},
+    )
+
+    assert session._hidden_research('Tesla "Q1" \\ guidance') == "ok"
+    assert calls == ['Tesla "Q1" \\ guidance']
 
 
 def test_current_time_snapshot_falls_back_to_local_when_network_unavailable(monkeypatch):

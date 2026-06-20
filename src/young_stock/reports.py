@@ -5,7 +5,11 @@ import json
 from typing import Any
 from urllib.parse import urlparse
 
+from .debate import DebateEngine, build_institutional_prompt
+from .lens import build_lens_prompt
+from .llm import LLMError
 from .research_style import review_research_report, to_research_evidence, to_research_methodology
+from .review_gate import review_investment_output
 
 THEME_KEYWORDS = {
     "科技成长/AI": ("AI", "人工智能", "芯片", "半导体", "算力", "CPO", "光通信", "NVDA", "英伟达", "服务器"),
@@ -21,11 +25,11 @@ NEGATIVE_NEWS_KEYWORDS = (
     "下滑", "亏损", "减持", "调查", "处罚", "诉讼", "裁员", "降级", "放缓", "跌破", "风险", "监管", "召回", "违约"
 )
 
-LLM_REPORT_PROMPT_VERSION = "stock-analysis-research-language-v3"
+LLM_REPORT_PROMPT_VERSION = "young-research-language-v4"
 LLM_REPORT_SYSTEM_PROMPT = """请基于用户提供的研报证据，撰写正式 A 股投资研究报告。
 你只能使用用户提供的研报证据，不得补写或外推任何缺失数字、日期、来源或持仓。
-你必须严格遵循 AdvancingTitans/stock-analysis 的 M1-M6 方法，不得替换、弱化或改写成巴菲特、芒格、格雷厄姆、达利欧或其他个人投资框架。
-按以下顺序输出 Markdown：大盘指数概览、持仓分析、六模块深度复盘、综合持仓建议与风险提示。
+你必须严格遵循 young-stock-cli 的 M1-M6 框架，并在其后新增 M7；默认 balanced 时不得把 M1-M6 替换、弱化或改写成任何个人投资框架。
+按以下顺序输出 Markdown：大盘指数概览、持仓分析、六模块深度复盘、M7 机构化综合判断、综合持仓建议与风险提示。
 “六模块深度复盘”下固定使用以下子标题顺序：M1 大盘指数与市场广度、M2 板块强弱与资金流、M3 赚钱效应与涨停结构、M4 下跌风险与炸板结构、M5 持仓与市场风格、M6 抗跌方向。
 每个有证据的模块给出关键判断、证据、风险/确认条件；建议必须是条件化触发器，不给无条件买卖指令。
 证据完整度不足时，只输出指数、持仓、已验证风险和下一交易日观察清单。
@@ -45,9 +49,10 @@ LLM_REPORT_STRUCTURE_PROMPT = """输出结构必须固定：
 ### M4 下跌风险与炸板结构
 ### M5 持仓与市场风格
 ### M6 抗跌方向
+## M7 机构化综合判断
 ## 综合持仓建议与风险提示
 
-不得把以上结构改写成任何人物风格模板。"""
+只有显式 lens 系统消息可以约束 M7 的专家视角；不得把 M1-M6 改写成人物风格模板。"""
 
 MODULE_TITLES = {
     "M1": "大盘指数与市场广度",
@@ -102,6 +107,10 @@ INTERNAL_FIELD_TITLES = {
     "_date_note": "日期说明",
     "_cache_note": "日期说明",
 }
+
+REPAIR_PROMPT = """你上一版输出未通过机械校验。只做约束内修复，不得新增证据外数字或主观评分。
+必须保留正式 Markdown，并补齐以下字段语义：总体态度、详细结论、证据、风险、行动建议、观察清单。
+如果原文已有内容，只能重写为合规表达；若证据不足，明确写“证据暂缺”。"""
 
 
 def _public_source(value: Any) -> Any:
@@ -194,15 +203,27 @@ def generate_llm_daily_report(
     llm_client: Any,
     history: list[dict[str, str]] | None = None,
     methodology: str | None = None,
+    lens: str = "balanced",
+    debate_rounds: int = 3,
+    daily: bool = True,
 ) -> tuple[str, dict[str, Any]]:
-    messages = [{"role": "system", "content": LLM_REPORT_SYSTEM_PROMPT}]
-    messages.append({"role": "system", "content": LLM_REPORT_STRUCTURE_PROMPT})
+    base_messages = [{"role": "system", "content": LLM_REPORT_SYSTEM_PROMPT}]
+    base_messages.append({"role": "system", "content": LLM_REPORT_STRUCTURE_PROMPT})
+    lens_prompt = (
+        DebateEngine("all", rounds=debate_rounds, daily=daily).prompt()
+        if lens == "all"
+        else build_institutional_prompt(lens, rounds=debate_rounds, daily=daily)
+    )
+    if lens not in {"all", "balanced"}:
+        lens_prompt += "\n" + build_lens_prompt(lens)
+    base_messages.append({"role": "system", "content": lens_prompt})
+    messages = list(base_messages)
     if methodology:
         research_methodology = to_research_methodology(methodology)
         messages.append(
             {
                 "role": "system",
-                "content": "以下是当前 stock-analysis 研究规范，仅用于报告结构和表达纪律：\n"
+                "content": "以下是 young 当前内置研究规范，仅用于报告结构和表达纪律：\n"
                 + research_methodology,
             }
         )
@@ -223,8 +244,28 @@ def generate_llm_daily_report(
         "usage": response.usage,
         "quality_score": evidence.get("_meta", {}).get("quality_score"),
         "missing_modules": evidence.get("_meta", {}).get("missing_modules", []),
+        "lens": lens,
+        "debate_rounds": debate_rounds if lens == "all" else 0,
     }
-    return review_research_report(response.content, evidence), metadata
+    markdown = review_research_report(response.content, evidence)
+    checks = review_investment_output(markdown, evidence)
+    enforce_checks = checks.pop("structured_candidate")
+    if enforce_checks and not all(checks.values()):
+        repair_messages = [
+            *base_messages,
+            {"role": "system", "content": REPAIR_PROMPT},
+            messages[-1],
+            {"role": "assistant", "content": response.content},
+            {"role": "user", "content": f"请修复以下失败检查后重新输出完整 Markdown：{json.dumps(checks, ensure_ascii=False)}"},
+        ]
+        repair_response = llm_client.chat(repair_messages)
+        markdown = review_research_report(repair_response.content, evidence)
+        checks = review_investment_output(markdown, evidence)
+        checks.pop("structured_candidate")
+        if not all(checks.values()):
+            raise LLMError(f"LLM 输出未通过机械校验: {json.dumps(checks, ensure_ascii=False)}")
+    metadata["mechanical_checks"] = checks
+    return markdown, metadata
 
 
 def _daily_watchlist_items(watchlist: dict[str, list[str]] | None, key: str) -> list[str]:
@@ -301,15 +342,13 @@ def run_daily_report(
     watchlist: dict[str, list[str]] | None = None,
     include_news: bool = True,
     report_format: str = "full",
-    only: str | None = None,
     order: str | None = None,
-    quick: bool = False,
 ) -> None:
     if report_format == "summary":
-        print_daily_summary(core, date_str, watchlist, include_news=include_news, only=only)
+        print_daily_summary(core, date_str, watchlist, include_news=include_news)
         return
     if report_format == "key-points":
-        print_daily_key_points(core, date_str, watchlist, include_news=include_news, only=only)
+        print_daily_key_points(core, date_str, watchlist, include_news=include_news)
         return
 
     core.DIAGNOSTICS.clear()
@@ -321,14 +360,14 @@ def run_daily_report(
     print("=" * 60 + "\n")
 
     sections = _section_order(order)
-    if _include_section("watchlist", only, sections):
-        print_daily_watchlist(core, watchlist, date_str, include_news=include_news and not quick)
+    if "watchlist" in sections:
+        print_daily_watchlist(core, watchlist, date_str, include_news=include_news)
 
-    if not quick and _include_section("markets", only, sections):
+    if "markets" in sections:
         print_relevant_markets(core, watchlist, date_str, include_news=include_news)
 
     print("## 三、投资建议\n")
-    for note in _portfolio_advice(core, watchlist, date_str, include_news=include_news and not quick):
+    for note in _portfolio_advice(core, watchlist, date_str, include_news=include_news):
         print(f"- {note}")
     print()
 
@@ -384,19 +423,15 @@ def print_daily_summary(
     date_str: str,
     watchlist: dict[str, list[str]] | None,
     include_news: bool = True,
-    only: str | None = None,
 ) -> None:
     display_date = core._display_date(date_str)
     print(f"{display_date} 行情摘要")
     print("-" * 28)
-    if _include_only("funds", only):
-        print("你的基金: " + _fund_summary(core, watchlist, date_str))
-    if _include_only("stocks", only):
-        print("关注个股: " + _stock_summary(core, watchlist, date_str))
-    if _include_only("a", only):
-        print("A股: " + _a_index_summary(core, date_str))
-        print("热点/资金: " + _flow_summary(core, date_str))
-    if include_news and _include_only("news", only):
+    print("你的基金: " + _fund_summary(core, watchlist, date_str))
+    print("关注个股: " + _stock_summary(core, watchlist, date_str))
+    print("A股: " + _a_index_summary(core, date_str))
+    print("热点/资金: " + _flow_summary(core, date_str))
+    if include_news:
         print("新闻: 摘要模式不展开长新闻；需要详情可用 --format full")
     print("持仓建议: " + _portfolio_summary(core, watchlist, date_str, include_news=include_news))
 
@@ -406,9 +441,8 @@ def print_daily_key_points(
     date_str: str,
     watchlist: dict[str, list[str]] | None,
     include_news: bool = True,
-    only: str | None = None,
 ) -> None:
-    print_daily_summary(core, date_str, watchlist, include_news=include_news, only=only)
+    print_daily_summary(core, date_str, watchlist, include_news=include_news)
     print()
     print("关键要点:")
     print(f"- 趋势: {_trend_hint(core, watchlist, date_str)}")
@@ -832,25 +866,3 @@ def _section_order(order: str | None) -> list[str]:
         "global": "markets",
     }
     return [mapping.get(part.strip(), part.strip()) for part in order.split(",") if part.strip()]
-
-
-def _include_only(section: str, only: str | None) -> bool:
-    if not only:
-        return True
-    aliases = {
-        "funds": {"funds", "基金"},
-        "stocks": {"stocks", "stock", "个股", "股票"},
-        "a": {"a", "A股", "a股"},
-        "markets": {"markets", "相关市场", "A股", "a股", "a", "港股", "美股", "hk", "us"},
-        "news": {"news", "新闻"},
-    }
-    requested = {part.strip() for part in only.split(",") if part.strip()}
-    return bool(aliases.get(section, {section}) & requested)
-
-
-def _include_section(section: str, only: str | None, sections: list[str]) -> bool:
-    if only:
-        if section == "watchlist":
-            return _include_only("funds", only) or _include_only("stocks", only)
-        return _include_only(section, only)
-    return section in sections

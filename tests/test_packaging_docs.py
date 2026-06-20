@@ -1,20 +1,119 @@
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+DOCS = [ROOT / "README.md", ROOT / "CHANGELOG.md", *sorted((ROOT / "docs").rglob("*.md"))]
+FORBIDDEN = (
+    "U" + "ZI-Skill",
+    "wbh" + "604",
+    "stock" + "-analysis",
+    "Agent" + "-Reach",
+    "Her" + "mes",
+    "Code" + "x",
+    "Ka" + "mi",
+    "Camo" + "fox",
+    "tw93/" + "Ka" + "mi",
+    "AdvancingTitans/" + "stock" + "-analysis",
+    "/Users/",
+    "/private/",
+)
 
 
-def test_readme_recommends_python_39_safe_install_commands():
+def _read(*paths: Path) -> str:
+    return "\n".join(path.read_text(encoding="utf-8") for path in paths if path.exists())
+
+
+def test_readme_covers_the_current_product_surface():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
 
-    assert "Requires Python 3.9+." in readme
-    assert "python3 -m pip install young-stock-cli" in readme
-    assert "uv tool install young-stock-cli" in readme
-    assert "uv tool install --force 'young-stock-cli'" in readme
-    assert "young init" in readme
-    assert "young config models" in readme
-    assert "https://api.moonshot.cn/v1" in readme
-    assert "Requires Python 3.10+." not in readme
-    assert "```bash\npip3 install young-stock-cli" not in readme
+    for phrase in (
+        "Quiet personal research cockpit for the terminal.",
+        "Requires Python 3.9+.",
+        "uv tool install young-stock-cli",
+        "uv tool install --upgrade young-stock-cli",
+        "uv tool install --force 'young-stock-cli'",
+        "python3 -m pip install --upgrade young-stock-cli",
+        "young init",
+        "young daily --format summary",
+        "young daily --llm --lens all --debate-rounds 3",
+        "young report",
+        "young send",
+        "young stock <symbol>",
+        "young lhb <symbol>",
+        "young fund <code>",
+        "young flow",
+        "young config models",
+        "young config channel add|list|remove",
+        "young diagnose --json",
+        "young profile add-stock 600519 --buy-date 2026-01-15 --quantity 100",
+        "young portfolio create core",
+        "young memory show|list|clear|reset",
+        "young style set <name>",
+        "young chat",
+        "/daily --llm",
+        "/style list|set|show|clear",
+        "docs/images/cover.png",
+        "docs/images/demo-indices.png",
+        "docs/images/demo-zt-pool.png",
+        "docs/images/repo-overview.png",
+    ):
+        assert phrase in readme
+
+    for lens in (
+        "balanced",
+        "buffett",
+        "munger",
+        "graham",
+        "klarman",
+        "lynch",
+        "o_neil",
+        "wood",
+        "dalio",
+        "soros",
+        "livermore",
+        "minervini",
+        "simons",
+        "duan_yongping",
+        "zhang_kun",
+        "feng_liu",
+    ):
+        assert lens in readme
+
+    for card in (
+        "DCF-lite",
+        "Reverse DCF",
+        "Comps",
+        "IC Memo",
+        "Due Diligence checklist",
+        "VCP",
+        "Rebalancing Review",
+    ):
+        assert card in readme
+
+
+def test_changelog_is_short_and_current():
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+
+    for phrase in (
+        "[0.3.0] - 2026-06-21",
+        "young daily",
+        "young config models",
+        "--browser-fallback",
+        "--rich-source",
+        "M1–M7",
+    ):
+        assert phrase in changelog
+
+
+def test_repository_docs_are_free_of_forbidden_terms():
+    text = _read(*DOCS)
+
+    for term in FORBIDDEN:
+        assert term not in text
+
+
+def test_stale_docs_are_removed():
+    assert not (ROOT / "docs" / "promo-copy.md").exists()
+    assert not (ROOT / "docs" / "superpowers").exists()
 
 
 def test_package_version_is_next_patch_release():

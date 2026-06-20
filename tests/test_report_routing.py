@@ -53,6 +53,6 @@ def test_daily_analyze_and_send_default_to_latest_report_trade_date(monkeypatch,
     assert daily_result.exit_code == 0
     assert analyze_result.exit_code == 0
     assert send_result.exit_code == 0
-    assert daily_calls == [("20260619", {"stocks": ["600519"], "funds": []}, {"no_news": False, "report_format": "full", "only": None, "order": None, "quick": False})]
+    assert daily_calls == [("20260619", {"stocks": ["600519"], "funds": []}, {"no_news": False, "report_format": "full", "order": None})]
     assert replay_calls == [("20260619", "analyze", "600519")]
     assert send_calls == [(None, {"channel_name": None})]

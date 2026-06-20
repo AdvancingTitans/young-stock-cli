@@ -6,6 +6,8 @@ import json
 import os
 from pathlib import Path
 
+from .local_store import young_home
+
 EMPTY_PROFILE = {"stocks": [], "funds": [], "groups": {}, "positions": {"stocks": {}, "funds": {}}}
 
 
@@ -13,7 +15,7 @@ def profile_path() -> Path:
     override = os.environ.get("YOUNG_STOCK_PROFILE")
     if override:
         return Path(override).expanduser()
-    return Path.home() / ".young_stock" / "profile.json"
+    return young_home() / "profile.json"
 
 
 def load_profile() -> dict[str, list[str]]:

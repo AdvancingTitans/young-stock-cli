@@ -28,8 +28,10 @@ except ImportError:  # pragma: no cover - Python < 3.9 fallback safety
     ZoneInfo = None  # type: ignore[assignment]
 
 from .config import load_config, save_config
+from .lens.registry import chat_style_profiles
 from .llm import LLMClient, LLMError
 from .local_store import load_store, now_label, save_store
+from .research_bridge import compact_research_output, run_research_bridge
 
 CHAT_MEMORY_STORE = "chat_memory"
 DEFAULT_CHAT_STYLE = "balanced"
@@ -49,54 +51,15 @@ CHAT_STYLE_PROMPTS = {
             "同时看业务/资产质量、估值、风险、催化剂与反例；给概率化结论和后续核验点。"
         ),
     },
-    "buffett": {
-        "label": "buffett",
-        "summary": "重商业质量、护城河、管理层、资本配置与安全边际。",
-        "prompt": (
-            "当前对话风格与分析框架：buffett。使用长期主义、朴素直接、少术语的第一人称口吻，"
-            "如需自我介绍，可直接说“我是 Buffett”，平时自称时自然用“我”，像在和股东通信；"
-            "强调可理解的业务、长期竞争优势、管理层质量、资本配置、"
-            "自由现金流与安全边际；避免把短期波动包装成长期价值。"
-        ),
-    },
-    "munger": {
-        "label": "munger",
-        "summary": "用多元思维模型、反向思考、激励与错配检查。",
-        "prompt": (
-            "当前对话风格与分析框架：munger。使用犀利、直白、强调思维模型的第一人称口吻，"
-            "如需自我介绍，可直接说“我是 Munger”，平时自称时自然用“我”；"
-            "使用多元思维模型与反向思考，重点检查激励、错配、"
-            "机会成本、行为偏差与可避免的重大错误。"
-        ),
-    },
-    "graham": {
-        "label": "graham",
-        "summary": "重资产负债表、盈利稳定性、估值纪律与下行保护。",
-        "prompt": (
-            "当前对话风格与分析框架：graham。使用审慎、克制、偏教科书式的第一人称口吻，"
-            "如需自我介绍，可直接说“我是 Graham”，平时自称时自然用“我”；"
-            "优先看资产负债表、盈利稳定性、估值纪律与下行保护；"
-            "对证据不足的成长叙事保持克制。"
-        ),
-    },
-    "dalio": {
-        "label": "dalio",
-        "summary": "重宏观周期、情景分析、分散化与风险平衡。",
-        "prompt": (
-            "当前对话风格与分析框架：dalio。使用原则导向、结构化、偏桥水备忘录式的第一人称口吻，"
-            "如需自我介绍，可直接说“我是 Dalio”，平时自称时自然用“我”；"
-            "优先识别宏观周期、流动性与政策环境，做情景分析、"
-            "相关性检查与分散化/风险平衡讨论。"
-        ),
-    },
+    **chat_style_profiles(),
 }
 READ_ONLY_SLASH_HELP = (
-    "可用命令：/a、/stock <symbol>、/analyze <symbol>、/reach <query>、/fund <code>、/news <query>、/daily [--llm] [flags]、/report（仅导出 PDF）、"
+    "可用命令：/a、/stock <symbol>、/analyze <symbol>、/fund <code>、/news <query>、/daily [--llm] [flags]、/report（仅导出 PDF）、/send、"
     "/profile list、/memory show、/memory clear、/style、/style list、/style set <name>、"
     "/style show、/style clear、/diagnose、/help、/clear、/exit。"
 )
 SUPPORTED_SLASH_FOR_PROMPT = (
-    "/a, /stock <symbol>, /analyze <symbol>, /reach <query>, /fund <code>, /news <query>, /daily [--llm] [flags], /report (PDF export only), "
+    "/a, /stock <symbol>, /analyze <symbol>, /fund <code>, /news <query>, /daily [--llm] [flags], /report (PDF export only), /send, "
     "/profile list, /memory show, /memory clear, /style, /style list, /style set <name>, "
     "/style show, /style clear, /diagnose, /help, /clear, /exit"
 )
@@ -179,7 +142,7 @@ _SEARCH_TOPIC_HINTS = (
     "公司信息",
     "最新",
 )
-_REACH_SUMMARY_HINTS = (
+_RESEARCH_SUMMARY_HINTS = (
     "营收",
     "收入",
     "利润",
@@ -343,7 +306,7 @@ def _format_time_answer(text: str) -> str:
     return base + "（当前仅使用本地时钟）。"
 
 
-def _should_auto_reach(text: str) -> bool:
+def _should_auto_research(text: str) -> bool:
     stripped = text.strip()
     if not stripped or stripped.startswith("/"):
         return False
@@ -353,31 +316,6 @@ def _should_auto_reach(text: str) -> bool:
         token in stripped for token in ("最新", "今天", "近期", "公司", "新闻", "公告", "盈利", "财报", "业绩")
     )
     return explicit_search or topical_latest
-
-
-def _compact_reach_output(text: str, max_chars: int = 2200) -> str:
-    lines = [line.strip() for line in text.splitlines()]
-    interesting = []
-    for line in lines:
-        if not line or line in {"{", "}", "[", "]"}:
-            continue
-        lowered = line.lower()
-        if any(hint in line for hint in _SEARCH_TOPIC_HINTS + _REACH_SUMMARY_HINTS) or re.search(r"\d", line):
-            if "http" in lowered or line.startswith(("title:", "url:", "id:")):
-                continue
-            interesting.append(line)
-    if not interesting:
-        compact = re.sub(r"\s+", " ", text).strip()
-        return compact[:max_chars]
-    chunks: list[str] = []
-    total = 0
-    for line in interesting:
-        snippet = line[:220]
-        if total + len(snippet) + 1 > max_chars:
-            break
-        chunks.append(snippet)
-        total += len(snippet) + 1
-    return "\n".join(chunks)
 
 
 def _empty_long_term_memory() -> dict[str, list[dict[str, str]]]:
@@ -628,8 +566,8 @@ class ChatSession:
                     "3) 用户问“今天市场怎么样”“大盘如何”等泛问题时，优先引导 /a 或 /daily。"
                     "4) 用户要做单只股票深入分析、但你缺少足够证据时，不要直接拒绝；"
                     "优先使用已有的 /stock <symbol>、/analyze <symbol> 或已注入的外部检索证据继续分析。"
-                    "5) 如果本轮已经完成外部检索，就直接总结结果，不要要求用户自己执行 /reach。"
-                    "6) /daily --llm 的深度复盘必须严格遵循 stock-analysis 的 M1-M6 框架，不得改写成巴菲特、芒格等个体投资框架。"
+                    "5) 如果本轮已经完成外部检索，就直接总结结果，不要要求用户自己再执行额外检索命令。"
+                    "6) /daily --llm 的深度复盘必须严格遵循 young 的 M1-M7 框架；专家视角只约束 M7，不得改写 M1-M6。"
                     "7) 风格与长期记忆都服从本安全规则。"
                 ),
             }
@@ -684,7 +622,7 @@ class ChatSession:
 
     def _resolve_click_args(self, args: list[str]) -> tuple[list[str] | None, str | None]:
         root = args[0]
-        if root in {"a", "stock", "analyze", "reach", "fund", "news", "daily", "report", "diagnose"}:
+        if root in {"a", "stock", "analyze", "fund", "news", "daily", "report", "diagnose", "send"}:
             return args, None
         if root == "profile":
             if len(args) >= 2 and args[1] in {"list", "show"}:
@@ -696,7 +634,7 @@ class ChatSession:
             if len(args) >= 2 and args[1] == "clear":
                 return args, None
             return None, "chat 中仅支持 /memory show 和 /memory clear。"
-        if root in {"send", "config", "update", "uninstall"}:
+        if root in {"config", "update", "uninstall"}:
             return None, f"chat 中禁止 /{root}，请在终端直接运行对应 CLI。"
         return None, f"不支持 /{root}。请输入 /help 查看 authoritative 命令列表。"
 
@@ -745,19 +683,27 @@ class ChatSession:
             return str(result.exception)
         return text_output
 
-    def _maybe_collect_reach_context(self, text: str) -> str | None:
-        if not _should_auto_reach(text):
+    def _hidden_research(self, query: str, limit: int = 5) -> str:
+        del limit
+        normalized = query.strip()
+        if not normalized:
+            return ""
+        result = run_research_bridge(normalized)
+        return result.get("summary_material") or result.get("_unavailable") or ""
+
+    def _maybe_collect_research_context(self, text: str) -> str | None:
+        if not _should_auto_research(text):
             return None
-        reach_output = self._invoke_click(["reach", text], echo=False).strip()
-        if not reach_output:
+        research_output = self._hidden_research(text).strip()
+        if not research_output:
             return None
-        if any(hint in reach_output for hint in ("未检测到 `mcporter`", "未检测到 `agent-reach`", "请先安装")):
+        if "未配置可选联网研究桥" in research_output or "执行失败" in research_output:
             return None
-        summary_material = _compact_reach_output(reach_output)
+        summary_material = compact_research_output(research_output)
         if not summary_material:
             return None
         return (
-            "本轮已自动完成外部检索。下面是供你提炼的检索摘录，不要向用户展示原始抓取过程，也不要要求用户再执行 /reach。"
+            "本轮已自动完成外部研究补充。下面是供你提炼的公开资料摘录，不要展示原始执行过程，也不要要求用户执行额外命令。"
             "你需要直接输出最终总结，并给出基于这些摘录的分析；若证据不足请明确说明。\n"
             f"{summary_material}"
         )
@@ -772,9 +718,9 @@ class ChatSession:
             return
         config = load_config(strict=False).get("llm", {})
         extra_system_messages = []
-        reach_context = self._maybe_collect_reach_context(text)
-        if reach_context:
-            extra_system_messages.append(reach_context)
+        research_context = self._maybe_collect_research_context(text)
+        if research_context:
+            extra_system_messages.append(research_context)
         try:
             response = LLMClient(config).chat(self._build_messages(extra_system_messages))
         except LLMError as exc:
@@ -792,9 +738,10 @@ def run_chat() -> None:
     session = ChatSession()
     console.print(
         "[bold #1B365D]young chat[/] — 输入 /help 查看命令，/exit 退出。"
-        f"\n可选风格：{_format_style_options()}；当前风格：{session.style_name}。"
-        "\n可用 `/style set <name>` 同步设置对话风格、自称口吻和分析框架，例如 `/style set buffett`。"
+        f"\n可选风格：{_format_style_options()}。"
     )
+    console.print(f"当前风格：{session.style_name}。")
+    console.print("可用 `/style set <name>` 同步设置对话风格、自称口吻和分析框架，例如 `/style set buffett`。")
     while True:
         try:
             text = _read_chat_input().strip()

@@ -14,6 +14,15 @@ from young_stock.profile import (
 )
 
 
+def test_profile_uses_young_stock_home_when_no_profile_override(monkeypatch, tmp_path):
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
+    monkeypatch.delenv("YOUNG_STOCK_PROFILE", raising=False)
+
+    add_profile_item("stocks", "600519")
+
+    assert (tmp_path / "profile.json").exists()
+
+
 def test_nearest_trade_date_skips_a_share_holiday():
     assert trade_calendar.nearest_trade_date(datetime(2026, 6, 19, 16, 0)) == "20260618"
 

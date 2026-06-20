@@ -449,11 +449,13 @@ def test_cli_daily_removed_only_and_quick_options_are_rejected():
 
     result = runner.invoke(cli, ["daily", "--only", "基金,A股"])
     assert result.exit_code != 0
-    assert "No such option '--only'" in result.output
+    assert "No such option" in result.output
+    assert "--only" in result.output
 
     result = runner.invoke(cli, ["daily", "--quick"])
     assert result.exit_code != 0
-    assert "No such option '--quick'" in result.output
+    assert "No such option" in result.output
+    assert "--quick" in result.output
 
 
 def test_cli_replay_command_is_removed():

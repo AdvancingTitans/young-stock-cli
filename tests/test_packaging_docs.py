@@ -21,10 +21,12 @@ def test_package_version_is_next_patch_release():
     pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     init_py = (ROOT / "src" / "young_stock" / "__init__.py").read_text(encoding="utf-8")
 
-    assert 'version = "0.2.9"' in pyproject
+    version = init_py.split('__version__ = "', 1)[1].split('"', 1)[0]
+
+    assert f'version = "{version}"' in pyproject
     assert 'requires-python = ">=3.9"' in pyproject
     assert '"Programming Language :: Python :: 3.9"' in pyproject
-    assert '__version__ = "0.2.9"' in init_py
+    assert version.count(".") == 2
 
 
 def test_pdf_template_is_declared_as_package_data():

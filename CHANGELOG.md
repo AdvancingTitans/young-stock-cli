@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.11] - 2026-06-20
+
+### Changed
+
+- Removed the deprecated `young replay` compatibility command so `young daily --llm` is now the only LLM deep-replay entry.
+- Tightened the chat slash-command surface by removing the old `/replay` and `/daily-llm` compatibility aliases.
+- Clarified throughout the CLI help and README that plain `young daily` is deterministic and does not require any LLM configuration.
+- Updated `young send` docs to match the current delivery contract: send the latest Markdown plus summary first, and attach the same-name PDF only when it exists.
+
+### Fixed
+
+- Added regression coverage to keep deterministic `young daily` on the non-LLM path unless `--llm` is explicitly requested.
+- Added regression coverage for latest-Markdown selection when `young send` is run without an explicit date.
+
 ## [0.2.10] - 2026-06-19
 
 ### Fixed

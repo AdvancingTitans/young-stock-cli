@@ -30,10 +30,15 @@ def test_a_share_session_covers_holiday_pre_open_lunch_and_after_close():
     assert trade_calendar.a_share_session(datetime(2026, 6, 18, 15, 10)) == "盘后"
 
 
+def test_latest_report_trade_date_uses_current_day_during_trading_sessions():
+    assert trade_calendar.latest_report_trade_date(datetime(2026, 6, 18, 9, 1)) == "20260618"
+    assert trade_calendar.latest_report_trade_date(datetime(2026, 6, 18, 12, 0)) == "20260618"
+    assert trade_calendar.latest_report_trade_date(datetime(2026, 6, 18, 14, 30)) == "20260618"
+
+
 def test_latest_report_trade_date_avoids_holiday_and_pre_open():
     assert trade_calendar.latest_report_trade_date(datetime(2026, 6, 19, 10, 0)) == "20260618"
     assert trade_calendar.latest_report_trade_date(datetime(2026, 6, 18, 8, 50)) == "20260617"
-    assert trade_calendar.latest_report_trade_date(datetime(2026, 6, 18, 12, 0)) == "20260618"
 
 
 def test_profile_read_write_uses_env_override(monkeypatch, tmp_path):

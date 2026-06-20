@@ -10,7 +10,6 @@ def test_slash_commands_map_to_click_arguments():
     assert slash_to_args("/a --no-news") == ["a", "--no-news"]
     assert slash_to_args('/profile group create "成长 型"') == ["profile", "group", "create", "成长 型"]
     assert slash_to_args("/daily --llm") == ["daily", "--llm"]
-    assert slash_to_args("/daily-llm") == ["daily-llm"]
 
 
 def test_chat_history_keeps_last_five_turns():
@@ -84,16 +83,19 @@ def test_chat_blocks_write_or_mutating_slash_without_invoking_click(command, mes
     assert any(message in output for output in outputs)
 
 
-def test_chat_deprecated_aliases_route_to_daily_llm(monkeypatch):
+def test_chat_rejects_removed_daily_llm_aliases(monkeypatch):
     outputs = []
     session = ChatSession(output=outputs.append)
-    calls = []
-    monkeypatch.setattr(session, "_invoke_click", lambda args, echo=True: calls.append((args, echo)) or "")
+    monkeypatch.setattr(
+        session,
+        "_invoke_click",
+        lambda args, echo=True: (_ for _ in ()).throw(AssertionError(f"unexpected click call: {args}")),
+    )
 
     assert session.handle_slash("/daily-llm") is False
     assert session.handle_slash("/replay --refresh") is False
-    assert calls == [(["daily", "--llm"], True), (["daily", "--llm", "--refresh"], True)]
-    assert any("已弃用" in output for output in outputs)
+    assert any("不支持 /daily-llm" in output for output in outputs)
+    assert any("不支持 /replay" in output for output in outputs)
 
 
 def test_chat_memory_clear_slash_resets_persisted_memory(monkeypatch, tmp_path):

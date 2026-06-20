@@ -14,7 +14,6 @@ import click
 from . import __version__, _core
 from .artifacts import ReportArtifacts, ReportIdentity, report_session
 from .calendar import latest_report_trade_date
-from .calendar import nearest_trade_date as calendar_nearest_trade_date
 from .config import (
     add_feishu_channel,
     config_path,
@@ -86,6 +85,10 @@ def _print_first_use_guide() -> None:
 
 def _current_report_date() -> str:
     return datetime.now().strftime("%Y%m%d")
+
+
+def _default_report_trade_date() -> str:
+    return latest_report_trade_date()
 
 
 def _llm_report_identity(date_str: str, symbol: str | None = None) -> ReportIdentity:
@@ -373,7 +376,7 @@ def news(parts: tuple[str, ...], date: str | None, refresh: bool, limit: int) ->
     _core.run_stock_news(symbol, date_str, size=limit)
 
 
-@cli.command(help="Personal watchlist daily report. Add `--llm` for a strict stock-analysis M1-M6 Markdown replay.")
+@cli.command(help="Personal watchlist daily report. Deterministic by default; add `--llm` for the only deep replay entry.")
 @_date_opt
 @_refresh_opt
 @click.option("--no-news", is_flag=True, help="Only show market data, skip news lookup.")
@@ -381,7 +384,7 @@ def news(parts: tuple[str, ...], date: str | None, refresh: bool, limit: int) ->
 @click.option("--only", default=None, help="Only show selected parts, e.g. funds,stocks,a or 基金,A股.")
 @click.option("--order", default=None, help="Custom full-report order, e.g. 基金,A股,港股,美股.")
 @click.option("--quick", is_flag=True, help="Fast mode: skip slower global/news sections.")
-@click.option("--llm", "use_llm", is_flag=True, help="Generate an evidence-driven deep replay with the configured LLM.")
+@click.option("--llm", "use_llm", is_flag=True, help="Use the configured LLM for the evidence-driven deep replay; plain daily does not require LLM.")
 def daily(
     date: str | None,
     refresh: bool,
@@ -395,7 +398,7 @@ def daily(
     if refresh:
         _core.NO_CACHE = True
     _core.cache_clear_old(days=7)
-    date_str = date or _core.nearest_trade_date()
+    date_str = date or _default_report_trade_date()
     profile = load_profile()
     if not profile.get("stocks") and not profile.get("funds"):
         _print_first_use_guide()
@@ -455,25 +458,6 @@ def _run_llm_replay(date_str: str, kind: str = "replay", symbol: str | None = No
     click.echo(f"\nSaved: {path}")
     return path
 
-
-@cli.command(help="Deprecated alias for `young daily --llm` (Markdown replay only; no PDF export).")
-@_date_opt
-@_refresh_opt
-def replay(date: str | None, refresh: bool) -> None:
-    if refresh:
-        _core.NO_CACHE = True
-    click.echo("Warning: `young replay` 已弃用，请改用 `young daily --llm`。", err=True)
-    _run_daily_llm(
-        date or calendar_nearest_trade_date(),
-        refresh=refresh,
-        no_news=False,
-        report_format="full",
-        only=None,
-        order=None,
-        quick=False,
-    )
-
-
 @cli.command(help="Generate deep analysis for one stock using verified young-stock data.")
 @click.argument("symbol")
 @_date_opt
@@ -481,7 +465,7 @@ def replay(date: str | None, refresh: bool) -> None:
 def analyze(symbol: str, date: str | None, refresh: bool) -> None:
     if refresh:
         _core.NO_CACHE = True
-    _run_llm_replay(date or _core.nearest_trade_date(), kind="analyze", symbol=symbol)
+    _run_llm_replay(date or _default_report_trade_date(), kind="analyze", symbol=symbol)
 
 
 @cli.command(help="Optional Agent-Reach bridge for external web/company research.")
@@ -728,14 +712,14 @@ def report(date: str | None) -> None:
     click.echo(f"PDF: {pdf_path}")
 
 
-@cli.command(help="Send the latest Markdown and PDF report to configured channels.")
+@cli.command(help="Send the latest Markdown report and summary; attach the same-name PDF only when it exists.")
 @_date_opt
 @click.option("--channel", "channel_name", default=None, help="Send only one configured channel.")
 def send(date: str | None, channel_name: str | None) -> None:
     from .channels import send_report
 
     try:
-        results = send_report(date or ReportArtifacts.latest_date(), channel_name=channel_name)
+        results = send_report(date, channel_name=channel_name)
     except (RuntimeError, ValueError) as exc:
         raise click.ClickException(str(exc)) from exc
     for result in results:

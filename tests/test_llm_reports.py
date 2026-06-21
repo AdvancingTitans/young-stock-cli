@@ -140,6 +140,36 @@ def test_llm_report_system_prompt_rejects_persona_framework_drift():
     assert "### M6 抗跌方向" in system_text
 
 
+def test_llm_report_without_explicit_lens_does_not_load_lens_layer(monkeypatch):
+    client = RecordingClient("# 复盘\n\n据公开市场数据，市场震荡。")
+    seen = []
+
+    monkeypatch.setattr("young_stock.reports.build_institutional_prompt", lambda *args, **kwargs: seen.append("institutional") or "institutional")
+    monkeypatch.setattr("young_stock.reports.build_lens_prompt", lambda *args, **kwargs: seen.append("lens") or "lens")
+    monkeypatch.setattr("young_stock.reports.DebateEngine", lambda *args, **kwargs: SimpleNamespace(prompt=lambda: seen.append("debate") or "debate"))
+
+    _, metadata = generate_llm_daily_report({"modules": {}, "_meta": {}}, client, lens=None)
+
+    assert seen == []
+    assert metadata["lens"] is None
+    assert metadata["debate_rounds"] == 0
+
+
+def test_llm_report_with_explicit_balanced_lens_uses_institutional_prompt(monkeypatch):
+    client = RecordingClient("# 复盘\n\n据公开市场数据，市场震荡。")
+    seen = []
+
+    monkeypatch.setattr("young_stock.reports.build_institutional_prompt", lambda lens, **kwargs: seen.append(("institutional", lens, kwargs)) or "balanced prompt")
+    monkeypatch.setattr("young_stock.reports.build_lens_prompt", lambda *args, **kwargs: seen.append(("lens", args, kwargs)) or "lens prompt")
+    monkeypatch.setattr("young_stock.reports.DebateEngine", lambda *args, **kwargs: SimpleNamespace(prompt=lambda: seen.append(("debate", args, kwargs)) or "debate"))
+
+    _, metadata = generate_llm_daily_report({"modules": {}, "_meta": {}}, client, lens="balanced")
+
+    assert seen == [("institutional", "balanced", {"rounds": 3, "daily": True})]
+    assert metadata["lens"] == "balanced"
+    assert metadata["debate_rounds"] == 0
+
+
 def test_llm_report_adds_m7_and_hidden_committee_when_lens_all():
     client = RecordingClient("# 复盘\n\n## M7 机构化综合判断\n\n总体态度：中性。")
 
@@ -186,3 +216,56 @@ def test_llm_report_raises_llm_error_after_failed_repair_and_does_not_save_inval
 
     with pytest.raises(LLMError):
         generate_llm_daily_report({"modules": {}, "_meta": {}}, client)
+
+
+def test_llm_report_accepts_grounded_symbol_digits_without_repair():
+    client = SequencedClient(
+        [
+            "# 贵州茅台（600519）复盘\n\n"
+            "总体态度：偏看多\n"
+            "详细结论：据公开数据，600519 的 ROE 为 20%。\n"
+            "证据：据公开数据，SH600519 对应标的 ROE 为 20%。\n"
+            "风险：估值波动。\n"
+            "行动建议：持有观察。\n"
+            "观察清单：1. 跟踪批价。"
+        ]
+    )
+
+    markdown, metadata = generate_llm_daily_report(
+        {"analysis_symbol": "SH600519", "modules": {"STOCK": {"roe": "20%"}}, "_meta": {}},
+        client,
+    )
+
+    assert "600519" in markdown
+    assert len(client.calls) == 1
+    assert all(metadata["mechanical_checks"].values())
+
+
+def test_llm_report_repairs_date_fragment_claims_against_atomic_date_evidence():
+    client = SequencedClient(
+        [
+            "# 日报\n\n"
+            "总体态度：中性\n"
+            "详细结论：2026-05-29 发布后，2026 年业绩将改善，05 月跟踪，29 日复盘。\n"
+            "证据：报告日期为 20260529。\n"
+            "风险：预测可能落空。\n"
+            "行动建议：持有观察。\n"
+            "观察清单：1. 跟踪后续公告。",
+            "# 日报\n\n"
+            "总体态度：中性\n"
+            "详细结论：据公开数据，业绩改善有待验证。\n"
+            "证据：据公开数据，ROE 为 20%。\n"
+            "风险：预测可能落空。\n"
+            "行动建议：持有观察。\n"
+            "观察清单：1. 跟踪后续公告。",
+        ]
+    )
+
+    markdown, metadata = generate_llm_daily_report(
+        {"modules": {"STOCK": {"roe": "20%"}}, "_meta": {"reported_date": "20260529"}},
+        client,
+    )
+
+    assert len(client.calls) == 2
+    assert "2026-05-29" not in markdown
+    assert all(metadata["mechanical_checks"].values())

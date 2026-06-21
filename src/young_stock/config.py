@@ -31,6 +31,25 @@ def normalize_api_key(value: Any) -> str:
     return text
 
 
+def normalize_fallback_models(value: Any, primary_model: Any = None) -> list[str]:
+    primary = str(primary_model or "").strip()
+    if value is None:
+        return []
+    if isinstance(value, (str, bytes)):
+        items = [value]
+    else:
+        items = list(value)
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        model_id = str(item or "").strip()
+        if not model_id or model_id == primary or model_id in seen:
+            continue
+        seen.add(model_id)
+        normalized.append(model_id)
+    return normalized
+
+
 def _with_defaults(data: dict[str, Any] | None) -> dict[str, Any]:
     result = copy.deepcopy(DEFAULT_CONFIG)
     if not isinstance(data, dict):
@@ -99,18 +118,23 @@ def update_llm_config(**values: Any) -> dict[str, Any]:
         resolved = os.environ.get(env_name)
         if resolved:
             values["api_key"] = normalize_api_key(resolved)
+    explicit_fallback_models = "fallback_models" in values and values.get("fallback_models") is not None
     for key, value in values.items():
         if value is not None:
             if key == "api_key":
                 normalized = normalize_api_key(value)
                 if normalized:
                     llm[key] = normalized
+            elif key == "fallback_models":
+                llm[key] = normalize_fallback_models(value, values.get("model") or llm.get("model"))
             elif key == "api_key_env":
                 env_value = str(value).strip()
                 if env_value:
                     llm[key] = env_value
             else:
                 llm[key] = value
+    if explicit_fallback_models and not llm.get("fallback_models"):
+        llm.pop("fallback_models", None)
     return save_config(config)
 
 

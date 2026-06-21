@@ -9,6 +9,7 @@ import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import click
 from click.core import ParameterSource
@@ -32,8 +33,6 @@ from .llm import LLMClient, LLMError, LLMNotConfigured
 from .local_store import load_store, now_label, save_store, young_home
 from .methodology import load_builtin_methodology
 from .profile import (
-    add_group,
-    add_group_item,
     add_profile_item,
     clear_profile,
     clear_profile_kind,
@@ -81,12 +80,190 @@ _refresh_opt = click.option("--refresh", is_flag=True, help="Skip cache and forc
 def _print_first_use_guide() -> None:
     click.echo("# 每日行情日报")
     click.echo()
-    click.echo("尚未设置投资记忆。首次使用请先添加你关注的股票、ETF 或基金，并补充买入日期和数量：")
+    click.echo("尚未设置投资记忆。首次使用请先添加你关注的股票、ETF 或基金，并补充买入日期和数量。系统会基于 quote 自动给出可解释标签：")
     click.echo("  young profile add-stock 600519 --buy-date 2026-01-15 --quantity 100")
     click.echo("  young profile add-stock 0700.HK --buy-date 2026-01-15 --quantity 200")
     click.echo("  young profile add-fund 161725 --buy-date 2026-01-10 --quantity 1000")
     click.echo()
     click.echo(f"配置会保存到: {profile_path()}")
+
+
+def _human_bool(value: object) -> str:
+    return "是" if value else "否"
+
+
+def _mask_for_human(value: object) -> str:
+    text = str(value or "").strip()
+    return text or "-"
+
+
+def _render_config_lines(config_data: dict[str, object]) -> list[str]:
+    lines = ["- schema_version: " + str(config_data.get("schema_version", "-"))]
+    llm = config_data.get("llm", {}) if isinstance(config_data.get("llm", {}), dict) else {}
+    lines.extend(
+        [
+            "- LLM",
+            f"  - provider: {_mask_for_human(llm.get('provider'))}",
+            f"  - model: {_mask_for_human(llm.get('model'))}",
+            f"  - api_base: {_mask_for_human(llm.get('api_base'))}",
+            f"  - credential env: {_mask_for_human(llm.get('api_key_env'))}",
+            f"  - credential: {'已配置(已遮蔽)' if llm.get('api_key') else '-'}",
+            f"  - fallback models: {', '.join(llm.get('fallback_models', [])) if llm.get('fallback_models') else '-'}",
+            f"  - timeout: {_mask_for_human(llm.get('timeout'))}",
+            f"  - max_tokens: {_mask_for_human(llm.get('max_tokens'))}",
+        ]
+    )
+    channels = config_data.get("channels", {}) if isinstance(config_data.get("channels", {}), dict) else {}
+    feishu = channels.get("feishu", {}) if isinstance(channels.get("feishu", {}), dict) else {}
+    lines.append("- Channels")
+    if not feishu:
+        lines.append("  - feishu: -")
+    else:
+        for name, channel in sorted(feishu.items()):
+            if not isinstance(channel, dict):
+                continue
+            lines.extend(
+                [
+                    f"  - {name} (feishu)",
+                    f"    - webhook: {_mask_for_human(channel.get('webhook'))}",
+                    f"    - app_id: {_mask_for_human(channel.get('app_id'))}",
+                    f"    - app_secret: {'已配置(已遮蔽)' if channel.get('app_secret') else '-'}",
+                    f"    - tenant_access_token: {'已配置(已遮蔽)' if channel.get('tenant_access_token') else '-'}",
+                    f"    - receive_id: {_mask_for_human(channel.get('receive_id'))}",
+                    f"    - receive_id_type: {_mask_for_human(channel.get('receive_id_type'))}",
+                ]
+            )
+    return lines
+
+
+def _render_channel_lines(channels: dict[str, object]) -> list[str]:
+    feishu = channels.get("feishu", {}) if isinstance(channels.get("feishu", {}), dict) else {}
+    if not feishu:
+        return ["- 暂无已配置渠道"]
+    lines: list[str] = []
+    for name, channel in sorted(feishu.items()):
+        if not isinstance(channel, dict):
+            continue
+        lines.extend(
+            [
+                f"- {name} | type=feishu",
+                f"  - webhook: {_mask_for_human(channel.get('webhook'))}",
+                f"  - receive_id: {_mask_for_human(channel.get('receive_id'))}",
+                f"  - receive_id_type: {_mask_for_human(channel.get('receive_id_type'))}",
+                f"  - app_id: {_mask_for_human(channel.get('app_id'))}",
+                f"  - app_secret: {'已配置(已遮蔽)' if channel.get('app_secret') else '-'}",
+                f"  - tenant_access_token: {'已配置(已遮蔽)' if channel.get('tenant_access_token') else '-'}",
+            ]
+        )
+    return lines
+
+
+def _classify_market(market: str) -> str:
+    return {
+        "cn_market": "A股",
+        "hk_market": "港股",
+        "us_market": "美股",
+    }.get(market, market or "待识别市场")
+
+
+def _classify_asset_type(symbol: str, name: str) -> tuple[str, list[str]]:
+    symbol_upper = symbol.upper()
+    name_upper = name.upper()
+    if symbol_upper.startswith("^") or "INDEX" in name_upper or "指数" in name:
+        return "指数", [f"name={name}" if name else "", f"symbol={symbol}"]
+    if "ETF" in symbol_upper or "ETF" in name_upper:
+        return "ETF", [f"name={name}" if name else "", f"symbol={symbol}"]
+    if symbol.isdigit() and len(symbol) == 6 and symbol.startswith(("15", "16", "18", "50", "51", "56", "58")):
+        return "ETF", [f"symbol={symbol}"]
+    return "股票", [f"symbol={symbol}"]
+
+
+_BOARD_PREFIXES = (
+    ("688", "科创板"),
+    ("689", "科创板"),
+    ("300", "创业板"),
+    ("301", "创业板"),
+    ("8", "北交所"),
+    ("4", "北交所"),
+)
+
+_CATEGORY_KEYWORDS = (
+    ("消费", ("茅台", "白酒", "啤酒", "消费", "乳业", "食品", "饮料", "零售", "家电")),
+    ("金融", ("银行", "证券", "券商", "保险", "信托", "金控")),
+    ("科技", ("科技", "电子", "芯片", "半导体", "软件", "计算机", "通信", "互联网", "云", "AI")),
+    ("周期", ("煤", "煤炭", "有色", "钢铁", "化工", "石油", "天然气", "航运", "建材")),
+    ("医药", ("医药", "生物", "制药", "医疗", "医院", "疫苗")),
+    ("公用事业", ("电力", "燃气", "水务", "电网", "公用", "环保")),
+)
+
+_ETF_INDEX_TERMS = ("沪深300", "中证500", "中证1000", "上证50", "科创50", "创业板指", "恒生", "纳指", "标普")
+
+
+def _detect_a_share_board(symbol: str, market: str) -> tuple[str | None, str | None]:
+    if market != "cn_market" or not symbol.isdigit():
+        return None, None
+    for prefix, board in _BOARD_PREFIXES:
+        if symbol.startswith(prefix):
+            return board, f"board={board}"
+    return None, None
+
+
+def _keyword_category(name: str) -> tuple[str | None, str | None]:
+    for category, keywords in _CATEGORY_KEYWORDS:
+        for keyword in keywords:
+            if keyword in name:
+                return category, f"keyword={keyword}"
+    return None, None
+
+
+def _classification_hint() -> str | None:
+    if os.environ.get(RESEARCH_COMMAND_ENV):
+        return "深度分析可补充：已检测到可选 research bridge；add-stock 当前不会主动联网。"
+    return None
+
+
+def _build_stock_classification(symbol: str, name: str, market: str, quote: Any | None = None) -> dict[str, object]:
+    asset_type, asset_evidence = _classify_asset_type(symbol, name)
+    evidence = [f"market={market}"]
+    for item in asset_evidence:
+        if item and item not in evidence:
+            evidence.append(item)
+    category = "待观察"
+    board, board_evidence = _detect_a_share_board(symbol, market)
+    keyword_category, keyword_evidence = _keyword_category(name)
+    # ponytail: 单标签优先级保持可解释且足够便宜；当前只看 symbol/name/quote 基础字段，后续若要更细可接行业元数据表。
+    if asset_type == "ETF":
+        category = "主题ETF"
+        if f"name={name}" not in evidence and name:
+            evidence.insert(1, f"name={name}")
+        if f"symbol={symbol}" not in evidence:
+            evidence.append(f"symbol={symbol}")
+        evidence.append("asset_type=ETF")
+        if any(term in name for term in _ETF_INDEX_TERMS):
+            category = "指数ETF"
+    elif asset_type == "指数":
+        category = "指数"
+    elif keyword_category and keyword_evidence:
+        category = keyword_category
+        evidence = [f"market={market}", f"name={name}", keyword_evidence]
+    elif board and board_evidence:
+        category = board
+        evidence = [f"market={market}", f"symbol={symbol}", board_evidence]
+    return {
+        "market": _classify_market(market),
+        "asset_type": asset_type,
+        "category": category,
+        "style": category,
+        "evidence": evidence,
+    }
+
+
+def _profile_classification_line(code: str, classification: dict[str, object]) -> str:
+    market = classification.get("market") or "待识别市场"
+    asset_type = classification.get("asset_type") or "待识别资产"
+    category = classification.get("category") or classification.get("style") or "待观察"
+    evidence = "；".join(str(item) for item in classification.get("evidence", []) if str(item).strip()) or "证据不足"
+    return f"  {code}: {market} / {asset_type} / {category}（依据：{evidence}）"
 
 
 def _current_report_date() -> str:
@@ -100,12 +277,48 @@ def _default_report_trade_date() -> str:
 def _llm_report_identity(
     date_str: str,
     symbol: str | None = None,
-    lens: str = "balanced",
+    lens: str | None = None,
 ) -> ReportIdentity:
     topic = f"{symbol}深度分析" if symbol else "A股深度复盘"
-    if lens != "balanced":
+    if lens and lens != "balanced":
         topic = f"{topic}-{lens}"
     return ReportIdentity(date_str, report_session(date_str), topic)
+
+
+def _validate_llm_option_contract(
+    *,
+    use_llm: bool,
+    lens: str | None,
+    debate_rounds: int,
+    debate_rounds_explicit: bool,
+) -> None:
+    if lens and not use_llm:
+        raise click.ClickException("--lens requires --llm")
+    if debate_rounds_explicit and debate_rounds != 3 and (not use_llm or lens != "all"):
+        raise click.ClickException("--debate-rounds requires --llm and --lens all")
+
+
+def _validate_analyze_symbol(symbol: str, date_str: str) -> str:
+    try:
+        quote = _core.get_single_stock_quote(symbol, date_str)
+    except ValueError as exc:
+        raise click.ClickException(_stock_invalid_message(symbol)) from exc
+    if not quote or quote.price is None or quote.market not in {"cn_market", "hk_market", "us_market"}:
+        raise click.ClickException(_stock_invalid_message(symbol))
+    return str(quote.symbol or symbol)
+
+
+def _run_plain_analyze(
+    symbol: str,
+    date_str: str,
+    *,
+    rich_source: bool,
+    browser_fallback: bool,
+) -> None:
+    normalized_symbol = _validate_analyze_symbol(symbol, date_str)
+    _core.run_stock_quote(normalized_symbol, date_str, include_news=True)
+    extras = collect_stock_extras(_core, normalized_symbol, date_str, rich_source=rich_source)
+    _print_stock_extras(extras.to_dict(), requested_date=date_str, browser_fallback=browser_fallback)
 
 
 def _print_markdown_report(path: Path) -> None:
@@ -183,7 +396,7 @@ def _run_daily_llm(
     no_news: bool,
     report_format: str,
     order: str | None,
-    lens: str = "balanced",
+    lens: str | None = None,
     debate_rounds: int = 3,
     rich_source: bool = False,
     browser_fallback: bool = False,
@@ -205,13 +418,15 @@ def _run_daily_llm(
     try:
         if refresh or not markdown_path.exists():
             replay_options = {}
-            if lens != "balanced" or debate_rounds != 3 or rich_source or browser_fallback:
-                replay_options = {
-                    "lens": lens,
-                    "debate_rounds": debate_rounds,
-                    "rich_source": rich_source,
-                    "browser_fallback": browser_fallback,
-                }
+            if lens:
+                replay_options["lens"] = lens
+            if lens == "all":
+                replay_options["debate_rounds"] = debate_rounds
+            if rich_source or browser_fallback:
+                replay_options.update(
+                    rich_source=rich_source,
+                    browser_fallback=browser_fallback,
+                )
             markdown_path = _run_llm_replay(date_str, **replay_options)
     except LLMNotConfigured:
         _fallback_daily_without_llm(
@@ -372,10 +587,193 @@ def stock(
     date_str = date or _core.nearest_trade_date()
     _core.run_stock_quote(symbol, date_str, include_news=not no_news)
     extras = collect_stock_extras(_core, symbol, date_str, rich_source=rich_source)
-    _print_stock_extras(extras.to_dict(), browser_fallback=browser_fallback)
+    _print_stock_extras(extras.to_dict(), requested_date=date_str, browser_fallback=browser_fallback)
 
 
-def _print_stock_extras(extras: dict[str, object], *, browser_fallback: bool = False) -> None:
+_DISPLAY_LABELS = {
+    "symbol": "股票代码",
+    "date": "日期",
+    "name": "名称",
+    "reason": "上榜原因",
+    "buy": "买入金额",
+    "sell": "卖出金额",
+    "net_buy": "净买入额",
+    "ratio_trends": "财务指标趋势",
+    "statements": "财务报表",
+    "periods": "报告期数",
+    "period": "报告期",
+    "revenue": "营业收入",
+    "net_profit": "净利润",
+    "keyword": "关键词",
+    "count": "记录数",
+    "platform": "平台",
+    "title": "标题",
+    "content": "内容",
+    "last_close": "最新收盘价",
+    "ma20": "20日均线",
+    "ma60": "60日均线",
+}
+
+
+def _display_label(key: object) -> str | None:
+    text = str(key)
+    if text.startswith("_"):
+        return None
+    if text in _DISPLAY_LABELS:
+        return _DISPLAY_LABELS[text]
+    return text if any("\u4e00" <= char <= "\u9fff" for char in text) else None
+
+
+def _is_visible_value(value: object) -> bool:
+    if value in (None, "", [], {}):
+        return False
+    if isinstance(value, dict):
+        return any(not str(key).startswith("_") and _is_visible_value(item) for key, item in value.items())
+    if isinstance(value, list):
+        return any(_is_visible_value(item) for item in value)
+    return True
+
+
+def _visible_items(payload: dict[str, object]) -> list[tuple[str, object]]:
+    return [(key, value) for key, value in payload.items() if _display_label(key) and _is_visible_value(value)]
+
+
+def _format_cell(value: object) -> str:
+    if value in (None, ""):
+        return ""
+    if isinstance(value, float):
+        text = f"{value:.2f}"
+        return text.rstrip("0").rstrip(".")
+    return str(value)
+
+
+def _table_lines(rows: list[dict[str, object]], preferred_columns: list[str] | tuple[str, ...] = ()) -> list[str]:
+    if not rows:
+        return []
+    columns: list[str] = [
+        column
+        for column in preferred_columns
+        if _display_label(column) and any(_is_visible_value(row.get(column)) for row in rows)
+    ]
+    for row in rows:
+        for key in row:
+            if key not in columns and _display_label(key) and any(_is_visible_value(r.get(key)) for r in rows):
+                columns.append(key)
+    if not columns:
+        return []
+    header = "| " + " | ".join(_display_label(column) or "" for column in columns) + " |"
+    divider = "| " + " | ".join("---" for _ in columns) + " |"
+    lines = [header, divider]
+    for row in rows:
+        lines.append("| " + " | ".join(_format_cell(row.get(column)) for column in columns) + " |")
+    return lines
+
+
+def _render_nested_mapping(title: str, payload: dict[str, object], *, title_indent: str = "#### ") -> list[str]:
+    lines: list[str] = []
+    for key, value in _visible_items(payload):
+        label = _display_label(key)
+        if not label:
+            continue
+        if isinstance(value, list) and value and all(isinstance(item, dict) for item in value):
+            table = _table_lines([item for item in value if _is_visible_value(item)], ())
+            if table:
+                lines.extend(["", f"{title_indent}{label}", *table])
+        elif isinstance(value, dict):
+            nested_lines = _render_nested_mapping(label, value, title_indent="##### ")
+            if nested_lines:
+                lines.extend(["", f"{title_indent}{label}", *nested_lines])
+        else:
+            lines.append(f"- {label}: {_format_cell(value)}")
+    return lines
+
+
+def _normalized_date(value: object) -> str:
+    return "".join(char for char in str(value or "") if char.isdigit())[:8]
+
+
+def _render_section(title: str, payload: object, *, requested_date: str | None = None) -> list[str]:
+    if not isinstance(payload, dict) or not _is_visible_value(payload):
+        return []
+    if title == "龙虎榜":
+        target_date = _normalized_date(requested_date or payload.get("requested_date"))
+        rows = [
+            row for row in payload.get("rows") or []
+            if (
+                isinstance(row, dict)
+                and (not target_date or not _normalized_date(row.get("date")) or _normalized_date(row.get("date")) == target_date)
+                and any(_is_visible_value(row.get(field)) for field in ("reason", "buy", "sell", "net_buy"))
+            )
+        ]
+        if not rows:
+            return []
+        return [f"### {title}", *_table_lines(rows, ("date", "name", "reason", "buy", "sell", "net_buy"))]
+    if title == "社交热度":
+        rows = [
+            row for row in payload.get("rows") or []
+            if isinstance(row, dict) and _is_visible_value(row)
+        ]
+        if not rows:
+            return []
+        lines = [f"### {title}"]
+        for key in ("keyword", "count"):
+            if _is_visible_value(payload.get(key)):
+                lines.append(f"- {_display_label(key)}: {_format_cell(payload.get(key))}")
+        table = _table_lines(rows, ("platform", "title"))
+        return [*lines, "", *table] if table else []
+    if title == "公告与事件":
+        rows = [
+            row for row in payload.get("rows") or []
+            if isinstance(row, dict) and _is_visible_value(row)
+        ]
+        if not rows:
+            return []
+        table = _table_lines(rows, ("date", "title", "content"))
+        return [f"### {title}", *table] if table else []
+    if title == "五年财务趋势":
+        lines: list[str] = []
+        tables: list[str] = []
+        for key, value in _visible_items(payload):
+            if key == "ratio_trends" and isinstance(value, list):
+                table = _table_lines([row for row in value if isinstance(row, dict) and _is_visible_value(row)])
+                if table:
+                    tables.extend(["", f"#### {_display_label(key)}", *table])
+            elif key == "statements" and isinstance(value, dict):
+                for statement_name, statement_rows in _visible_items(value):
+                    if isinstance(statement_rows, list):
+                        table = _table_lines([row for row in statement_rows if isinstance(row, dict) and _is_visible_value(row)])
+                        if table:
+                            tables.extend(["", f"#### {_display_label(statement_name)}", *table])
+            elif not isinstance(value, (list, dict)):
+                lines.append(f"- {_display_label(key)}: {_format_cell(value)}")
+        if not tables:
+            return []
+        return [f"### {title}", *lines, *tables]
+
+    lines: list[str] = []
+    for key, value in _visible_items(payload):
+        label = _display_label(key)
+        if not label:
+            continue
+        if isinstance(value, list) and value and all(isinstance(item, dict) for item in value):
+            table = _table_lines([item for item in value if _is_visible_value(item)])
+            if table:
+                lines.extend(["", f"#### {label}", *table])
+        elif isinstance(value, dict):
+            nested = [line for line in _render_nested_mapping(label, value) if line]
+            if nested:
+                lines.extend(["", f"#### {label}", *nested])
+        else:
+            lines.append(f"- {label}: {_format_cell(value)}")
+    return [f"### {title}", *lines] if lines else []
+
+
+def _print_stock_extras(
+    extras: dict[str, object],
+    *,
+    requested_date: str | None = None,
+    browser_fallback: bool = False,
+) -> None:
     click.echo("\n## 增强证据")
     shown = 0
     for key, title in (
@@ -385,19 +783,13 @@ def _print_stock_extras(extras: dict[str, object], *, browser_fallback: bool = F
         ("events", "公告与事件"),
         ("technical_fallback", "技术指标补充"),
     ):
-        payload = extras.get(key) or {}
-        if isinstance(payload, dict) and (
-            payload.get("_unavailable")
-            or (isinstance(payload.get("rows"), list) and not payload.get("rows"))
-            or (isinstance(payload.get("data"), list) and not payload.get("data"))
-            or not any(not str(name).startswith("_") and value not in ({}, [], None, "") for name, value in payload.items())
-        ):
-            continue
-        if payload in ({}, [], None, ""):
+        section = _render_section(title, extras.get(key) or {}, requested_date=requested_date)
+        if not section:
             continue
         shown += 1
-        click.echo(f"\n### {title}")
-        click.echo(json.dumps(payload, ensure_ascii=False, indent=2, default=str))
+        click.echo("")
+        for line in section:
+            click.echo(line)
     if shown == 0:
         click.echo(f"\n未返回可展示的增强证据。{research_bridge_hint()}")
     if browser_fallback:
@@ -410,7 +802,16 @@ def _print_stock_extras(extras: dict[str, object], *, browser_fallback: bool = F
 @click.option("--limit", default=20, show_default=True, type=click.IntRange(1, 100))
 def lhb(symbol: str, date: str | None, limit: int) -> None:
     date_str = date or _core.nearest_trade_date()
-    click.echo(json.dumps(fetch_lhb(_core, symbol, date_str, limit=limit), ensure_ascii=False, indent=2, default=str))
+    section = _render_section(
+        "龙虎榜",
+        fetch_lhb(_core, symbol, date_str, limit=limit),
+        requested_date=date_str,
+    )
+    if not section:
+        click.echo("暂无可展示的龙虎榜证据。")
+        return
+    for line in section:
+        click.echo(line)
 
 
 @cli.command(help="Show one fund estimate, top holdings quotes, and holding-stock news.")
@@ -447,18 +848,20 @@ def news(parts: tuple[str, ...], date: str | None, refresh: bool, limit: int) ->
 @click.option("--format", "report_format", type=click.Choice(["full", "summary", "key-points"]), default="full", show_default=True, help="Output style.")
 @click.option("--order", default=None, help="Custom full-report order, e.g. 基金,A股,港股,美股.")
 @click.option("--llm", "use_llm", is_flag=True, help="Use the configured LLM for the evidence-driven deep replay; plain daily does not require LLM.")
-@click.option("--lens", type=click.Choice(("balanced", "all", *lens_ids())), default="balanced", show_default=True)
+@click.option("--lens", type=click.Choice(("balanced", "all", *lens_ids())), default=None, help="Explicit LLM lens. Requires --llm.")
 @click.option("--debate-rounds", default=3, show_default=True, type=click.IntRange(1, 5))
 @click.option("--rich-source", is_flag=True, help="Allow slower optional sources for portfolio evidence.")
 @click.option("--browser-fallback", is_flag=True, help="Allow browser fallback if a supporting capability decides it is needed.")
+@click.pass_context
 def daily(
+    ctx: click.Context,
     date: str | None,
     refresh: bool,
     no_news: bool,
     report_format: str,
     order: str | None,
     use_llm: bool,
-    lens: str,
+    lens: str | None,
     debate_rounds: int,
     rich_source: bool,
     browser_fallback: bool,
@@ -472,15 +875,23 @@ def daily(
     if not profile.get("stocks") and not profile.get("funds"):
         _print_first_use_guide()
         return
+    _validate_llm_option_contract(
+        use_llm=use_llm,
+        lens=lens,
+        debate_rounds=debate_rounds,
+        debate_rounds_explicit=ctx.get_parameter_source("debate_rounds") is ParameterSource.COMMANDLINE,
+    )
     if use_llm:
         llm_options = {}
-        if lens != "balanced" or debate_rounds != 3 or rich_source or browser_fallback:
-            llm_options = {
-                "lens": lens,
-                "debate_rounds": debate_rounds,
-                "rich_source": rich_source,
-                "browser_fallback": browser_fallback,
-            }
+        if lens:
+            llm_options["lens"] = lens
+        if lens == "all":
+            llm_options["debate_rounds"] = debate_rounds
+        if rich_source or browser_fallback:
+            llm_options.update(
+                rich_source=rich_source,
+                browser_fallback=browser_fallback,
+            )
         _run_daily_llm(
             date_str,
             refresh=refresh,
@@ -503,7 +914,7 @@ def _run_llm_replay(
     date_str: str,
     kind: str = "replay",
     symbol: str | None = None,
-    lens: str = "balanced",
+    lens: str | None = None,
     debate_rounds: int = 3,
     rich_source: bool = False,
     browser_fallback: bool = False,
@@ -551,15 +962,19 @@ def _run_llm_replay(
 @click.argument("symbol")
 @_date_opt
 @_refresh_opt
-@click.option("--lens", type=click.Choice(("balanced", "all", *lens_ids())), default="balanced", show_default=True)
+@click.option("--llm", "use_llm", is_flag=True, help="Use the configured LLM for deep replay; default analyze is deterministic evidence only.")
+@click.option("--lens", type=click.Choice(("balanced", "all", *lens_ids())), default=None, help="Explicit LLM lens. Requires --llm.")
 @click.option("--debate-rounds", default=3, show_default=True, type=click.IntRange(1, 5))
 @click.option("--rich-source", is_flag=True, help="Allow slower optional financial/social sources.")
 @click.option("--browser-fallback", is_flag=True, help="Allow browser fallback if a supporting capability decides it is needed.")
+@click.pass_context
 def analyze(
+    ctx: click.Context,
     symbol: str,
     date: str | None,
     refresh: bool,
-    lens: str,
+    use_llm: bool,
+    lens: str | None,
     debate_rounds: int,
     rich_source: bool,
     browser_fallback: bool,
@@ -567,16 +982,33 @@ def analyze(
     if refresh:
         _core.NO_CACHE = True
     _core.BROWSER_FALLBACK = browser_fallback
+    date_str = date or _default_report_trade_date()
+    _validate_llm_option_contract(
+        use_llm=use_llm,
+        lens=lens,
+        debate_rounds=debate_rounds,
+        debate_rounds_explicit=ctx.get_parameter_source("debate_rounds") is ParameterSource.COMMANDLINE,
+    )
+    if not use_llm:
+        _run_plain_analyze(
+            symbol,
+            date_str,
+            rich_source=rich_source,
+            browser_fallback=browser_fallback,
+        )
+        return
     replay_options = {}
-    if lens != "balanced" or debate_rounds != 3:
-        replay_options.update(lens=lens, debate_rounds=debate_rounds)
+    if lens:
+        replay_options["lens"] = lens
+    if lens == "all":
+        replay_options["debate_rounds"] = debate_rounds
     if rich_source or browser_fallback:
         replay_options.update(
             rich_source=rich_source,
             browser_fallback=browser_fallback,
         )
     _run_llm_replay(
-        date or _default_report_trade_date(),
+        date_str,
         kind="analyze",
         symbol=symbol,
         **replay_options,
@@ -676,7 +1108,8 @@ def config_path_command() -> None:
 @config.command("show", help="Show effective configuration with secrets masked.")
 def config_show() -> None:
     migrate_legacy_llm_api_key_fallback()
-    click.echo(json.dumps(mask_config(load_config()), ensure_ascii=False, indent=2))
+    for line in _render_config_lines(mask_config(load_config())):
+        click.echo(line)
 
 
 @config.command("models", help="Configure the LLM provider/model, or list model IDs from the resolved endpoint.")
@@ -689,6 +1122,12 @@ def config_show() -> None:
 @click.option("--api-key", default=None, hide_input=True)
 @click.option("--api-key-env", default=None, help="Environment variable containing the API key.")
 @click.option("--api-base", default=None, help="Provider API base, for example https://api.moonshot.cn/v1.")
+@click.option(
+    "--fallback-model",
+    "fallback_models",
+    multiple=True,
+    help="Optional fallback model ID. Repeat this option to configure multiple fallback models.",
+)
 @click.option("--timeout", default=30, show_default=True, type=float)
 @click.option("--max-tokens", default=4000, show_default=True, type=int)
 @click.option("--list", "list_models", is_flag=True, help="List model IDs exposed by the resolved endpoint.")
@@ -700,6 +1139,7 @@ def config_models(
     api_key: str | None,
     api_key_env: str | None,
     api_base: str | None,
+    fallback_models: tuple[str, ...],
     timeout: float,
     max_tokens: int,
     list_models: bool,
@@ -712,6 +1152,7 @@ def config_models(
     explicit_api_key = ctx.get_parameter_source("api_key") is ParameterSource.COMMANDLINE
     explicit_api_key_env = ctx.get_parameter_source("api_key_env") is ParameterSource.COMMANDLINE
     explicit_api_base = ctx.get_parameter_source("api_base") is ParameterSource.COMMANDLINE
+    explicit_fallback_models = ctx.get_parameter_source("fallback_models") is ParameterSource.COMMANDLINE
 
     if model:
         if not resolved_provider:
@@ -722,6 +1163,7 @@ def config_models(
             api_key=api_key if explicit_api_key else None,
             api_key_env=api_key_env if explicit_api_key_env else None,
             api_base=api_base if explicit_api_base else None,
+            fallback_models=list(fallback_models) if explicit_fallback_models else None,
             timeout=timeout if explicit_timeout else None,
             max_tokens=max_tokens if explicit_max_tokens else None,
         )
@@ -807,7 +1249,8 @@ def config_channel_add(
 @config_channel.command("list", help="List channels with secrets masked.")
 def config_channel_list() -> None:
     channels = mask_config(load_config().get("channels", {}))
-    click.echo(json.dumps(channels, ensure_ascii=False, indent=2))
+    for line in _render_channel_lines(channels):
+        click.echo(line)
 
 
 @config_channel.command("remove", help="Remove a channel.")
@@ -894,9 +1337,22 @@ def profile_add_stock(symbol: str, buy_date: str, quantity: float) -> None:
         raise click.ClickException(_stock_invalid_message(symbol)) from exc
     if not quote or quote.price is None or quote.market not in {"cn_market", "hk_market", "us_market"}:
         raise click.ClickException(_stock_invalid_message(symbol))
-    add_profile_item("stocks", quote.symbol, buy_date=normalized_date, quantity=normalized_quantity)
+    classification = _build_stock_classification(str(quote.symbol or symbol), str(quote.name or ""), str(quote.market or ""), quote)
+    add_profile_item(
+        "stocks",
+        quote.symbol,
+        buy_date=normalized_date,
+        quantity=normalized_quantity,
+        classification=classification,
+    )
     click.echo(f"您的投资记忆已添加：{quote.name or quote.symbol}（{quote.symbol}）")
     click.echo(f"Position: buy_date={normalized_date}; quantity={normalized_quantity:g}")
+    click.echo(
+        "自动分类: "
+        f"{classification['market']} / {classification['asset_type']} / {classification['category']}"
+    )
+    if hint := _classification_hint():
+        click.echo(hint)
 
 
 @profile.command("add-fund", help="Add a fund code to your daily watchlist.")
@@ -932,9 +1388,14 @@ def profile_show() -> None:
                 buy_date = position.get("buy_date", "-")
                 quantity = position.get("quantity", "-")
                 click.echo(f"  {label} {code}: buy_date={buy_date}; quantity={quantity}")
+    stock_classifications = data.get("classifications", {}).get("stocks", {})
+    if stock_classifications:
+        click.echo("自动分类:")
+        for code, classification in stock_classifications.items():
+            click.echo(_profile_classification_line(code, classification))
     groups = data.get("groups", {})
     if groups:
-        click.echo("Groups:")
+        click.echo("Legacy groups:")
         for name, group in groups.items():
             stocks = ", ".join(group.get("stocks", [])) or "-"
             funds = ", ".join(group.get("funds", [])) or "-"
@@ -960,7 +1421,7 @@ def profile_remove_fund(code: str) -> None:
     click.echo(f"Funds: {', '.join(data.get('funds', [])) or '-'}")
 
 
-@profile.command("clear", help="Clear stocks, funds, and groups from investment memory.")
+@profile.command("clear", help="Clear stocks, funds, legacy entries, and auto classifications from investment memory.")
 def profile_clear() -> None:
     clear_profile()
     click.echo("Cleared investment memory.")
@@ -978,26 +1439,6 @@ def profile_clear_funds() -> None:
     data = clear_profile_kind("funds")
     click.echo("Cleared all saved funds.")
     click.echo(f"Stocks: {', '.join(data.get('stocks', [])) or '-'}")
-
-
-@profile.group("group", help="Manage investment-memory groups.")
-def profile_group() -> None:
-    pass
-
-
-@profile_group.command("create", help="Create a named watchlist group.")
-@click.argument("name")
-def profile_group_create(name: str) -> None:
-    add_group(name)
-    click.echo(f"Created group: {name}")
-
-
-@profile_group.command("add", help="Add a symbol/code to a group.")
-@click.argument("name")
-@click.argument("code")
-def profile_group_add(name: str, code: str) -> None:
-    add_group_item(name, code)
-    click.echo(f"Added {code} to group: {name}")
 
 
 def _diagnostic_payload() -> dict:
@@ -1070,7 +1511,7 @@ def diagnose(as_json: bool) -> None:
 def guide() -> None:
     click.echo("1. young profile add-stock 600519 --buy-date 2026-01-15 --quantity 100")
     click.echo("2. young profile add-fund 161725 --buy-date 2026-01-10 --quantity 1000")
-    click.echo("3. young daily --format summary")
+    click.echo("3. young daily --format summary（profile stock 会自动生成可解释分类标签）")
     click.echo("4. young profile list / young diagnose")
 
 
@@ -1109,7 +1550,7 @@ def init() -> None:
 def example() -> None:
     click.echo("young daily --format summary")
     click.echo("young daily --format key-points --order 基金,A股,港股,美股")
-    click.echo("young profile group create 稳健型")
+    click.echo("young profile add-stock 600519 --buy-date 2026-01-15 --quantity 100")
     click.echo("young send --channel <name>")
 
 

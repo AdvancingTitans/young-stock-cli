@@ -45,11 +45,25 @@ def test_readme_covers_the_current_product_surface():
         "young config channel add|list|remove",
         "young diagnose --json",
         "young profile add-stock 600519 --buy-date 2026-01-15 --quantity 100",
+        "自动分类",
+        "category / evidence",
+        "主题ETF",
+        "创业板",
         "young portfolio create core",
         "young memory show|list|clear|reset",
         "young style set <name>",
         "young chat",
-        "/daily --llm",
+        "/daily [--llm] [--lens ...]",
+        "/analyze <symbol> [--llm] [--lens ...]",
+        "young analyze <symbol> 默认确定性数据源",
+        "young daily 默认确定性数据源",
+        "young analyze <symbol> --llm",
+        "young daily --llm",
+        "只有显式 `--lens` 才会进入 lens",
+        "young config models ... --fallback-model X --fallback-model Y",
+        "只在限流、额度、瞬时服务错误或明确模型不可用时切换",
+        "认证、generic404、api_base 错误不切换",
+        "Ark 先用 `--list` 核对 model ID",
         "/style list|set|show|clear",
         "docs/images/cover.png",
         "docs/images/demo-indices.png",
@@ -89,12 +103,21 @@ def test_readme_covers_the_current_product_surface():
     ):
         assert card in readme
 
+    for removed in (
+        "young profile group create",
+        "young profile group add",
+        "稳健型",
+        "成长型",
+        "style：默认只给 `待观察`",
+    ):
+        assert removed not in readme
+
 
 def test_changelog_is_short_and_current():
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
 
     for phrase in (
-        "[0.3.0] - 2026-06-21",
+        "[0.3.1] - 2026-06-21",
         "young daily",
         "young config models",
         "--browser-fallback",

@@ -54,12 +54,12 @@ CHAT_STYLE_PROMPTS = {
     **chat_style_profiles(),
 }
 READ_ONLY_SLASH_HELP = (
-    "可用命令：/a、/stock <symbol>、/analyze <symbol>、/fund <code>、/news <query>、/daily [--llm] [flags]、/report（仅导出 PDF）、/send、"
+    "可用命令：/a、/stock <symbol>、/analyze <symbol> [--llm] [--lens ...]、/fund <code>、/news <query>、/daily [--llm] [--lens ...]、/report（仅导出 PDF）、/send、"
     "/profile list、/memory show、/memory clear、/style、/style list、/style set <name>、"
     "/style show、/style clear、/diagnose、/help、/clear、/exit。"
 )
 SUPPORTED_SLASH_FOR_PROMPT = (
-    "/a, /stock <symbol>, /analyze <symbol>, /fund <code>, /news <query>, /daily [--llm] [flags], /report (PDF export only), /send, "
+    "/a, /stock <symbol>, /analyze <symbol> [--llm] [--lens ...], /fund <code>, /news <query>, /daily [--llm] [--lens ...], /report (PDF export only), /send, "
     "/profile list, /memory show, /memory clear, /style, /style list, /style set <name>, "
     "/style show, /style clear, /diagnose, /help, /clear, /exit"
 )

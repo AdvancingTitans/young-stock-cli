@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.3.1] - 2026-06-21
+
+### Added
+
+- Ordered fallback models for compatible LLM endpoints via repeatable `--fallback-model`.
+- Automatic evidence-based stock classification in profiles.
+
+### Changed
+
+- `young analyze` now matches `young daily`: LLM and lens layers are strictly opt-in.
+- Human-facing commands, including `young lhb`, render readable output instead of raw JSON.
+
+### Fixed
+
+- Ark/OpenAI-compatible 404 and model-list errors now provide safe, actionable diagnostics.
+- LLM retries and fallback distinguish transient, quota, authentication, SSL, and configuration failures.
+- Numeric grounding preserves signs, percentages, decimals, symbols, and atomic dates.
+
 ## [0.3.0] - 2026-06-21
 
 ### Added

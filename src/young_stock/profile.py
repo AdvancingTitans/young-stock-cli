@@ -5,10 +5,17 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from typing import Any
 
 from .local_store import young_home
 
-EMPTY_PROFILE = {"stocks": [], "funds": [], "groups": {}, "positions": {"stocks": {}, "funds": {}}}
+EMPTY_PROFILE = {
+    "stocks": [],
+    "funds": [],
+    "groups": {},
+    "classifications": {"stocks": {}},
+    "positions": {"stocks": {}, "funds": {}},
+}
 
 
 def profile_path() -> Path:
@@ -30,6 +37,7 @@ def load_profile() -> dict[str, list[str]]:
         "stocks": [str(v) for v in data.get("stocks", []) if str(v).strip()],
         "funds": [str(v) for v in data.get("funds", []) if str(v).strip()],
         "groups": _normalize_groups(data.get("groups", {})),
+        "classifications": _normalize_classifications(data.get("classifications", {})),
         "positions": _normalize_positions(data.get("positions", {})),
     }
 
@@ -45,6 +53,7 @@ def add_profile_item(
     value: str,
     buy_date: str | None = None,
     quantity: float | None = None,
+    classification: dict[str, Any] | None = None,
 ) -> dict[str, list[str]]:
     if kind not in {"stocks", "funds"}:
         raise ValueError(f"unknown profile item kind: {kind}")
@@ -59,6 +68,8 @@ def add_profile_item(
             position["buy_date"] = buy_date.strip()
         if quantity is not None:
             position["quantity"] = quantity
+    if normalized and kind == "stocks" and classification:
+        profile.setdefault("classifications", {}).setdefault("stocks", {})[normalized] = dict(classification)
     save_profile(profile)
     return profile
 
@@ -70,6 +81,11 @@ def remove_profile_item(kind: str, value: str) -> dict[str, list[str]]:
     normalized = value.strip()
     profile[kind] = [item for item in profile.get(kind, []) if item != normalized]
     profile.setdefault("positions", {}).setdefault(kind, {}).pop(normalized, None)
+    if kind == "stocks":
+        profile.setdefault("classifications", {}).setdefault("stocks", {}).pop(normalized, None)
+    for group in profile.get("groups", {}).values():
+        if isinstance(group, dict):
+            group[kind] = [item for item in group.get(kind, []) if item != normalized]
     save_profile(profile)
     return profile
 
@@ -86,6 +102,8 @@ def clear_profile_kind(kind: str) -> dict[str, list[str]]:
     profile = load_profile()
     profile[kind] = []
     profile.setdefault("positions", {})[kind] = {}
+    if kind == "stocks":
+        profile.setdefault("classifications", {})["stocks"] = {}
     for group in profile.get("groups", {}).values():
         if isinstance(group, dict):
             group[kind] = []
@@ -127,6 +145,30 @@ def _normalize_groups(groups) -> dict[str, dict[str, list[str]]]:
     return result
 
 
+def _normalize_classifications(classifications) -> dict[str, dict[str, dict[str, Any]]]:
+    result: dict[str, dict[str, dict[str, Any]]] = {"stocks": {}}
+    if not isinstance(classifications, dict):
+        return result
+    raw_stocks = classifications.get("stocks", {})
+    if not isinstance(raw_stocks, dict):
+        return result
+    for code, raw in raw_stocks.items():
+        if not isinstance(raw, dict):
+            continue
+        market = str(raw.get("market") or "").strip()
+        asset_type = str(raw.get("asset_type") or "").strip()
+        category = str(raw.get("category") or raw.get("style") or "").strip() or "待观察"
+        evidence = [str(item).strip() for item in raw.get("evidence", []) if str(item).strip()]
+        result["stocks"][str(code)] = {
+            "market": market,
+            "asset_type": asset_type,
+            "category": category,
+            "style": category,
+            "evidence": evidence,
+        }
+    return result
+
+
 def _normalize_positions(positions) -> dict[str, dict[str, dict[str, float | str]]]:
     result: dict[str, dict[str, dict[str, float | str]]] = {"stocks": {}, "funds": {}}
     if not isinstance(positions, dict):
@@ -152,4 +194,10 @@ def _normalize_positions(positions) -> dict[str, dict[str, dict[str, float | str
 
 
 def _empty_profile() -> dict[str, list[str]]:
-    return {"stocks": [], "funds": [], "groups": {}, "positions": {"stocks": {}, "funds": {}}}
+    return {
+        "stocks": [],
+        "funds": [],
+        "groups": {},
+        "classifications": {"stocks": {}},
+        "positions": {"stocks": {}, "funds": {}},
+    }

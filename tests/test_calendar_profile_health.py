@@ -3,8 +3,6 @@ from datetime import datetime
 from young_stock import calendar as trade_calendar
 from young_stock.health import SourceHealthBook
 from young_stock.profile import (
-    add_group,
-    add_group_item,
     add_profile_item,
     clear_profile,
     clear_profile_kind,
@@ -62,29 +60,28 @@ def test_profile_read_write_uses_env_override(monkeypatch, tmp_path):
         "stocks": ["600519"],
         "funds": ["161725"],
         "groups": {},
+        "classifications": {"stocks": {}},
         "positions": {"stocks": {}, "funds": {}},
     }
 
     add_profile_item("stocks", "NVDA", buy_date="2026-01-15", quantity=10)
     assert load_profile()["positions"]["stocks"]["NVDA"] == {"buy_date": "2026-01-15", "quantity": 10.0}
-
-    add_group("稳健型")
-    add_group_item("稳健型", "021528")
     remove_profile_item("stocks", "600519")
     assert load_profile() == {
         "stocks": ["NVDA"],
         "funds": ["161725"],
-        "groups": {"稳健型": {"stocks": [], "funds": ["021528"]}},
+        "groups": {},
+        "classifications": {"stocks": {}},
         "positions": {"stocks": {"NVDA": {"buy_date": "2026-01-15", "quantity": 10.0}}, "funds": {}},
     }
 
     add_profile_item("stocks", "600000")
-    add_group_item("稳健型", "600000")
     clear_profile_kind("stocks")
     assert load_profile() == {
         "stocks": [],
         "funds": ["161725"],
-        "groups": {"稳健型": {"stocks": [], "funds": ["021528"]}},
+        "groups": {},
+        "classifications": {"stocks": {}},
         "positions": {"stocks": {}, "funds": {}},
     }
 
@@ -92,12 +89,39 @@ def test_profile_read_write_uses_env_override(monkeypatch, tmp_path):
     assert load_profile() == {
         "stocks": [],
         "funds": [],
-        "groups": {"稳健型": {"stocks": [], "funds": []}},
+        "groups": {},
+        "classifications": {"stocks": {}},
         "positions": {"stocks": {}, "funds": {}},
     }
 
     clear_profile()
-    assert load_profile() == {"stocks": [], "funds": [], "groups": {}, "positions": {"stocks": {}, "funds": {}}}
+    assert load_profile() == {"stocks": [], "funds": [], "groups": {}, "classifications": {"stocks": {}}, "positions": {"stocks": {}, "funds": {}}}
+
+
+def test_profile_load_preserves_legacy_groups_without_new_group_commands(monkeypatch, tmp_path):
+    monkeypatch.setenv("YOUNG_STOCK_PROFILE", str(tmp_path / "profile.json"))
+    profile_path().write_text(
+        '{"stocks":["600519"],"funds":[],"groups":{"旧分组":{"stocks":["600519"],"funds":[]}},"positions":{"stocks":{},"funds":{}}}',
+        encoding="utf-8",
+    )
+
+    assert load_profile()["groups"] == {"旧分组": {"stocks": ["600519"], "funds": []}}
+
+
+def test_profile_load_keeps_legacy_style_and_exposes_category(monkeypatch, tmp_path):
+    monkeypatch.setenv("YOUNG_STOCK_PROFILE", str(tmp_path / "profile.json"))
+    profile_path().write_text(
+        '{"stocks":["600519"],"funds":[],"classifications":{"stocks":{"600519":{"market":"A股","asset_type":"股票","style":"消费","evidence":["name=贵州茅台"]}}},"positions":{"stocks":{},"funds":{}}}',
+        encoding="utf-8",
+    )
+
+    assert load_profile()["classifications"]["stocks"]["600519"] == {
+        "market": "A股",
+        "asset_type": "股票",
+        "category": "消费",
+        "style": "消费",
+        "evidence": ["name=贵州茅台"],
+    }
 
 
 def test_source_health_book_tracks_recent_failures():

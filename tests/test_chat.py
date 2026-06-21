@@ -8,7 +8,7 @@ from young_stock.local_store import load_store, save_store
 
 def test_slash_commands_map_to_click_arguments():
     assert slash_to_args("/a --no-news") == ["a", "--no-news"]
-    assert slash_to_args('/profile group create "成长 型"') == ["profile", "group", "create", "成长 型"]
+    assert slash_to_args("/profile list") == ["profile", "list"]
     assert slash_to_args("/daily --llm") == ["daily", "--llm"]
 
 
@@ -31,6 +31,7 @@ def test_chat_executes_existing_click_command():
     assert any("Stocks:" in output for output in outputs)
     assert session.history[-2]["content"] == "/profile list"
     assert "Stocks:" in session.history[-1]["content"]
+    assert "groups" not in session.history[-1]["content"]
 
 
 def test_chat_allows_analyze_slash(monkeypatch):
@@ -70,6 +71,7 @@ def test_chat_unknown_command_does_not_exit():
         ("/update", "禁止 /update"),
         ("/uninstall", "禁止 /uninstall"),
         ("/profile add-stock 600519", "仅支持只读的 /profile list"),
+        ("/profile group add 成长型 600519", "仅支持只读的 /profile list"),
         ("/memory reset", "仅支持 /memory show 和 /memory clear"),
         ("/reach 贵州茅台", "不支持 /reach"),
     ],
@@ -81,6 +83,15 @@ def test_chat_blocks_write_or_mutating_slash_without_invoking_click(command, mes
 
     assert session.handle_slash(command) is False
     assert any(message in output for output in outputs)
+
+
+def test_chat_help_and_prompt_do_not_advertise_profile_group():
+    assert "/profile group" not in chat_module.READ_ONLY_SLASH_HELP
+    assert "/profile group" not in chat_module.SUPPORTED_SLASH_FOR_PROMPT
+    assert "/analyze <symbol> [--llm] [--lens ...]" in chat_module.READ_ONLY_SLASH_HELP
+    assert "/daily [--llm] [--lens ...]" in chat_module.READ_ONLY_SLASH_HELP
+    assert "/analyze <symbol> [--llm] [--lens ...]" in chat_module.SUPPORTED_SLASH_FOR_PROMPT
+    assert "/daily [--llm] [--lens ...]" in chat_module.SUPPORTED_SLASH_FOR_PROMPT
 
 
 def test_chat_rejects_removed_daily_llm_aliases(monkeypatch):

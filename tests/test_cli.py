@@ -122,9 +122,187 @@ def test_cli_stock_runs_single_stock_quote(monkeypatch):
     assert result.exit_code == 0
     assert calls == [("600519", "20260529", False)]
     assert "## 增强证据" in result.output
-    assert '"net_buy": 123' in result.output
+    assert "### 龙虎榜" in result.output
+    assert "| 20260529 | 123 |" in result.output
     assert "optional" not in result.output
     assert "configure" not in result.output
+
+
+def test_cli_analyze_defaults_to_plain_stock_evidence_without_llm(monkeypatch):
+    from click.testing import CliRunner
+
+    run_calls = []
+    extras_calls = []
+    render_calls = []
+
+    monkeypatch.setattr(cli_module, "_default_report_trade_date", lambda: "20260529")
+    monkeypatch.setattr(
+        cli_module._core,
+        "get_single_stock_quote",
+        lambda symbol, date: cli_module._core.QuoteData(
+            symbol="600519",
+            name="贵州茅台",
+            market="cn_market",
+            date=date,
+            price=1600.0,
+            change_pct=0.5,
+            source="test",
+        ),
+    )
+    monkeypatch.setattr(
+        cli_module._core,
+        "run_stock_quote",
+        lambda symbol, date_str, include_news=True: run_calls.append((symbol, date_str, include_news)),
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "collect_stock_extras",
+        lambda core, symbol, date_str, rich_source=False: extras_calls.append((symbol, date_str, rich_source)) or type(
+            "Extras",
+            (),
+            {"to_dict": staticmethod(lambda: {"lhb": {"rows": [{"date": "20260529", "net_buy": 1}]}})},
+        )(),
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "_print_stock_extras",
+        lambda extras, **kwargs: render_calls.append((extras, kwargs)),
+    )
+    llm_calls = []
+    monkeypatch.setattr(
+        cli_module,
+        "_run_llm_replay",
+        lambda *args, **kwargs: llm_calls.append((args, kwargs)),
+    )
+
+    result = CliRunner().invoke(cli, ["analyze", "600519"])
+
+    assert result.exit_code == 0
+    assert run_calls == [("600519", "20260529", True)]
+    assert extras_calls == [("600519", "20260529", False)]
+    assert len(render_calls) == 1
+    assert llm_calls == []
+
+
+def test_cli_analyze_llm_without_explicit_lens_does_not_pass_lens_layer(monkeypatch):
+    from click.testing import CliRunner
+
+    monkeypatch.setattr(cli_module, "_default_report_trade_date", lambda: "20260529")
+    replay_calls = []
+    monkeypatch.setattr(
+        cli_module,
+        "_run_llm_replay",
+        lambda date_str, **kwargs: replay_calls.append((date_str, kwargs)),
+    )
+
+    result = CliRunner().invoke(cli, ["analyze", "600519", "--llm"])
+
+    assert result.exit_code == 0
+    assert replay_calls == [("20260529", {"kind": "analyze", "symbol": "600519"})]
+
+
+def test_cli_daily_llm_without_explicit_lens_does_not_pass_lens_layer(monkeypatch):
+    from click.testing import CliRunner
+
+    monkeypatch.setattr(cli_module._core, "cache_clear_old", lambda days: None)
+    monkeypatch.setattr(cli_module, "latest_report_trade_date", lambda: "20260619")
+    monkeypatch.setattr(cli_module, "load_profile", lambda: {"stocks": ["600519"], "funds": []})
+    calls = []
+    monkeypatch.setattr(
+        cli_module,
+        "_run_daily_llm",
+        lambda date_str, **kwargs: calls.append((date_str, kwargs)),
+    )
+
+    result = CliRunner().invoke(cli, ["daily", "--llm"])
+
+    assert result.exit_code == 0
+    assert calls == [("20260619", {"refresh": False, "no_news": False, "report_format": "full", "order": None})]
+
+
+def test_cli_explicit_lens_requires_llm(monkeypatch):
+    from click.testing import CliRunner
+
+    monkeypatch.setattr(cli_module._core, "cache_clear_old", lambda days: None)
+    monkeypatch.setattr(cli_module, "latest_report_trade_date", lambda: "20260619")
+    monkeypatch.setattr(cli_module, "load_profile", lambda: {"stocks": ["600519"], "funds": []})
+    runner = CliRunner()
+
+    daily_result = runner.invoke(cli, ["daily", "--lens", "all"])
+    analyze_result = runner.invoke(cli, ["analyze", "600519", "--lens", "all"])
+
+    assert daily_result.exit_code != 0
+    assert analyze_result.exit_code != 0
+    assert "--lens requires --llm" in daily_result.output
+    assert "--lens requires --llm" in analyze_result.output
+
+
+def test_cli_debate_rounds_require_llm_and_lens_all(monkeypatch):
+    from click.testing import CliRunner
+
+    monkeypatch.setattr(cli_module._core, "cache_clear_old", lambda days: None)
+    monkeypatch.setattr(cli_module, "latest_report_trade_date", lambda: "20260619")
+    monkeypatch.setattr(cli_module, "load_profile", lambda: {"stocks": ["600519"], "funds": []})
+    runner = CliRunner()
+
+    no_llm = runner.invoke(cli, ["daily", "--debate-rounds", "4"])
+    wrong_lens = runner.invoke(cli, ["analyze", "600519", "--llm", "--lens", "balanced", "--debate-rounds", "4"])
+
+    assert no_llm.exit_code != 0
+    assert wrong_lens.exit_code != 0
+    assert "--debate-rounds requires --llm and --lens all" in no_llm.output
+    assert "--debate-rounds requires --llm and --lens all" in wrong_lens.output
+
+
+def test_cli_analyze_accepts_source_flags_without_llm(monkeypatch):
+    from click.testing import CliRunner
+
+    monkeypatch.setattr(cli_module, "_default_report_trade_date", lambda: "20260529")
+    monkeypatch.setattr(
+        cli_module._core,
+        "get_single_stock_quote",
+        lambda symbol, date: cli_module._core.QuoteData(
+            symbol="600519",
+            name="贵州茅台",
+            market="cn_market",
+            date=date,
+            price=1600.0,
+            change_pct=0.5,
+            source="test",
+        ),
+    )
+    monkeypatch.setattr(cli_module._core, "run_stock_quote", lambda *args, **kwargs: None)
+    source_flags = []
+    monkeypatch.setattr(
+        cli_module,
+        "collect_stock_extras",
+        lambda core, symbol, date_str, rich_source=False: source_flags.append((symbol, date_str, rich_source, core.BROWSER_FALLBACK)) or type(
+            "Extras",
+            (),
+            {"to_dict": staticmethod(lambda: {})},
+        )(),
+    )
+    monkeypatch.setattr(cli_module, "_print_stock_extras", lambda *args, **kwargs: None)
+
+    result = CliRunner().invoke(cli, ["analyze", "600519", "--rich-source", "--browser-fallback"])
+
+    assert result.exit_code == 0
+    assert source_flags == [("600519", "20260529", True, True)]
+
+
+def test_cli_analyze_rejects_invalid_symbol_before_rendering(monkeypatch):
+    from click.testing import CliRunner
+
+    monkeypatch.setattr(cli_module._core, "nearest_trade_date", lambda: "20260529")
+    monkeypatch.setattr(cli_module._core, "get_single_stock_quote", lambda symbol, date: (_ for _ in ()).throw(ValueError("invalid")))
+    called = []
+    monkeypatch.setattr(cli_module._core, "run_stock_quote", lambda *args, **kwargs: called.append("run"))
+
+    result = CliRunner().invoke(cli, ["analyze", "bad-code"])
+
+    assert result.exit_code != 0
+    assert "bad-code 不是有效的股票代码" in result.output
+    assert called == []
 
 
 def test_cli_stock_shows_short_hint_when_no_enhanced_evidence(monkeypatch):
@@ -161,7 +339,102 @@ def test_cli_stock_shows_short_hint_when_no_enhanced_evidence(monkeypatch):
     assert "已允许浏览器回退" in result.output
 
 
-def test_cli_lhb_prints_structured_evidence(monkeypatch):
+def test_cli_stock_renders_human_readable_enhanced_evidence(monkeypatch):
+    from click.testing import CliRunner
+
+    monkeypatch.setattr(cli_module._core, "nearest_trade_date", lambda: "20260529")
+    monkeypatch.setattr(cli_module._core, "run_stock_quote", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        cli_module,
+        "collect_stock_extras",
+        lambda *args, **kwargs: type(
+            "Extras",
+            (),
+            {
+                "to_dict": staticmethod(
+                    lambda: {
+                        "lhb": {
+                            "requested_date": "20260529",
+                            "rows": [
+                                {"date": "2007-01-01", "name": "A", "reason": "历史异常记录", "buy": 1, "sell": 2, "net_buy": -1},
+                                {"date": "2013-01-01", "name": "B", "reason": "历史异常记录", "buy": 3, "sell": 4, "net_buy": -1},
+                                {"date": "20260529", "name": "贵州茅台", "reason": "日涨幅偏离值达到7%", "buy": 1000, "sell": 300, "net_buy": 700},
+                            ],
+                            "_source": "东方财富龙虎榜",
+                        },
+                        "financial_trends": {
+                            "ratio_trends": [{"period": "2024", "revenue": 100, "net_profit": 20}],
+                            "_source": "akshare 财务摘要 + 三张表",
+                        },
+                        "social_heat": {
+                            "keyword": "600519",
+                            "count": 1,
+                            "rows": [{"platform": "微博", "title": "贵州茅台"}],
+                            "_source": "公开社交热榜 JSON",
+                        },
+                        "events": {
+                            "rows": [{"date": "20260529", "title": "发布年度报告"}],
+                            "_source": "akshare 公告",
+                        },
+                        "technical_fallback": {
+                            "last_close": 1712.34,
+                            "ma20": 1688.1,
+                            "ma60": 1650.8,
+                            "_source": "yfinance",
+                        },
+                    }
+                )
+            },
+        )(),
+    )
+
+    result = CliRunner().invoke(cli, ["stock", "600519", "--rich-source", "--no-news"])
+
+    assert result.exit_code == 0
+    assert "## 增强证据" in result.output
+    assert "### 龙虎榜" in result.output
+    assert "### 五年财务趋势" in result.output
+    assert "### 社交热度" in result.output
+    assert "### 公告与事件" in result.output
+    assert "### 技术指标补充" in result.output
+    assert "#### 财务指标趋势" in result.output
+    assert "| 报告期 | 营业收入 | 净利润 |" in result.output
+    assert "- 关键词: 600519" in result.output
+    assert "- 记录数: 1" in result.output
+    assert "- 最新收盘价: 1712.34" in result.output
+    assert "2007-01-01" not in result.output
+    assert "2013-01-01" not in result.output
+    assert "{\n" not in result.output
+    assert '"rows"' not in result.output
+    assert "_source" not in result.output
+    assert "_unavailable" not in result.output
+    for internal_key in (
+        "requested_date",
+        "ratio_trends",
+        "period",
+        "revenue",
+        "net_profit",
+        "keyword",
+        "count",
+        "platform",
+        "title",
+        "date",
+        "last_close",
+        "ma20",
+        "ma60",
+    ):
+        assert internal_key not in result.output
+
+
+def test_render_nested_mapping_keeps_first_nested_item():
+    lines = cli_module._render_nested_mapping("财务报表", {"资产负债表": {"流动资产": 1, "非流动资产": 2}})
+
+    assert "#### 资产负债表" in lines
+    assert "- 流动资产: 1" in lines
+    assert "- 非流动资产: 2" in lines
+
+
+def test_cli_lhb_prints_natural_empty_hint(monkeypatch):
     from click.testing import CliRunner
 
     monkeypatch.setattr(cli_module._core, "nearest_trade_date", lambda: "20260618")
@@ -170,14 +443,23 @@ def test_cli_lhb_prints_structured_evidence(monkeypatch):
         "fetch_lhb",
         lambda core, symbol, date, limit: {
             "symbol": symbol,
-            "rows": [{"date": date, "net_buy": 123}],
+            "requested_date": date,
+            "rows": [
+                {"date": "2007-01-01", "name": "A", "reason": "历史异常记录", "buy": 1, "sell": 2, "net_buy": -1},
+                {"date": "2013-01-01", "name": "B", "reason": "历史异常记录", "buy": 3, "sell": 4, "net_buy": -1},
+            ],
+            "_source": "东方财富龙虎榜",
         },
     )
 
     result = CliRunner().invoke(cli, ["lhb", "600519"])
 
     assert result.exit_code == 0
-    assert '"net_buy": 123' in result.output
+    assert "暂无可展示的龙虎榜证据" in result.output or "未找到可展示的龙虎榜记录" in result.output
+    assert "{\n" not in result.output
+    assert '"rows"' not in result.output
+    assert "_source" not in result.output
+    assert "_unavailable" not in result.output
 
 
 def test_cli_fund_runs_fund_report(monkeypatch):
@@ -575,6 +857,17 @@ def test_cli_profile_add_stock_and_fund_then_daily_uses_memory(monkeypatch, tmp_
             "stocks": ["600519"],
             "funds": ["161725"],
             "groups": {},
+            "classifications": {
+                "stocks": {
+                    "600519": {
+                        "market": "A股",
+                        "asset_type": "股票",
+                        "category": "待观察",
+                        "style": "待观察",
+                        "evidence": ["market=cn_market", "symbol=600519"],
+                    }
+                }
+            },
             "positions": {
                 "stocks": {"600519": {"buy_date": "2026-01-15", "quantity": 100.0}},
                 "funds": {"161725": {"buy_date": "2026-02-01", "quantity": 1000.0}},
@@ -586,7 +879,22 @@ def test_cli_profile_add_stock_and_fund_then_daily_uses_memory(monkeypatch, tmp_
     )]
 
 
-def test_cli_profile_remove_clear_and_groups(monkeypatch, tmp_path):
+def test_cli_profile_group_commands_are_removed(monkeypatch, tmp_path):
+    from click.testing import CliRunner
+
+    monkeypatch.setenv("YOUNG_STOCK_PROFILE", str(tmp_path / "profile.json"))
+    runner = CliRunner()
+
+    help_result = runner.invoke(cli, ["profile", "--help"])
+    removed_result = runner.invoke(cli, ["profile", "group", "create", "成长型"])
+
+    assert help_result.exit_code == 0
+    assert "group" not in help_result.output
+    assert removed_result.exit_code != 0
+    assert "No such command 'group'" in removed_result.output
+
+
+def test_cli_profile_remove_and_clear_clean_classifications(monkeypatch, tmp_path):
     from click.testing import CliRunner
 
     monkeypatch.setenv("YOUNG_STOCK_PROFILE", str(tmp_path / "profile.json"))
@@ -595,25 +903,25 @@ def test_cli_profile_remove_clear_and_groups(monkeypatch, tmp_path):
 
     assert runner.invoke(cli, ["profile", "add-stock", "600519", "--buy-date", "2026-01-15", "--quantity", "100"]).exit_code == 0
     assert runner.invoke(cli, ["profile", "add-fund", "161725", "--buy-date", "2026-02-01", "--quantity", "1000"]).exit_code == 0
-    assert runner.invoke(cli, ["profile", "group", "create", "成长型"]).exit_code == 0
-    assert runner.invoke(cli, ["profile", "group", "add", "成长型", "600519"]).exit_code == 0
 
     listed = runner.invoke(cli, ["profile", "list"])
     assert listed.exit_code == 0
     assert "600519" in listed.output
-    assert "成长型" in listed.output
+    assert "自动分类" in listed.output
+    assert "classifications" not in listed.output
+    assert "groups" not in listed.output
 
     assert runner.invoke(cli, ["profile", "remove-stock", "600519"]).exit_code == 0
     after_remove = runner.invoke(cli, ["profile", "list"])
     assert "Stocks: -" in after_remove.output
+    assert "600519" not in cli_module.load_profile()["classifications"]["stocks"]
 
     assert runner.invoke(cli, ["profile", "add-stock", "000001", "--buy-date", "2026-01-20", "--quantity", "200"]).exit_code == 0
-    assert runner.invoke(cli, ["profile", "group", "add", "成长型", "000001"]).exit_code == 0
     assert runner.invoke(cli, ["profile", "clear-stocks"]).exit_code == 0
     after_clear_stocks = runner.invoke(cli, ["profile", "list"])
     assert "Stocks: -" in after_clear_stocks.output
     assert "Funds: 161725" in after_clear_stocks.output
-    assert "stocks=-" in after_clear_stocks.output
+    assert cli_module.load_profile()["classifications"]["stocks"] == {}
 
     assert runner.invoke(cli, ["profile", "clear-funds"]).exit_code == 0
     after_clear_funds = runner.invoke(cli, ["profile", "list"])
@@ -623,6 +931,30 @@ def test_cli_profile_remove_clear_and_groups(monkeypatch, tmp_path):
     assert runner.invoke(cli, ["profile", "clear"]).exit_code == 0
     after_clear = runner.invoke(cli, ["profile", "list"])
     assert "Funds: -" in after_clear.output
+
+
+def test_cli_profile_remove_stock_also_cleans_legacy_groups(monkeypatch, tmp_path):
+    from click.testing import CliRunner
+
+    monkeypatch.setenv("YOUNG_STOCK_PROFILE", str(tmp_path / "profile.json"))
+    cli_module.profile_path().write_text(
+        json.dumps(
+            {
+                "stocks": ["600519"],
+                "funds": [],
+                "groups": {"旧分组": {"stocks": ["600519", "000001"], "funds": []}},
+                "classifications": {"stocks": {"600519": {"market": "A股", "asset_type": "股票", "style": "消费", "evidence": ["name=贵州茅台"]}}},
+                "positions": {"stocks": {"600519": {"buy_date": "2026-01-15", "quantity": 100}}, "funds": {}},
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(cli, ["profile", "remove-stock", "600519"])
+
+    assert result.exit_code == 0
+    assert cli_module.load_profile()["groups"] == {"旧分组": {"stocks": ["000001"], "funds": []}}
 
 
 def test_cli_profile_add_requires_position_details(monkeypatch, tmp_path):
@@ -668,7 +1000,98 @@ def test_cli_profile_add_validates_stock_before_writing(monkeypatch, tmp_path):
     valid = runner.invoke(cli, ["profile", "add-stock", "600519", "--buy-date", "2026-01-15", "--quantity", "100"])
     assert valid.exit_code == 0
     assert "您的投资记忆已添加：贵州茅台（600519）" in valid.output
+    assert "自动分类" in valid.output
     assert cli_module.load_profile()["stocks"] == ["600519"]
+    assert cli_module.load_profile()["classifications"]["stocks"]["600519"] == {
+        "market": "A股",
+        "asset_type": "股票",
+        "category": "消费",
+        "style": "消费",
+        "evidence": ["market=cn_market", "name=贵州茅台", "keyword=茅台"],
+    }
+
+
+def test_cli_profile_add_stock_uses_evidence_based_category_tags(monkeypatch, tmp_path):
+    from click.testing import CliRunner
+
+    monkeypatch.setenv("YOUNG_STOCK_PROFILE", str(tmp_path / "profile.json"))
+    monkeypatch.setattr(cli_module._core, "nearest_trade_date", lambda: "20260529")
+    quotes = {
+        "0700.HK": cli_module._core.QuoteData(
+            symbol="0700.HK",
+            name="腾讯控股 ETF",
+            market="hk_market",
+            date="20260529",
+            price=500.0,
+            change_pct=1.2,
+            source="test",
+        ),
+        "300750": cli_module._core.QuoteData(
+            symbol="300750",
+            name="宁德时代",
+            market="cn_market",
+            date="20260529",
+            price=220.0,
+            change_pct=1.2,
+            source="test",
+        ),
+    }
+    monkeypatch.setattr(cli_module._core, "get_single_stock_quote", lambda symbol, date: quotes[symbol])
+
+    etf = CliRunner().invoke(cli, ["profile", "add-stock", "0700.HK", "--buy-date", "2026-01-15", "--quantity", "200"])
+    growth = CliRunner().invoke(cli, ["profile", "add-stock", "300750", "--buy-date", "2026-01-15", "--quantity", "50"])
+
+    assert etf.exit_code == 0
+    assert "主题ETF" in etf.output
+    assert cli_module.load_profile()["classifications"]["stocks"]["0700.HK"] == {
+        "market": "港股",
+        "asset_type": "ETF",
+        "category": "主题ETF",
+        "style": "主题ETF",
+        "evidence": ["market=hk_market", "name=腾讯控股 ETF", "symbol=0700.HK", "asset_type=ETF"],
+    }
+
+    assert growth.exit_code == 0
+    assert "创业板" in growth.output
+    assert cli_module.load_profile()["classifications"]["stocks"]["300750"] == {
+        "market": "A股",
+        "asset_type": "股票",
+        "category": "创业板",
+        "style": "创业板",
+        "evidence": ["market=cn_market", "symbol=300750", "board=创业板"],
+    }
+
+
+def test_cli_profile_add_stock_does_not_call_research_bridge(monkeypatch, tmp_path):
+    from click.testing import CliRunner
+
+    monkeypatch.setenv("YOUNG_STOCK_PROFILE", str(tmp_path / "profile.json"))
+    monkeypatch.setenv(cli_module.RESEARCH_COMMAND_ENV, "dummy-bridge")
+    monkeypatch.setattr(cli_module._core, "nearest_trade_date", lambda: "20260529")
+    monkeypatch.setattr(
+        cli_module._core,
+        "get_single_stock_quote",
+        lambda symbol, date: cli_module._core.QuoteData(
+            symbol="688111",
+            name="金山办公",
+            market="cn_market",
+            date=date,
+            price=300.0,
+            change_pct=1.0,
+            source="test",
+        ),
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "run_research_bridge",
+        lambda query: (_ for _ in ()).throw(AssertionError("profile add-stock 不应触发 research bridge")),
+    )
+
+    result = CliRunner().invoke(cli, ["profile", "add-stock", "688111", "--buy-date", "2026-01-15", "--quantity", "20"])
+
+    assert result.exit_code == 0
+    assert "深度分析可补充" in result.output
+    assert cli_module.load_profile()["classifications"]["stocks"]["688111"]["category"] == "科创板"
 
 
 def test_cli_profile_add_validates_fund_before_writing(monkeypatch, tmp_path):
@@ -794,6 +1217,67 @@ def test_cli_config_models_saves_and_masks_secret(monkeypatch, tmp_path):
     assert "very-secret" not in saved.output
     assert "very-secret" not in shown.output
     assert "deepseek-chat" in shown.output
+
+
+def test_cli_config_show_is_human_readable_and_masks_secrets(monkeypatch, tmp_path):
+    from click.testing import CliRunner
+
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
+    runner = CliRunner()
+    assert runner.invoke(
+        cli,
+        [
+            "config",
+            "models",
+            "--provider",
+            "deepseek",
+            "--model",
+            "deepseek-chat",
+            "--api-key",
+            "very-secret",
+            "--api-base",
+            "https://api.deepseek.com",
+        ],
+    ).exit_code == 0
+
+    shown = runner.invoke(cli, ["config", "show"])
+
+    assert shown.exit_code == 0
+    assert "{" not in shown.output
+    assert "}" not in shown.output
+    assert "provider: deepseek" in shown.output
+    assert "model: deepseek-chat" in shown.output
+    assert "api_key" not in shown.output
+    assert "very-secret" not in shown.output
+
+
+def test_cli_config_channel_list_is_human_readable_and_masks_secrets(monkeypatch, tmp_path):
+    from click.testing import CliRunner
+
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
+    runner = CliRunner()
+    assert runner.invoke(
+        cli,
+        [
+            "config",
+            "channel",
+            "add",
+            "feishu",
+            "work",
+            "--webhook",
+            "https://example.test/hook/secret-token",
+        ],
+    ).exit_code == 0
+
+    listed = runner.invoke(cli, ["config", "channel", "list"])
+
+    assert listed.exit_code == 0
+    assert "{" not in listed.output
+    assert "}" not in listed.output
+    assert "work" in listed.output
+    assert "feishu" in listed.output
+    assert "secret-token" not in listed.output
+    assert "webhook" in listed.output
 
 
 def test_cli_config_models_persists_all_core_fields(monkeypatch, tmp_path):
@@ -997,6 +1481,28 @@ def test_cli_config_models_lists_endpoint_model_ids_only_with_list(monkeypatch, 
     assert result.output.strip().splitlines() == ["model-a", "model-b"]
 
 
+def test_cli_config_models_list_surfaces_clean_llm_error(monkeypatch, tmp_path):
+    from click.testing import CliRunner
+
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
+    cli_module.update_llm_config(provider="ark", model="seed", api_key="secret")
+
+    class DummyClient:
+        def __init__(self, config):
+            self.config = config
+
+        def list_models(self):
+            raise cli_module.LLMError("模型列表返回了非 JSON 响应，无法解析。")
+
+    monkeypatch.setattr(cli_module, "LLMClient", DummyClient)
+
+    result = CliRunner().invoke(cli, ["config", "models", "--list"])
+
+    assert result.exit_code != 0
+    assert "模型列表返回了非 JSON 响应，无法解析。" in result.output
+    assert "secret" not in result.output
+
+
 def test_cli_config_models_requires_model_or_list():
     from click.testing import CliRunner
 
@@ -1004,6 +1510,58 @@ def test_cli_config_models_requires_model_or_list():
 
     assert result.exit_code != 0
     assert "请提供 --model" in result.output
+
+
+def test_cli_config_models_accepts_repeatable_fallback_model(monkeypatch, tmp_path):
+    from click.testing import CliRunner
+
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
+    runner = CliRunner()
+
+    result = runner.invoke(
+        cli,
+        [
+            "config",
+            "models",
+            "--provider",
+            "deepseek",
+            "--model",
+            "primary-model",
+            "--fallback-model",
+            "fallback-a",
+            "--fallback-model",
+            "primary-model",
+            "--fallback-model",
+            "fallback-a",
+            "--fallback-model",
+            "fallback-b",
+        ],
+    )
+
+    assert result.exit_code == 0
+    config = json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))
+    assert config["llm"]["fallback_models"] == ["fallback-a", "fallback-b"]
+
+
+def test_cli_config_show_keeps_fallback_model_list(monkeypatch, tmp_path):
+    from click.testing import CliRunner
+
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
+    cli_module.save_config(
+        {
+            "llm": {
+                "provider": "deepseek",
+                "model": "primary-model",
+                "fallback_models": ["fallback-a", "fallback-b"],
+                "api_key": "secret-value",
+            }
+        }
+    )
+
+    result = CliRunner().invoke(cli, ["config", "show"])
+
+    assert result.exit_code == 0
+    assert "fallback models: fallback-a, fallback-b" in result.output
 
 
 def test_cli_config_channel_add_persists_app_delivery_fields(monkeypatch, tmp_path):
@@ -1093,7 +1651,7 @@ def test_cli_analyze_accepts_every_lens_and_configurable_debate(monkeypatch):
 
     result = CliRunner().invoke(
         cli,
-        ["analyze", "600519", "--lens", "feng_liu", "--debate-rounds", "2"],
+        ["analyze", "600519", "--llm", "--lens", "feng_liu"],
     )
 
     assert result.exit_code == 0
@@ -1101,7 +1659,6 @@ def test_cli_analyze_accepts_every_lens_and_configurable_debate(monkeypatch):
         "kind": "analyze",
         "symbol": "600519",
         "lens": "feng_liu",
-        "debate_rounds": 2,
     }
 
 

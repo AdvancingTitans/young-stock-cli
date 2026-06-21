@@ -18,6 +18,8 @@
 - 默认走 HTTP-only 公共数据路径。
 - 浏览器兜底只在显式开关下启用。
 - `young daily` 的默认模式不需要 LLM。
+- young analyze <symbol> 默认确定性数据源；young analyze <symbol> --llm 才深度复盘；只有显式 `--lens` 才会进入 lens。
+- young daily 默认确定性数据源；young daily --llm 才深度复盘；只有显式 `--lens` 才会进入 lens。
 - 缺失的数据保持缺失，不把空值硬写成零。
 
 Requires Python 3.9+.
@@ -51,6 +53,7 @@ young init
 - `young report` 只负责把最新已保存 Markdown 导出成 PDF，不会主动再跑一遍 LLM。
 - `young send` 只发送最新 Markdown 和摘要；同名 PDF 存在时才会附带。
 - `young config show` 会遮蔽密钥。
+- `young profile add-stock` 会基于 quote 自动生成可解释标签（market / asset_type / category / evidence），不是主观评分。
 - 需要浏览器时必须显式传 `--browser-fallback`。
 - 需要更慢、更宽的补充源时必须显式传 `--rich-source`。
 
@@ -60,8 +63,8 @@ young init
 | --- | --- | --- |
 | Market snapshots | `young a`, `young hk`, `young us`, `young global`, `young indices`, `young zt-pool`, `young flow` | `--refresh` bypasses cache; `--browser-fallback` is explicit. |
 | Single-symbol evidence | `young stock <symbol>`, `young lhb <symbol>`, `young fund <code>`, `young news 3690.HK` | `young stock` can show quote/news plus financial, social, event, and technical fallback evidence. |
-| Watchlist reports | `young daily --format summary`, `young daily --format key-points`, `young daily --format full`, `young daily --llm` | Plain `daily` is deterministic; `--llm` is the only deep replay entry. |
-| Deep analysis | `young analyze <symbol>` | Shares the same lens system and M1-M7 framework as `daily --llm`. |
+| Watchlist reports | `young daily --format summary`, `young daily --format key-points`, `young daily --format full`, `young daily --llm`, `young daily --llm --lens ...` | Plain `daily` is deterministic; `--llm` is the only deep replay entry, and `--lens` only applies when you explicitly ask for it. |
+| Deep analysis | `young analyze <symbol>`, `young analyze <symbol> --llm`, `young analyze <symbol> --llm --lens ...` | Plain `analyze` is deterministic; `--llm` is the deep replay entry, and `--lens` only applies when explicitly provided. |
 | Export & delivery | `young report`, `young send` | `report` exports PDF only; `send` uses configured channels. |
 | Local state | `young profile ...`, `young portfolio ...`, `young memory ...`, `young style ...` | Profiles drive reports; portfolio is a lightweight local sandbox; memory is chat memory. |
 | Config & support | `young config ...`, `young diagnose`, `young init`, `young guide`, `young example`, `young cache-clear`, `young update`, `young uninstall`, `young chat` | `young update/uninstall` mirror the installation path you chose. |
@@ -157,6 +160,13 @@ Method cards are structural lenses, not scores. They exist to help `daily --llm`
 
 `profile` 负责给 `daily` 提供你的真实关注列表。
 
+对 stock 来说，保存时会自动写入最小自动分类：
+
+- `market`：如 A股 / 港股 / 美股
+- `asset_type`：如 股票 / ETF / 指数
+- `category`：只写证据标签，例如 消费 / 金融 / 科技 / 周期 / 医药 / 公用事业 / 创业板 / 科创板 / 北交所 / 主题ETF / 指数ETF；证据不足才给 `待观察`
+- `evidence`：仅保留当前 quote 可解释证据；若检测到可选 research bridge，只提示“深度分析可补充”，不会在 add-stock 阶段主动搜索
+
 ```bash
 young profile add-stock 600519 --buy-date 2026-01-15 --quantity 100
 young profile add-fund 161725 --buy-date 2026-01-10 --quantity 1000
@@ -166,8 +176,6 @@ young profile remove-fund 161725
 young profile clear
 young profile clear-stocks
 young profile clear-funds
-young profile group create 稳健型
-young profile group add 稳健型 600519
 ```
 
 ### Portfolio
@@ -211,10 +219,13 @@ young config show
 young config path
 ```
 
+同一个 endpoint 需要回退模型时，可以用 `young config models ... --fallback-model X --fallback-model Y` 这样配置。只在限流、额度、瞬时服务错误或明确模型不可用时切换；认证、generic404、api_base 错误不切换。Ark 先用 `--list` 核对 model ID，即 `young config models --provider ark --list`，再填 `--model` 和 `--fallback-model`。
+
 Migration notes:
 
 - `young init` 会补齐本地默认配置结构。
 - `young config show` 会遮蔽密钥。
+- `young config show` 和 `young config channel list` 默认输出 human-readable bullets，而不是直接 JSON。
 - `chat.style` 和 `chat.analysis_framework` 会同步成同一个值。
 - 旧配置里如果已经有 `api-key-env`，运行时会尽量把已解析的密钥回填到本地配置，减少重复输入。
 
@@ -230,10 +241,10 @@ Migration notes:
 | --- | --- |
 | `young a` | `/a` |
 | `young stock <symbol>` | `/stock <symbol>` |
-| `young analyze <symbol>` | `/analyze <symbol>` |
+| `young analyze <symbol>` | `/analyze <symbol> [--llm] [--lens ...]` |
 | `young fund <code>` | `/fund <code>` |
 | `young news 3690.HK` | `/news <query>` |
-| `young daily --llm` | `/daily --llm` |
+| `young daily --llm` | `/daily [--llm] [--lens ...]` |
 | `young report` | `/report` |
 | `young send` | `/send` |
 | `young profile list` | `/profile list` |
@@ -294,7 +305,7 @@ young uninstall
 A: No. Plain `young daily` is deterministic.
 
 **Q: When should I use `--llm`?**
-A: When you want the deep M1–M7 replay or a single-stock deep analysis.
+A: When you want the deep M1–M7 replay or a single-stock deep analysis. Plain `young daily` and `young analyze <symbol>` stay deterministic unless you explicitly add `--llm`.
 
 **Q: Can it use a browser automatically?**
 A: No. Browser fallback stays explicit.

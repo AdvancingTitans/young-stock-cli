@@ -203,20 +203,21 @@ def generate_llm_daily_report(
     llm_client: Any,
     history: list[dict[str, str]] | None = None,
     methodology: str | None = None,
-    lens: str = "balanced",
+    lens: str | None = None,
     debate_rounds: int = 3,
     daily: bool = True,
 ) -> tuple[str, dict[str, Any]]:
     base_messages = [{"role": "system", "content": LLM_REPORT_SYSTEM_PROMPT}]
     base_messages.append({"role": "system", "content": LLM_REPORT_STRUCTURE_PROMPT})
-    lens_prompt = (
-        DebateEngine("all", rounds=debate_rounds, daily=daily).prompt()
-        if lens == "all"
-        else build_institutional_prompt(lens, rounds=debate_rounds, daily=daily)
-    )
-    if lens not in {"all", "balanced"}:
-        lens_prompt += "\n" + build_lens_prompt(lens)
-    base_messages.append({"role": "system", "content": lens_prompt})
+    if lens:
+        lens_prompt = (
+            DebateEngine("all", rounds=debate_rounds, daily=daily).prompt()
+            if lens == "all"
+            else build_institutional_prompt(lens, rounds=debate_rounds, daily=daily)
+        )
+        if lens not in {"all", "balanced"}:
+            lens_prompt += "\n" + build_lens_prompt(lens)
+        base_messages.append({"role": "system", "content": lens_prompt})
     messages = list(base_messages)
     if methodology:
         research_methodology = to_research_methodology(methodology)

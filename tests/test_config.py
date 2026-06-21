@@ -85,6 +85,37 @@ def test_update_llm_config_preserves_existing_values_when_model_only_changes(mon
     assert config["llm"]["max_tokens"] == 8192
 
 
+def test_update_llm_config_normalizes_and_persists_fallback_models(monkeypatch, tmp_path):
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
+
+    config = update_llm_config(
+        provider="deepseek",
+        model="primary-model",
+        fallback_models=["fallback-a", " ", "primary-model", "fallback-a", "fallback-b"],
+    )
+
+    assert config["llm"]["fallback_models"] == ["fallback-a", "fallback-b"]
+    assert load_config()["llm"]["fallback_models"] == ["fallback-a", "fallback-b"]
+
+
+def test_update_llm_config_preserves_existing_fallback_models_when_model_only_changes(monkeypatch, tmp_path):
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
+    save_config(
+        {
+            "llm": {
+                "provider": "deepseek",
+                "model": "old-model",
+                "fallback_models": ["fallback-a", "fallback-b"],
+            }
+        }
+    )
+
+    config = update_llm_config(model="new-model")
+
+    assert config["llm"]["model"] == "new-model"
+    assert config["llm"]["fallback_models"] == ["fallback-a", "fallback-b"]
+
+
 def test_migrate_legacy_llm_api_key_fallback_persists_normalized_key(monkeypatch, tmp_path):
     monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
     monkeypatch.setenv("MODEL_KEY", '  "env-secret"  ')
@@ -124,6 +155,13 @@ def test_config_masks_secrets_and_webhook_tokens():
     assert masked["llm"]["api_key"] != "abcdefghi"
     assert "token-value" not in masked["channels"]["feishu"]["work"]["webhook"]
     assert masked["channels"]["feishu"]["work"]["app_secret"] != "app-secret"
+
+
+def test_mask_config_keeps_list_structure_for_fallback_models():
+    masked = mask_config({"llm": {"fallback_models": ["model-a", "model-b"], "api_key": "abcdefghi"}})
+
+    assert masked["llm"]["fallback_models"] == ["model-a", "model-b"]
+    assert masked["llm"]["api_key"] != "abcdefghi"
 
 
 def test_invalid_config_is_reported(monkeypatch, tmp_path):

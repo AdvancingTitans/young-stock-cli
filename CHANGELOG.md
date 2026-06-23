@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.3.2] - 2026-06-24
+
+### Changed
+
+- Documented that `young config models` must include `--model` when saving configuration.
+- Consolidated model-list verification guidance around configured API keys and the OpenAI-compatible `/models` curl check.
+
+### Fixed
+
+- Reject Kimi Coding Plan endpoints for non-coding research workflows with a clear local error.
+- Normalize Kimi Coding Plan vanity endpoints and model IDs before validation.
+- Make LLM report repair prompts require the supported attitude labels.
+- Allow grounded full dates such as `2026-05-29` when evidence contains the matching atomic date.
+
 ## [0.3.1] - 2026-06-21
 
 ### Added

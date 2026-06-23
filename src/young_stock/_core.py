@@ -2309,7 +2309,7 @@ def futu_news_search(keyword: str, size: int = 10, lang: str = "en", news_type: 
     })
     url = f"{FUTU_NEWS_URL}?{params}"
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "young-stock-cli/0.3.1"})
+        req = urllib.request.Request(url, headers={"User-Agent": "young-stock-cli/0.3.2"})
         with urllib.request.urlopen(req, timeout=10) as resp:
             return json.loads(resp.read().decode())
     except Exception as e:
@@ -2322,7 +2322,7 @@ def futu_stock_feed(keyword: str, size: int = 30) -> dict[str, Any]:
     params = urllib.parse.urlencode({"keyword": keyword, "size": size})
     url = f"{FUTU_FEED_URL}?{params}"
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "young-stock-cli/0.3.1"})
+        req = urllib.request.Request(url, headers={"User-Agent": "young-stock-cli/0.3.2"})
         with urllib.request.urlopen(req, timeout=10) as resp:
             return json.loads(resp.read().decode())
     except Exception as e:

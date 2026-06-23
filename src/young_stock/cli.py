@@ -20,9 +20,12 @@ from .calendar import latest_report_trade_date
 from .config import (
     add_feishu_channel,
     config_path,
+    is_kimi_coding_api_base,
+    kimi_coding_plan_unsupported_message,
     load_config,
     mask_config,
     migrate_legacy_llm_api_key_fallback,
+    normalize_api_base,
     remove_feishu_channel,
     save_config,
     update_llm_config,
@@ -1121,7 +1124,7 @@ def config_show() -> None:
 @click.option("--model", default=None, help="Persist the model ID; when supplied, this command updates config.")
 @click.option("--api-key", default=None, hide_input=True)
 @click.option("--api-key-env", default=None, help="Environment variable containing the API key.")
-@click.option("--api-base", default=None, help="Provider API base, for example https://api.moonshot.cn/v1.")
+@click.option("--api-base", default=None, help="Provider API base, for example https://api.moonshot.ai/v1.")
 @click.option(
     "--fallback-model",
     "fallback_models",
@@ -1157,7 +1160,13 @@ def config_models(
     if model:
         if not resolved_provider:
             raise click.ClickException("请提供 --provider，或先保存 provider 后再只更新 --model。")
-        update_llm_config(
+        candidate_api_base = normalize_api_base(
+            resolved_provider,
+            api_base if explicit_api_base else saved.get("api_base", ""),
+        )
+        if is_kimi_coding_api_base(candidate_api_base):
+            raise click.ClickException(kimi_coding_plan_unsupported_message())
+        updated = update_llm_config(
             provider=resolved_provider,
             model=model,
             api_key=api_key if explicit_api_key else None,
@@ -1167,7 +1176,8 @@ def config_models(
             timeout=timeout if explicit_timeout else None,
             max_tokens=max_tokens if explicit_max_tokens else None,
         )
-        click.echo(f"LLM configured: provider={resolved_provider}; model={model}; config={config_path()}")
+        llm = updated.get("llm") or {}
+        click.echo(f"LLM configured: provider={llm.get('provider')}; model={llm.get('model')}; config={config_path()}")
         return
 
     if not list_models:

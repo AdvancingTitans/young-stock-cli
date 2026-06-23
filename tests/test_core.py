@@ -243,6 +243,7 @@ def test_fetch_eastmoney_board_list_parses_industry_rows(monkeypatch):
 
 def test_get_board_list_uses_browser_when_lightweight_source_is_empty(monkeypatch):
     monkeypatch.setattr(_core, "BROWSER_FALLBACK", True)
+    monkeypatch.setattr(_core, "nearest_trade_date", lambda: "20260618")
     monkeypatch.setattr(
         _core,
         "fetch_eastmoney_board_list",

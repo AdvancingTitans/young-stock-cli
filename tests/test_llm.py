@@ -79,6 +79,28 @@ def test_openai_compatible_provider_maps_messages(monkeypatch):
     assert result.usage["total_tokens"] == 42
 
 
+def test_kimi_coding_plan_endpoint_is_rejected_for_non_coding_workflows():
+    session = FakeSession([response(200, {"choices": [{"message": {"content": "ok"}}]})])
+    client = LLMClient(
+        {
+            "provider": "openai",
+            "model": "kimi-k2.7-code",
+            "api_key": "secret",
+            "api_base": "https://api.kimi.com/coding/",
+        },
+        session=session,
+    )
+
+    with pytest.raises(LLMError) as exc:
+        client.chat([{"role": "user", "content": "hi"}])
+
+    text = str(exc.value)
+    assert "Kimi Coding Plan" in text
+    assert "young daily" in text
+    assert "Kimi Code CLI" in text
+    assert session.calls == []
+
+
 def test_anthropic_provider_maps_response():
     session = FakeSession(
         [response(200, {"content": [{"type": "text", "text": "谨慎看多"}], "usage": {"input_tokens": 3}})]

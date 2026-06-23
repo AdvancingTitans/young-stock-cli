@@ -11,6 +11,7 @@ from .debate import ATTITUDES
 CLAIM_NUMBER_RE = re.compile(r"(?<![A-Za-z0-9])[+-]?\d+(?:\.\d+)?%?(?![A-Za-z0-9])")
 EVIDENCE_NUMBER_RE = re.compile(r"[+-]?\d+(?:\.\d+)?%?")
 DATE_TOKEN_RE = re.compile(r"^\d{8}$")
+HYPHENATED_DATE_RE = re.compile(r"(?<!\d)(\d{4})-(\d{1,2})-(\d{1,2})(?!\d)")
 
 
 def _normalize_number_token(token: str) -> str:
@@ -43,6 +44,13 @@ def _allowed_numeric_signatures(evidence_text: str) -> set[tuple[str, bool]]:
 def review_investment_output(markdown: str, evidence: dict[str, Any]) -> dict[str, bool]:
     text = str(markdown or "")
     evidence_text = json.dumps(evidence, ensure_ascii=False, default=str)
+    allowed_numeric_signatures = _allowed_numeric_signatures(evidence_text)
+    grounded_date_spans = [
+        match.span()
+        for match in HYPHENATED_DATE_RE.finditer(text)
+        if (f"{match.group(1)}{int(match.group(2)):02d}{int(match.group(3)):02d}", False)
+        in allowed_numeric_signatures
+    ]
     numeric_claims = [
         match.group()
         for match in CLAIM_NUMBER_RE.finditer(text)
@@ -51,8 +59,8 @@ def review_investment_output(markdown: str, evidence: dict[str, Any]) -> dict[st
             and text[match.end() :].startswith((". ", "、"))
             and (match.start() == 0 or text[match.start() - 1] in "\n:：")
         )
+        and not any(start <= match.start() and match.end() <= end for start, end in grounded_date_spans)
     ]
-    allowed_numeric_signatures = _allowed_numeric_signatures(evidence_text)
     structured_candidate = any(token in text for token in ("行动建议", "观察清单", "详细结论", "核心理由", "风险"))
     return {
         "attitude_present": any(attitude in text for attitude in ATTITUDES),

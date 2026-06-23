@@ -9,6 +9,7 @@ from young_stock.config import (
     load_config,
     mask_config,
     migrate_legacy_llm_api_key_fallback,
+    normalize_api_base,
     save_config,
     update_llm_config,
 )
@@ -56,6 +57,22 @@ def test_config_normalizes_direct_api_key_before_persisting(monkeypatch, tmp_pat
 
     assert config["llm"]["api_key"] == "secret-value"
     assert load_config()["llm"]["api_key"] == "secret-value"
+
+
+def test_config_normalizes_kimi_coding_vanity_api_base(monkeypatch, tmp_path):
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
+
+    config = update_llm_config(
+        provider="openai",
+        model="kimi-k6",
+        api_key="secret-value",
+        api_base="https://api.kimi.com/coding/",
+    )
+
+    assert normalize_api_base("openai", "https://api.kimi.com/coding/") == "https://api.kimi.com/coding/v1"
+    assert config["llm"]["model"] == "kimi-for-coding"
+    assert config["llm"]["api_base"] == "https://api.kimi.com/coding/v1"
+    assert load_config()["llm"]["api_base"] == "https://api.kimi.com/coding/v1"
 
 
 def test_update_llm_config_preserves_existing_values_when_model_only_changes(monkeypatch, tmp_path):

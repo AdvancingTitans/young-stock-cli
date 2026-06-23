@@ -31,6 +31,40 @@ def normalize_api_key(value: Any) -> str:
     return text
 
 
+def normalize_api_base(provider: Any, value: Any) -> str:
+    text = str(value or "").strip().rstrip("/")
+    if not text:
+        return ""
+    parsed = urlsplit(text)
+    host = parsed.netloc.lower()
+    path = parsed.path.rstrip("/")
+    # ponytail: hard-code only Kimi Coding Plan's documented third-party-agent
+    # endpoint; if Kimi adds more vanity paths, replace this with a provider map.
+    if host == "api.kimi.com" and path == "/coding":
+        return "https://api.kimi.com/coding/v1"
+    return text
+
+
+def is_kimi_coding_api_base(value: Any) -> bool:
+    parsed = urlsplit(str(value or "").strip().rstrip("/"))
+    return parsed.netloc.lower() == "api.kimi.com" and parsed.path.rstrip("/") == "/coding/v1"
+
+
+def normalize_model_id(provider: Any, api_base: Any, value: Any) -> str:
+    model = str(value or "").strip()
+    if is_kimi_coding_api_base(api_base):
+        return "kimi-for-coding"
+    return model
+
+
+def kimi_coding_plan_unsupported_message() -> str:
+    return (
+        "Kimi Coding Plan 仅支持 Kimi Code CLI、Claude Code、Roo Code 等 Coding Agents；"
+        "young daily / young chat / young analyze 属于投研与问答工作流，不能使用该 endpoint。"
+        "请改用 Kimi OpenPlatform 通用 API 或其他 OpenAI-compatible 模型。"
+    )
+
+
 def normalize_fallback_models(value: Any, primary_model: Any = None) -> list[str]:
     primary = str(primary_model or "").strip()
     if value is None:
@@ -125,16 +159,30 @@ def update_llm_config(**values: Any) -> dict[str, Any]:
                 normalized = normalize_api_key(value)
                 if normalized:
                     llm[key] = normalized
+            elif key == "model":
+                normalized = normalize_model_id(
+                    values.get("provider") or llm.get("provider"),
+                    values.get("api_base") or llm.get("api_base"),
+                    value,
+                )
+                if normalized:
+                    llm[key] = normalized
             elif key == "fallback_models":
                 llm[key] = normalize_fallback_models(value, values.get("model") or llm.get("model"))
             elif key == "api_key_env":
                 env_value = str(value).strip()
                 if env_value:
                     llm[key] = env_value
+            elif key == "api_base":
+                normalized = normalize_api_base(values.get("provider") or llm.get("provider"), value)
+                if normalized:
+                    llm[key] = normalized
             else:
                 llm[key] = value
     if explicit_fallback_models and not llm.get("fallback_models"):
         llm.pop("fallback_models", None)
+    if is_kimi_coding_api_base(llm.get("api_base")) and llm.get("model"):
+        llm["model"] = "kimi-for-coding"
     return save_config(config)
 
 

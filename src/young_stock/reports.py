@@ -257,7 +257,12 @@ def generate_llm_daily_report(
             {"role": "system", "content": REPAIR_PROMPT},
             messages[-1],
             {"role": "assistant", "content": response.content},
-            {"role": "user", "content": f"请修复以下失败检查后重新输出完整 Markdown：{json.dumps(checks, ensure_ascii=False)}"},
+            {
+                "role": "user",
+                "content": "请修复以下失败检查后重新输出完整 Markdown。"
+                "态度只能是：偏看多 / 中性 / 偏看空 / 回避。"
+                f"失败检查：{json.dumps(checks, ensure_ascii=False)}",
+            },
         ]
         repair_response = llm_client.chat(repair_messages)
         markdown = review_research_report(repair_response.content, evidence)

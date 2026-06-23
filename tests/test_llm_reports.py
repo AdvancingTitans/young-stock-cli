@@ -218,6 +218,21 @@ def test_llm_report_raises_llm_error_after_failed_repair_and_does_not_save_inval
         generate_llm_daily_report({"modules": {}, "_meta": {}}, client)
 
 
+def test_llm_report_repair_prompt_requires_allowed_attitude_words():
+    client = SequencedClient(
+        [
+            "# 复盘\n\n判断：谨慎乐观\n详细结论：据公开数据，市场震荡。\n证据：证据暂缺。\n风险：波动。\n行动建议：持有观察。\n观察清单：跟踪量能。",
+            "# 复盘\n\n总体态度：中性\n详细结论：据公开数据，市场震荡。\n证据：证据暂缺。\n风险：波动。\n行动建议：持有观察。\n观察清单：跟踪量能。",
+        ]
+    )
+
+    _, metadata = generate_llm_daily_report({"modules": {}, "_meta": {}}, client)
+
+    repair_user_prompt = client.calls[1][-1]["content"]
+    assert "态度只能是：偏看多 / 中性 / 偏看空 / 回避" in repair_user_prompt
+    assert metadata["mechanical_checks"]["attitude_present"] is True
+
+
 def test_llm_report_accepts_grounded_symbol_digits_without_repair():
     client = SequencedClient(
         [

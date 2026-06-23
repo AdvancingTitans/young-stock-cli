@@ -209,15 +209,27 @@ young portfolio compare 600519 000858
 
 支持的 provider 包括 `openai`、`ark`、`kimi`、`moonshot`、`deepseek`、`qwen`、`ollama`、`anthropic`。
 
+保存或更新模型配置时必须指定 `--model`；不带 `--model` 时只允许用 `--list` 查询模型 ID，不会写入配置。
+
 ```bash
 export OPENAI_API_KEY="..."
 young config models --provider openai --model gpt-4.1 --api-key-env OPENAI_API_KEY
 
-young config models --provider ollama --api-base http://localhost:11434/v1
+young config models --provider ollama --model llama3.1 --api-base http://localhost:11434/v1
 young config models --list
 young config show
 young config path
 ```
+
+查询模型列表前需要先配置好可用 API key，或在本次命令里传入 `--api-key-env` / `--api-key`。也可以直接用通用 OpenAI-compatible curl 核对 endpoint：
+
+```bash
+curl -sS "$API_BASE/models" \
+  -H "Authorization: Bearer $MODEL_API_KEY" |
+python3 -c 'import json,sys; print("\n".join(x["id"] for x in json.load(sys.stdin).get("data", [])))'
+```
+
+Kimi Coding Plan (`https://api.kimi.com/coding/v1`, `kimi-for-coding`) 仅支持 Kimi Code CLI、Claude Code、Roo Code 等 Coding Agents，不适用于 `young daily --llm`、`young chat`、`young analyze --llm` 这类投研/问答工作流。请改用 Kimi OpenPlatform 通用 API 或其他 OpenAI-compatible 模型。
 
 同一个 endpoint 需要回退模型时，可以用 `young config models ... --fallback-model X --fallback-model Y` 这样配置。只在限流、额度、瞬时服务错误或明确模型不可用时切换；认证、generic404、api_base 错误不切换。Ark 先用 `--list` 核对 model ID，即 `young config models --provider ark --list`，再填 `--model` 和 `--fallback-model`。
 

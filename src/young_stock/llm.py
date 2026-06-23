@@ -9,13 +9,20 @@ from typing import Any
 
 import requests
 
-from .config import normalize_api_key, normalize_fallback_models
+from .config import (
+    is_kimi_coding_api_base,
+    kimi_coding_plan_unsupported_message,
+    normalize_api_base,
+    normalize_api_key,
+    normalize_fallback_models,
+    normalize_model_id,
+)
 
 PROVIDER_BASES = {
     "openai": "https://api.openai.com/v1",
     "ark": "https://ark.cn-beijing.volces.com/api/v3",
-    "kimi": "https://api.moonshot.cn/v1",
-    "moonshot": "https://api.moonshot.cn/v1",
+    "kimi": "https://api.moonshot.ai/v1",
+    "moonshot": "https://api.moonshot.ai/v1",
     "deepseek": "https://api.deepseek.com",
     "qwen": "https://dashscope.aliyuncs.com/compatible-mode/v1",
     "ollama": "http://localhost:11434/v1",
@@ -58,9 +65,12 @@ class LLMClient:
         model = str(self.config.get("model") or "")
         if not provider or not model:
             raise LLMNotConfigured("未配置 LLM，请运行 `young config models --help`。")
-        api_base = str(self.config.get("api_base") or PROVIDER_BASES.get(provider) or "").rstrip("/")
+        api_base = normalize_api_base(provider, self.config.get("api_base") or PROVIDER_BASES.get(provider) or "")
         if not api_base:
             raise LLMNotConfigured(f"provider {provider} 缺少 api_base；请运行 `young config models --help`。")
+        if is_kimi_coding_api_base(api_base):
+            raise LLMError(kimi_coding_plan_unsupported_message())
+        model = normalize_model_id(provider, api_base, model)
         api_key = self._api_key()
         if provider != "ollama" and not api_key:
             raise LLMNotConfigured("未配置 LLM API key；请运行 `young config models --help`。")
@@ -85,7 +95,7 @@ class LLMClient:
         provider = str(self.config.get("provider") or "").lower()
         if not provider:
             raise LLMNotConfigured("未指定 provider，请运行 `young config models --help`。")
-        api_base = str(self.config.get("api_base") or PROVIDER_BASES.get(provider) or "").rstrip("/")
+        api_base = normalize_api_base(provider, self.config.get("api_base") or PROVIDER_BASES.get(provider) or "")
         if not api_base:
             raise LLMNotConfigured(f"provider {provider} 缺少 api_base；请运行 `young config models --help`。")
         api_key = self._api_key()

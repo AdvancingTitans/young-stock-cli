@@ -1219,6 +1219,34 @@ def test_cli_config_models_saves_and_masks_secret(monkeypatch, tmp_path):
     assert "deepseek-chat" in shown.output
 
 
+def test_cli_config_models_rejects_kimi_coding_plan_endpoint(monkeypatch, tmp_path):
+    from click.testing import CliRunner
+
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
+    runner = CliRunner()
+
+    result = runner.invoke(
+        cli,
+        [
+            "config",
+            "models",
+            "--provider",
+            "openai",
+            "--model",
+            "kimi-k2.7-code",
+            "--api-key",
+            "very-secret",
+            "--api-base",
+            "https://api.kimi.com/coding/",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "Kimi Coding Plan" in result.output
+    assert "young daily" in result.output
+    assert not (tmp_path / "config.json").exists()
+
+
 def test_cli_config_show_is_human_readable_and_masks_secrets(monkeypatch, tmp_path):
     from click.testing import CliRunner
 

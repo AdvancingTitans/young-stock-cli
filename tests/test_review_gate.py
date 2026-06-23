@@ -78,6 +78,21 @@ def test_review_gate_date_evidence_does_not_ground_independent_date_parts():
     assert result["numbers_grounded"] is False
 
 
+def test_review_gate_allows_full_hyphenated_date_when_atomic_date_is_evidence():
+    result = review_investment_output(
+        "# 2026-05-29 日报\n"
+        "总体态度：中性\n"
+        "详细结论：据公开数据，当日市场维持震荡。\n"
+        "证据：报告日期为 2026-05-29。\n"
+        "风险：成交不足。\n"
+        "行动建议：持有观察。\n"
+        "观察清单：跟踪下一交易日量能。",
+        {"reported_date": "20260529"},
+    )
+
+    assert result["numbers_grounded"] is True
+
+
 def test_review_gate_keeps_eight_digit_dates_atomic_in_evidence_signatures():
     allowed = _allowed_numeric_signatures('{"reported_date":"20260529"}')
 

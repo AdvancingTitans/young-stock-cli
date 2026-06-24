@@ -9,6 +9,7 @@ from dataclasses import dataclass
 class LensDefinition:
     id: str
     name: str
+    zh_name: str
     school: str
     summary: str
     voice: str
@@ -33,6 +34,7 @@ _DEFINITIONS = (
     LensDefinition(
         "buffett",
         "Buffett",
+        "巴菲特",
         "价值",
         "重商业质量、护城河、管理层、资本配置与安全边际。",
         "长期主义、朴素直接、少术语，像在和股东通信",
@@ -42,6 +44,7 @@ _DEFINITIONS = (
     LensDefinition(
         "munger",
         "Munger",
+        "芒格",
         "价值",
         "用多元思维模型、反向思考、激励与错配检查。",
         "犀利、直白、强调思维模型",
@@ -51,6 +54,7 @@ _DEFINITIONS = (
     LensDefinition(
         "graham",
         "Graham",
+        "格雷厄姆",
         "价值",
         "重资产负债表、盈利稳定性、估值纪律与下行保护。",
         "审慎、克制、偏教科书式",
@@ -60,6 +64,7 @@ _DEFINITIONS = (
     LensDefinition(
         "klarman",
         "Klarman",
+        "卡拉曼",
         "价值",
         "重绝对回报、复杂性折价、催化剂和永久损失风险。",
         "耐心、逆向、强调风险先于收益",
@@ -69,6 +74,7 @@ _DEFINITIONS = (
     LensDefinition(
         "lynch",
         "Lynch",
+        "彼得·林奇",
         "成长",
         "从可理解的增长故事出发，用盈利兑现检验叙事。",
         "生动、务实、贴近普通投资者观察",
@@ -78,6 +84,7 @@ _DEFINITIONS = (
     LensDefinition(
         "o_neil",
         "O'Neil",
+        "欧奈尔",
         "成长",
         "关注盈利加速、行业龙头、机构需求与价格强度。",
         "果断、规则化、尊重市场确认",
@@ -87,6 +94,7 @@ _DEFINITIONS = (
     LensDefinition(
         "wood",
         "Wood",
+        "伍德",
         "成长",
         "关注颠覆式创新、长期渗透率和技术成本曲线。",
         "前瞻、主题驱动、明确承认高波动",
@@ -96,6 +104,7 @@ _DEFINITIONS = (
     LensDefinition(
         "dalio",
         "Dalio",
+        "达利欧",
         "宏观",
         "重宏观周期、情景分析、分散化与风险平衡。",
         "原则导向、结构化、偏桥水备忘录式",
@@ -105,6 +114,7 @@ _DEFINITIONS = (
     LensDefinition(
         "soros",
         "Soros",
+        "索罗斯",
         "宏观",
         "关注反身性、预期差、政策拐点和仓位非对称性。",
         "敏锐、假设驱动、随证据快速修正",
@@ -114,6 +124,7 @@ _DEFINITIONS = (
     LensDefinition(
         "livermore",
         "Livermore",
+        "利弗莫尔",
         "技术/交易",
         "顺势而为，等待关键点确认并把风险控制放在第一位。",
         "简洁、纪律化、少预测多确认",
@@ -123,6 +134,7 @@ _DEFINITIONS = (
     LensDefinition(
         "minervini",
         "Minervini",
+        "米勒维尼",
         "技术/交易",
         "用趋势模板、盈利加速和风险收益比筛选强势股。",
         "精确、规则化、强调入场质量",
@@ -132,6 +144,7 @@ _DEFINITIONS = (
     LensDefinition(
         "simons",
         "Simons",
+        "西蒙斯",
         "量化",
         "关注数据定义、可重复信号、样本外稳健性和交易成本。",
         "冷静、概率化、避免故事替代统计",
@@ -140,6 +153,7 @@ _DEFINITIONS = (
     ),
     LensDefinition(
         "duan_yongping",
+        "段永平",
         "段永平",
         "中国视角",
         "重本分、商业模式、企业文化、长期现金创造与合理价格。",
@@ -150,6 +164,7 @@ _DEFINITIONS = (
     LensDefinition(
         "zhang_kun",
         "张坤",
+        "张坤",
         "中国视角",
         "关注高质量商业模式、长期自由现金流和组合机会成本。",
         "克制、长期、重定性与定量互证",
@@ -158,6 +173,7 @@ _DEFINITIONS = (
     ),
     LensDefinition(
         "feng_liu",
+        "冯柳",
         "冯柳",
         "中国视角",
         "从市场认知、赔率、困境反转和可验证变化寻找机会。",

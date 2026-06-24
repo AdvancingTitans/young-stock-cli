@@ -112,11 +112,13 @@ INTERNAL_FIELD_TITLES = {
 def _llm_report_structure_prompt(lens: str | None) -> str:
     if not lens or lens in {"balanced", "all"}:
         return LLM_REPORT_STRUCTURE_PROMPT
-    lens_name = get_lens(lens).name
+    lens_def = get_lens(lens)
+    lens_name = lens_def.zh_name
     return (
         LLM_REPORT_STRUCTURE_PROMPT
         + "\n"
-        + f"本次指定专家视角为 {lens_name}：一级标题必须包含“{lens_name}”；"
+        + f"本次指定专家视角为 {lens_def.name}；中文报告使用“{lens_name}”。"
+        + f"一级标题必须包含“{lens_name}”；"
         + f"最后一个二级标题必须写成“## {lens_name}持仓建议与风险提示”，"
         + "不要再使用“## 综合持仓建议与风险提示”。"
     )

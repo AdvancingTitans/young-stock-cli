@@ -170,23 +170,24 @@ def test_llm_report_with_explicit_balanced_lens_uses_institutional_prompt(monkey
     assert metadata["debate_rounds"] == 0
 
 
-def test_llm_report_with_specific_lens_names_expert_in_title_and_advice_heading():
+def test_llm_report_with_specific_lens_uses_chinese_expert_name_for_chinese_reports():
     client = RecordingClient(
-        "# Buffett复盘\n\n"
+        "# 巴菲特复盘\n\n"
         "投资评级：持有观察。\n"
         "详细结论：据公开市场数据，仍以震荡观察为主。\n"
         "证据：证据暂缺。\n"
         "风险：量能不足。\n"
         "行动建议：等待确认，不追高。\n"
         "观察清单：跟踪下一交易日成交额。\n\n"
-        "## Buffett持仓建议与风险提示\n"
+        "## 巴菲特持仓建议与风险提示\n"
     )
 
     generate_llm_daily_report({"modules": {}, "_meta": {}}, client, lens="buffett")
 
     system_text = "\n".join(message["content"] for message in client.messages if message["role"] == "system")
-    assert "一级标题必须包含“Buffett”" in system_text
-    assert "## Buffett持仓建议与风险提示" in system_text
+    assert "中文报告使用“巴菲特”" in system_text
+    assert "一级标题必须包含“巴菲特”" in system_text
+    assert "## 巴菲特持仓建议与风险提示" in system_text
     assert "不要再使用“## 综合持仓建议与风险提示”" in system_text
 
 

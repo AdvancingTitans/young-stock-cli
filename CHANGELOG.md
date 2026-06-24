@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.8] - 2026-06-24
+
+### Fixed
+
+- Use Chinese expert display names in Chinese `--lens` report title and holding-advice headings, for example `巴菲特持仓建议与风险提示` instead of `Buffett持仓建议与风险提示`.
+
 ## [0.3.7] - 2026-06-24
 
 ### Fixed

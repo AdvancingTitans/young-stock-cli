@@ -206,6 +206,83 @@ def test_openai_compatible_model_discovery():
     assert session.calls[0][0] == "https://example.test/v1/models"
 
 
+def test_model_discovery_filters_shutdown_and_non_chat_models():
+    session = FakeSession(
+        [
+            response(
+                200,
+                {
+                    "data": [
+                        {
+                            "id": "doubao-seed-1-6-thinking-250715",
+                            "status": "Shutdown",
+                            "task_type": ["TextGeneration"],
+                            "modalities": {"input_modalities": ["text"], "output_modalities": ["text"]},
+                        },
+                        {
+                            "id": "doubao-embedding-text-240515",
+                            "task_type": ["Embedding"],
+                            "modalities": {"input_modalities": ["text"], "output_modalities": ["embedding"]},
+                        },
+                        {
+                            "id": "doubao-seed-1-6-250615",
+                            "task_type": ["TextGeneration"],
+                            "modalities": {"input_modalities": ["text"], "output_modalities": ["text"]},
+                        },
+                    ]
+                },
+            )
+        ]
+    )
+    client = LLMClient(
+        {
+            "provider": "ark",
+            "model": "placeholder",
+            "api_key": "secret",
+        },
+        session=session,
+    )
+
+    models = client.list_models()
+
+    assert models == ["doubao-seed-1-6-250615"]
+
+
+def test_model_discovery_can_verify_chat_completions_availability(monkeypatch):
+    monkeypatch.setattr("young_stock.llm.time.sleep", lambda seconds: None)
+    session = FakeSession(
+        [
+            response(
+                200,
+                {
+                    "data": [
+                        {"id": "listed-but-denied", "task_type": ["TextGeneration"]},
+                        {"id": "chat-ok", "task_type": ["TextGeneration"]},
+                    ]
+                },
+            ),
+            response(200, {"choices": [{"message": {"content": "ok"}}]}),
+            response(404, {"error": {"message": "The model or endpoint listed-but-denied does not exist or you do not have access to it."}}),
+        ]
+    )
+    client = LLMClient(
+        {
+            "provider": "ark",
+            "model": "placeholder",
+            "api_key": "secret",
+        },
+        session=session,
+    )
+
+    models = client.list_models(verify_chat=True)
+
+    assert models == ["chat-ok"]
+    assert [call[1].get("json", {}).get("model") for call in session.calls[1:]] == [
+        "chat-ok",
+        "listed-but-denied",
+    ]
+
+
 def test_list_models_http_200_non_json_is_safely_wrapped():
     session = FakeSession([non_json_response(200, "prompt=不要泄露这个 prompt api_key=secret")])
     client = LLMClient(
@@ -492,6 +569,38 @@ def test_model_not_found_404_uses_fallback(monkeypatch):
     assert result.content == "fallback ok"
     assert result.model == "fallback-model"
     assert [call[1]["json"]["model"] for call in session.calls] == ["primary-model", "fallback-model"]
+
+
+def test_ark_model_not_found_mentions_access_and_shutdown_without_leaking_secret():
+    session = FakeSession(
+        [
+            response(
+                404,
+                {
+                    "error": {
+                        "message": "The model or endpoint doubao-seed-1-6-thinking-250715 does not exist or you do not have access to it. Request id: req-1"
+                    }
+                },
+            )
+        ]
+    )
+    client = LLMClient(
+        {
+            "provider": "ark",
+            "model": "doubao-seed-1-6-thinking-250715",
+            "api_key": "super-secret",
+        },
+        session=session,
+    )
+
+    with pytest.raises(LLMError) as exc:
+        client.chat([{"role": "user", "content": "hi"}])
+
+    text = str(exc.value)
+    assert "无权限" in text
+    assert "Shutdown" in text
+    assert "服务端提示" in text
+    assert "super-secret" not in text
 
 
 @pytest.mark.parametrize("status_code", [400, 422])

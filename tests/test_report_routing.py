@@ -21,7 +21,7 @@ def test_report_defaults_to_current_calendar_date(monkeypatch, tmp_path):
     assert "/tmp/20260619.pdf" in report_result.output
 
 
-def test_daily_analyze_and_send_default_to_latest_report_trade_date(monkeypatch, tmp_path):
+def test_daily_stock_and_send_default_to_latest_report_trade_date(monkeypatch, tmp_path):
     monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
     monkeypatch.setattr(cli_module._core, "cache_clear_old", lambda days: None)
     monkeypatch.setattr(cli_module, "latest_report_trade_date", lambda: "20260619")
@@ -72,7 +72,7 @@ def test_daily_analyze_and_send_default_to_latest_report_trade_date(monkeypatch,
 
     runner = CliRunner()
     daily_result = runner.invoke(cli, ["daily"])
-    analyze_result = runner.invoke(cli, ["analyze", "600519"])
+    analyze_result = runner.invoke(cli, ["stock", "600519"])
     send_result = runner.invoke(cli, ["send"])
 
     assert daily_result.exit_code == 0

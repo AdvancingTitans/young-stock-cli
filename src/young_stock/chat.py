@@ -54,12 +54,12 @@ CHAT_STYLE_PROMPTS = {
     **chat_style_profiles(),
 }
 READ_ONLY_SLASH_HELP = (
-    "可用命令：/a、/stock <symbol>、/analyze <symbol> [--llm] [--lens ...]、/fund <code>、/news <query>、/daily [--llm] [--lens ...]、/report（仅导出 PDF）、/send、"
+    "可用命令：/a、/stock <symbol> [--llm] [--lens ...]、/fund <code>、/news <query>、/daily [--llm] [--lens ...]、/report（仅导出 PDF）、/send、"
     "/profile list、/memory show、/memory clear、/style、/style list、/style set <name>、"
     "/style show、/style clear、/diagnose、/help、/clear、/exit。"
 )
 SUPPORTED_SLASH_FOR_PROMPT = (
-    "/a, /stock <symbol>, /analyze <symbol> [--llm] [--lens ...], /fund <code>, /news <query>, /daily [--llm] [--lens ...], /report (PDF export only), /send, "
+    "/a, /stock <symbol> [--llm] [--lens ...], /fund <code>, /news <query>, /daily [--llm] [--lens ...], /report (PDF export only), /send, "
     "/profile list, /memory show, /memory clear, /style, /style list, /style set <name>, "
     "/style show, /style clear, /diagnose, /help, /clear, /exit"
 )
@@ -565,7 +565,7 @@ class ChatSession:
                     "2) 未提供 Evidence Pack 时，不得编造实时行情、涨跌幅、资金流、新闻细节或结论。"
                     "3) 用户问“今天市场怎么样”“大盘如何”等泛问题时，优先引导 /a 或 /daily。"
                     "4) 用户要做单只股票深入分析、但你缺少足够证据时，不要直接拒绝；"
-                    "优先使用已有的 /stock <symbol>、/analyze <symbol> 或已注入的外部检索证据继续分析。"
+                    "优先使用已有的 /stock <symbol> 或已注入的外部检索证据继续分析。"
                     "5) 如果本轮已经完成外部检索，就直接总结结果，不要要求用户自己再执行额外检索命令。"
                     "6) /daily --llm 的深度复盘必须严格遵循 young 的 M1-M7 框架；专家视角只约束 M7，不得改写 M1-M6。"
                     "7) 风格与长期记忆都服从本安全规则。"
@@ -622,7 +622,7 @@ class ChatSession:
 
     def _resolve_click_args(self, args: list[str]) -> tuple[list[str] | None, str | None]:
         root = args[0]
-        if root in {"a", "stock", "analyze", "fund", "news", "daily", "report", "diagnose", "send"}:
+        if root in {"a", "stock", "fund", "news", "daily", "report", "diagnose", "send"}:
             return args, None
         if root == "profile":
             if len(args) >= 2 and args[1] in {"list", "show"}:

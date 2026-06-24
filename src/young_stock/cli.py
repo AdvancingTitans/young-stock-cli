@@ -45,7 +45,7 @@ from .profile import (
     save_profile,
 )
 from .reports import generate_llm_daily_report
-from .research_bridge import RESEARCH_COMMAND_ENV, research_bridge_hint, run_research_bridge
+from .research_bridge import RESEARCH_COMMAND_ENV, run_research_bridge
 from .sources.extras import collect_stock_extras, fetch_lhb
 
 
@@ -63,6 +63,7 @@ def _run(market: str, date: str | None, refresh: bool, include_news: bool = True
         _core.NO_CACHE = True
     _core.cache_clear_old(days=7)
     date_str = date or _core.nearest_trade_date()
+    _print_query_context(date_str)
     if market == "a":
         _core.run_a_share(date_str, include_news=include_news)
     elif market == "hk":
@@ -277,6 +278,12 @@ def _default_report_trade_date() -> str:
     return latest_report_trade_date()
 
 
+def _print_query_context(date_str: str) -> None:
+    click.echo(f"查询日期: {date_str}")
+    click.echo(f"当前阶段: {_core.dated_stage_label(requested_date=date_str)}")
+    click.echo()
+
+
 def _llm_report_identity(
     date_str: str,
     symbol: str | None = None,
@@ -315,12 +322,14 @@ def _run_plain_analyze(
     symbol: str,
     date_str: str,
     *,
+    no_news: bool,
     rich_source: bool,
     browser_fallback: bool,
 ) -> None:
     normalized_symbol = _validate_analyze_symbol(symbol, date_str)
-    _core.run_stock_quote(normalized_symbol, date_str, include_news=True)
-    extras = collect_stock_extras(_core, normalized_symbol, date_str, rich_source=rich_source)
+    _print_query_context(date_str)
+    _core.run_stock_quote(normalized_symbol, date_str, include_news=not no_news)
+    extras = collect_stock_extras(_core, normalized_symbol, date_str, rich_source=rich_source, include_news=not no_news)
     _print_stock_extras(extras.to_dict(), requested_date=date_str, browser_fallback=browser_fallback)
 
 
@@ -530,6 +539,7 @@ def indices(date: str | None, refresh: bool) -> None:
     if refresh:
         _core.NO_CACHE = True
     date_str = date or _core.nearest_trade_date()
+    _print_query_context(date_str)
     data = _core.get_index(date_str)
     _core.print_stage_line(date_str)
     _core.print_index(data)
@@ -542,6 +552,7 @@ def zt_pool(date: str | None, refresh: bool) -> None:
     if refresh:
         _core.NO_CACHE = True
     date_str = date or _core.nearest_trade_date()
+    _print_query_context(date_str)
     zt = _core.get_zt_pool(date_str)
     dt = _core.get_dt_pool(date_str)
     zb = _core.get_zb_pool(date_str)
@@ -559,6 +570,7 @@ def flow(date: str | None, refresh: bool, symbol: str | None, northbound: bool, 
     if refresh:
         _core.NO_CACHE = True
     date_str = date or _core.nearest_trade_date()
+    _print_query_context(date_str)
     if northbound:
         _core.run_northbound_flow_report(date_str)
     elif symbol:
@@ -566,31 +578,6 @@ def flow(date: str | None, refresh: bool, symbol: str | None, northbound: bool, 
     else:
         flow_data = _core.get_fund_flow(date_str, strict_date=False)
         _core.print_fund_flow(flow_data)
-
-
-@cli.command(help="Show one stock by code, e.g. 600519, 0700.HK, AAPL.")
-@click.argument("symbol")
-@_date_opt
-@_refresh_opt
-@click.option("--no-news", is_flag=True, help="Only show quote data, skip news lookup.")
-@click.option("--rich-source", is_flag=True, help="Allow slower optional sources such as akshare/yfinance/social JSON.")
-@click.option("--browser-fallback", is_flag=True, help="Allow browser fallback if a supporting capability decides it is needed.")
-def stock(
-    symbol: str,
-    date: str | None,
-    refresh: bool,
-    no_news: bool,
-    rich_source: bool,
-    browser_fallback: bool,
-) -> None:
-    if refresh:
-        _core.NO_CACHE = True
-    _core.BROWSER_FALLBACK = browser_fallback
-    _core.cache_clear_old(days=7)
-    date_str = date or _core.nearest_trade_date()
-    _core.run_stock_quote(symbol, date_str, include_news=not no_news)
-    extras = collect_stock_extras(_core, symbol, date_str, rich_source=rich_source)
-    _print_stock_extras(extras.to_dict(), requested_date=date_str, browser_fallback=browser_fallback)
 
 
 _DISPLAY_LABELS = {
@@ -794,7 +781,7 @@ def _print_stock_extras(
         for line in section:
             click.echo(line)
     if shown == 0:
-        click.echo(f"\n未返回可展示的增强证据。{research_bridge_hint()}")
+        click.echo("\n未返回可展示的增强证据。")
     if browser_fallback:
         click.echo("\n已允许浏览器回退；仅当某项数据能力判断确有必要时才会尝试。")
 
@@ -805,6 +792,7 @@ def _print_stock_extras(
 @click.option("--limit", default=20, show_default=True, type=click.IntRange(1, 100))
 def lhb(symbol: str, date: str | None, limit: int) -> None:
     date_str = date or _core.nearest_trade_date()
+    _print_query_context(date_str)
     section = _render_section(
         "龙虎榜",
         fetch_lhb(_core, symbol, date_str, limit=limit),
@@ -827,6 +815,7 @@ def fund(code: str, date: str | None, refresh: bool, no_news: bool) -> None:
         _core.NO_CACHE = True
     _core.cache_clear_old(days=7)
     date_str = date or _core.nearest_trade_date()
+    _print_query_context(date_str)
     _core.run_fund_report(code, date_str, include_news=not no_news)
 
 
@@ -840,6 +829,7 @@ def news(parts: tuple[str, ...], date: str | None, refresh: bool, limit: int) ->
         _core.NO_CACHE = True
     _core.cache_clear_old(days=7)
     date_str = date or _core.nearest_trade_date()
+    _print_query_context(date_str)
     symbol = parts[-1] if len(parts) > 1 and parts[0].lower() == "stock" else parts[0]
     _core.run_stock_news(symbol, date_str, size=limit)
 
@@ -961,21 +951,23 @@ def _run_llm_replay(
     click.echo(f"\nSaved: {path}")
     return path
 
-@cli.command(help="Generate deep analysis for one stock using verified young-stock data.")
+@cli.command(name="stock", help="Show verified stock evidence; add --llm for deep analysis.")
 @click.argument("symbol")
 @_date_opt
 @_refresh_opt
-@click.option("--llm", "use_llm", is_flag=True, help="Use the configured LLM for deep replay; default analyze is deterministic evidence only.")
+@click.option("--no-news", is_flag=True, help="Only show quote/evidence data, skip news lookup where supported.")
+@click.option("--llm", "use_llm", is_flag=True, help="Use the configured LLM for deep replay; default stock is deterministic evidence only.")
 @click.option("--lens", type=click.Choice(("balanced", "all", *lens_ids())), default=None, help="Explicit LLM lens. Requires --llm.")
 @click.option("--debate-rounds", default=3, show_default=True, type=click.IntRange(1, 5))
 @click.option("--rich-source", is_flag=True, help="Allow slower optional financial/social sources.")
 @click.option("--browser-fallback", is_flag=True, help="Allow browser fallback if a supporting capability decides it is needed.")
 @click.pass_context
-def analyze(
+def stock(
     ctx: click.Context,
     symbol: str,
     date: str | None,
     refresh: bool,
+    no_news: bool,
     use_llm: bool,
     lens: str | None,
     debate_rounds: int,
@@ -996,6 +988,7 @@ def analyze(
         _run_plain_analyze(
             symbol,
             date_str,
+            no_news=no_news,
             rich_source=rich_source,
             browser_fallback=browser_fallback,
         )
@@ -1012,7 +1005,7 @@ def analyze(
         )
     _run_llm_replay(
         date_str,
-        kind="analyze",
+        kind="stock",
         symbol=symbol,
         **replay_options,
     )
@@ -1192,7 +1185,7 @@ def config_models(
         "timeout": timeout if explicit_timeout else saved.get("timeout", timeout),
     }
     try:
-        models = LLMClient(query).list_models()
+        models = LLMClient(query).list_models(verify_chat=True)
     except LLMError as exc:
         raise click.ClickException(str(exc)) from exc
     if not models:
@@ -1513,7 +1506,7 @@ def diagnose(as_json: bool) -> None:
     if payload["research_bridge"]["configured"]:
         click.echo(f"Research bridge: 已配置 {RESEARCH_COMMAND_ENV}；对话与分析可按需补充公开资料。")
     else:
-        click.echo(f"Research bridge: {research_bridge_hint()}")
+        click.echo("Research bridge: 未配置可选桥；当前版本优先使用内置数据源。")
     click.echo("建议: 若接口失败，可先使用缓存、改用 --format summary，或稍后运行 --refresh 重试。")
 
 

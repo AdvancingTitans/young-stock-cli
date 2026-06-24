@@ -170,6 +170,26 @@ def test_llm_report_with_explicit_balanced_lens_uses_institutional_prompt(monkey
     assert metadata["debate_rounds"] == 0
 
 
+def test_llm_report_with_specific_lens_names_expert_in_title_and_advice_heading():
+    client = RecordingClient(
+        "# Buffett复盘\n\n"
+        "投资评级：持有观察。\n"
+        "详细结论：据公开市场数据，仍以震荡观察为主。\n"
+        "证据：证据暂缺。\n"
+        "风险：量能不足。\n"
+        "行动建议：等待确认，不追高。\n"
+        "观察清单：跟踪下一交易日成交额。\n\n"
+        "## Buffett持仓建议与风险提示\n"
+    )
+
+    generate_llm_daily_report({"modules": {}, "_meta": {}}, client, lens="buffett")
+
+    system_text = "\n".join(message["content"] for message in client.messages if message["role"] == "system")
+    assert "一级标题必须包含“Buffett”" in system_text
+    assert "## Buffett持仓建议与风险提示" in system_text
+    assert "不要再使用“## 综合持仓建议与风险提示”" in system_text
+
+
 def test_llm_report_adds_m7_and_hidden_committee_when_lens_all():
     client = RecordingClient("# 复盘\n\n## M7 机构化综合判断\n\n总体态度：中性。")
 
@@ -218,10 +238,66 @@ def test_llm_report_raises_llm_error_after_failed_repair_and_does_not_save_inval
         generate_llm_daily_report({"modules": {}, "_meta": {}}, client)
 
 
-def test_llm_report_repair_prompt_requires_allowed_attitude_words():
+def test_llm_report_does_not_block_when_only_number_grounding_fails_after_repair():
     client = SequencedClient(
         [
-            "# 复盘\n\n判断：谨慎乐观\n详细结论：据公开数据，市场震荡。\n证据：证据暂缺。\n风险：波动。\n行动建议：持有观察。\n观察清单：跟踪量能。",
+            "# 日报\n\n"
+            "总体态度：中性\n"
+            "详细结论：据公开市场数据，市场震荡，成交额约 9999 亿元。\n"
+            "证据：据公开市场数据，指数分化。\n"
+            "风险：量能不足。\n"
+            "行动建议：持有观察。\n"
+            "观察清单：跟踪下一交易日量能。",
+            "# 日报\n\n"
+            "总体态度：中性\n"
+            "详细结论：据公开市场数据，市场震荡，成交额约 9999 亿元。\n"
+            "证据：据公开市场数据，指数分化。\n"
+            "风险：量能不足。\n"
+            "行动建议：持有观察。\n"
+            "观察清单：跟踪下一交易日量能。",
+        ]
+    )
+
+    markdown, metadata = generate_llm_daily_report({"modules": {}, "_meta": {}}, client)
+
+    assert "成交额约 9999 亿元" in markdown
+    assert len(client.calls) == 2
+    assert metadata["mechanical_checks"]["numbers_grounded"] is False
+
+
+def test_llm_stock_report_does_not_block_when_attitude_and_number_checks_are_advisory():
+    client = SequencedClient(
+        [
+            "# 贵州茅台个股复盘\n\n"
+            "综合判断：据公开市场数据，短线仍以震荡观察为主，成交额约 9999 亿元。\n"
+            "证据：公开行情显示价格波动可控。\n"
+            "风险提示：若量能不足，反弹延续性仍需确认。\n"
+            "操作建议：等待放量确认，不追高。\n"
+            "观察清单：跟踪下一交易日成交额与关键价位。",
+            "# 贵州茅台个股复盘\n\n"
+            "综合判断：据公开市场数据，短线仍以震荡观察为主，成交额约 9999 亿元。\n"
+            "证据：公开行情显示价格波动可控。\n"
+            "风险提示：若量能不足，反弹延续性仍需确认。\n"
+            "操作建议：等待放量确认，不追高。\n"
+            "观察清单：跟踪下一交易日成交额与关键价位。",
+        ]
+    )
+
+    markdown, metadata = generate_llm_daily_report(
+        {"modules": {"STOCK": {"quote": {"symbol": "600519", "name": "贵州茅台"}}}, "_meta": {"report_type": "single-stock"}},
+        client,
+        daily=False,
+    )
+
+    assert "贵州茅台个股复盘" in markdown
+    assert len(client.calls) == 2
+    assert metadata["mechanical_checks"]["numbers_grounded"] is False
+
+
+def test_llm_report_repair_prompt_allows_rating_or_action_attitude_wording():
+    client = SequencedClient(
+        [
+            "# 复盘\n\n总体态度：谨慎乐观\n风险：波动。\n行动建议：持有观察。",
             "# 复盘\n\n总体态度：中性\n详细结论：据公开数据，市场震荡。\n证据：证据暂缺。\n风险：波动。\n行动建议：持有观察。\n观察清单：跟踪量能。",
         ]
     )
@@ -229,7 +305,7 @@ def test_llm_report_repair_prompt_requires_allowed_attitude_words():
     _, metadata = generate_llm_daily_report({"modules": {}, "_meta": {}}, client)
 
     repair_user_prompt = client.calls[1][-1]["content"]
-    assert "态度只能是：偏看多 / 中性 / 偏看空 / 回避" in repair_user_prompt
+    assert "态度可使用偏看多 / 中性 / 偏看空 / 回避，也可使用投资评级或操作结论表达。" in repair_user_prompt
     assert metadata["mechanical_checks"]["attitude_present"] is True
 
 

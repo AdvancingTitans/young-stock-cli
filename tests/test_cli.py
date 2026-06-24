@@ -63,10 +63,10 @@ def test_cli_subcommands_registered():
     for sub in [
         "a", "hk", "us", "global", "indices", "zt-pool", "flow", "stock", "fund", "news",
         "daily", "profile", "portfolio", "diary", "diagnose", "guide", "example", "init",
-        "cache-clear", "update", "uninstall", "config", "chat", "style", "analyze", "report", "send", "lhb",
+        "cache-clear", "update", "uninstall", "config", "chat", "style", "report", "send", "lhb",
     ]:
         assert sub in registered, f"subcommand `{sub}` missing from command registry"
-    for removed in ["block-trades", "alert", "note", "reach"]:
+    for removed in ["block-trades", "alert", "note", "reach", "analyze"]:
         assert removed not in registered, f"removed subcommand `{removed}` unexpectedly present in registry"
 
 
@@ -77,7 +77,7 @@ def test_cli_top_level_command_help_is_available():
     commands = [
         "a", "hk", "us", "global", "indices", "zt-pool", "flow", "stock", "fund", "news",
         "daily", "profile", "portfolio", "diary", "diagnose", "guide", "example", "init",
-        "cache-clear", "update", "uninstall", "config", "chat", "style", "analyze", "report", "send", "lhb",
+        "cache-clear", "update", "uninstall", "config", "chat", "style", "report", "send", "lhb",
     ]
 
     for command in commands:
@@ -95,6 +95,8 @@ def test_cli_stock_runs_single_stock_quote(monkeypatch):
         calls.append((symbol, date_str, include_news))
 
     monkeypatch.setattr(cli_module._core, "nearest_trade_date", lambda: "20260529")
+    monkeypatch.setattr(cli_module, "_default_report_trade_date", lambda: "20260529")
+    monkeypatch.setattr(cli_module, "_validate_analyze_symbol", lambda symbol, date_str: symbol)
     monkeypatch.setattr(cli_module._core, "run_stock_quote", fake_run_stock)
     monkeypatch.setattr(
         cli_module,
@@ -121,6 +123,8 @@ def test_cli_stock_runs_single_stock_quote(monkeypatch):
 
     assert result.exit_code == 0
     assert calls == [("600519", "20260529", False)]
+    assert "查询日期: 20260529" in result.output
+    assert "当前阶段:" in result.output
     assert "## 增强证据" in result.output
     assert "### 龙虎榜" in result.output
     assert "| 20260529 | 123 |" in result.output
@@ -157,7 +161,7 @@ def test_cli_analyze_defaults_to_plain_stock_evidence_without_llm(monkeypatch):
     monkeypatch.setattr(
         cli_module,
         "collect_stock_extras",
-        lambda core, symbol, date_str, rich_source=False: extras_calls.append((symbol, date_str, rich_source)) or type(
+        lambda core, symbol, date_str, rich_source=False, include_news=True: extras_calls.append((symbol, date_str, rich_source, include_news)) or type(
             "Extras",
             (),
             {"to_dict": staticmethod(lambda: {"lhb": {"rows": [{"date": "20260529", "net_buy": 1}]}})},
@@ -175,11 +179,11 @@ def test_cli_analyze_defaults_to_plain_stock_evidence_without_llm(monkeypatch):
         lambda *args, **kwargs: llm_calls.append((args, kwargs)),
     )
 
-    result = CliRunner().invoke(cli, ["analyze", "600519"])
+    result = CliRunner().invoke(cli, ["stock", "600519"])
 
     assert result.exit_code == 0
     assert run_calls == [("600519", "20260529", True)]
-    assert extras_calls == [("600519", "20260529", False)]
+    assert extras_calls == [("600519", "20260529", False, True)]
     assert len(render_calls) == 1
     assert llm_calls == []
 
@@ -195,10 +199,10 @@ def test_cli_analyze_llm_without_explicit_lens_does_not_pass_lens_layer(monkeypa
         lambda date_str, **kwargs: replay_calls.append((date_str, kwargs)),
     )
 
-    result = CliRunner().invoke(cli, ["analyze", "600519", "--llm"])
+    result = CliRunner().invoke(cli, ["stock", "600519", "--llm"])
 
     assert result.exit_code == 0
-    assert replay_calls == [("20260529", {"kind": "analyze", "symbol": "600519"})]
+    assert replay_calls == [("20260529", {"kind": "stock", "symbol": "600519"})]
 
 
 def test_cli_daily_llm_without_explicit_lens_does_not_pass_lens_layer(monkeypatch):
@@ -229,7 +233,7 @@ def test_cli_explicit_lens_requires_llm(monkeypatch):
     runner = CliRunner()
 
     daily_result = runner.invoke(cli, ["daily", "--lens", "all"])
-    analyze_result = runner.invoke(cli, ["analyze", "600519", "--lens", "all"])
+    analyze_result = runner.invoke(cli, ["stock", "600519", "--lens", "all"])
 
     assert daily_result.exit_code != 0
     assert analyze_result.exit_code != 0
@@ -246,7 +250,7 @@ def test_cli_debate_rounds_require_llm_and_lens_all(monkeypatch):
     runner = CliRunner()
 
     no_llm = runner.invoke(cli, ["daily", "--debate-rounds", "4"])
-    wrong_lens = runner.invoke(cli, ["analyze", "600519", "--llm", "--lens", "balanced", "--debate-rounds", "4"])
+    wrong_lens = runner.invoke(cli, ["stock", "600519", "--llm", "--lens", "balanced", "--debate-rounds", "4"])
 
     assert no_llm.exit_code != 0
     assert wrong_lens.exit_code != 0
@@ -276,7 +280,7 @@ def test_cli_analyze_accepts_source_flags_without_llm(monkeypatch):
     monkeypatch.setattr(
         cli_module,
         "collect_stock_extras",
-        lambda core, symbol, date_str, rich_source=False: source_flags.append((symbol, date_str, rich_source, core.BROWSER_FALLBACK)) or type(
+        lambda core, symbol, date_str, rich_source=False, include_news=True: source_flags.append((symbol, date_str, rich_source, include_news, core.BROWSER_FALLBACK)) or type(
             "Extras",
             (),
             {"to_dict": staticmethod(lambda: {})},
@@ -284,21 +288,22 @@ def test_cli_analyze_accepts_source_flags_without_llm(monkeypatch):
     )
     monkeypatch.setattr(cli_module, "_print_stock_extras", lambda *args, **kwargs: None)
 
-    result = CliRunner().invoke(cli, ["analyze", "600519", "--rich-source", "--browser-fallback"])
+    result = CliRunner().invoke(cli, ["stock", "600519", "--rich-source", "--browser-fallback"])
 
     assert result.exit_code == 0
-    assert source_flags == [("600519", "20260529", True, True)]
+    assert source_flags == [("600519", "20260529", True, True, True)]
 
 
 def test_cli_analyze_rejects_invalid_symbol_before_rendering(monkeypatch):
     from click.testing import CliRunner
 
     monkeypatch.setattr(cli_module._core, "nearest_trade_date", lambda: "20260529")
+    monkeypatch.setattr(cli_module, "_default_report_trade_date", lambda: "20260529")
     monkeypatch.setattr(cli_module._core, "get_single_stock_quote", lambda symbol, date: (_ for _ in ()).throw(ValueError("invalid")))
     called = []
     monkeypatch.setattr(cli_module._core, "run_stock_quote", lambda *args, **kwargs: called.append("run"))
 
-    result = CliRunner().invoke(cli, ["analyze", "bad-code"])
+    result = CliRunner().invoke(cli, ["stock", "bad-code"])
 
     assert result.exit_code != 0
     assert "bad-code 不是有效的股票代码" in result.output
@@ -309,6 +314,8 @@ def test_cli_stock_shows_short_hint_when_no_enhanced_evidence(monkeypatch):
     from click.testing import CliRunner
 
     monkeypatch.setattr(cli_module._core, "nearest_trade_date", lambda: "20260529")
+    monkeypatch.setattr(cli_module, "_default_report_trade_date", lambda: "20260529")
+    monkeypatch.setattr(cli_module, "_validate_analyze_symbol", lambda symbol, date_str: symbol)
     monkeypatch.setattr(cli_module._core, "run_stock_quote", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         cli_module,
@@ -334,7 +341,7 @@ def test_cli_stock_shows_short_hint_when_no_enhanced_evidence(monkeypatch):
 
     assert result.exit_code == 0
     assert "未返回可展示的增强证据" in result.output
-    assert "YOUNG_STOCK_RESEARCH_COMMAND" in result.output
+    assert "YOUNG_STOCK_RESEARCH_COMMAND" not in result.output
     assert "当前增强项没有需要启动浏览器的失败源" not in result.output
     assert "已允许浏览器回退" in result.output
 
@@ -343,6 +350,8 @@ def test_cli_stock_renders_human_readable_enhanced_evidence(monkeypatch):
     from click.testing import CliRunner
 
     monkeypatch.setattr(cli_module._core, "nearest_trade_date", lambda: "20260529")
+    monkeypatch.setattr(cli_module, "_default_report_trade_date", lambda: "20260529")
+    monkeypatch.setattr(cli_module, "_validate_analyze_symbol", lambda symbol, date_str: symbol)
     monkeypatch.setattr(cli_module._core, "run_stock_quote", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         cli_module,
@@ -766,7 +775,7 @@ def test_cli_config_models_lists_provider_models(monkeypatch):
     monkeypatch.setattr(
         cli_module.LLMClient,
         "list_models",
-        lambda self: ["moonshot-v1-8k", "kimi-k2-0711-preview"],
+        lambda self, **kwargs: ["moonshot-v1-8k", "kimi-k2-0711-preview"],
     )
 
     runner = CliRunner()
@@ -786,8 +795,34 @@ def test_cli_config_models_lists_provider_models(monkeypatch):
     )
 
     assert result.exit_code == 0
+    assert result.output
     assert "moonshot-v1-8k" in result.output
     assert "kimi-k2-0711-preview" in result.output
+
+
+def test_cli_config_models_list_verifies_chat_availability(monkeypatch, tmp_path):
+    from click.testing import CliRunner
+
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
+    cli_module.update_llm_config(provider="ark", model="seed", api_key="secret")
+    seen = []
+
+    class DummyClient:
+        def __init__(self, config):
+            self.config = config
+
+        def list_models(self, **kwargs):
+            seen.append(kwargs)
+            return ["chat-ok"]
+
+    monkeypatch.setattr(cli_module, "LLMClient", DummyClient)
+
+    result = CliRunner().invoke(cli, ["config", "models", "--list"])
+
+    assert result.exit_code == 0
+    assert seen == [{"verify_chat": True}]
+    assert "chat-ok" in result.output
+
 
 
 def test_cli_uninstall_runs_pip_uninstall(monkeypatch):
@@ -1164,7 +1199,8 @@ def test_cli_diagnose_outputs_network_guidance(monkeypatch):
     assert result.exit_code == 0
     assert "网络诊断" in result.output
     assert "建议" in result.output
-    assert "YOUNG_STOCK_RESEARCH_COMMAND" in result.output
+    assert "内置数据源" in result.output
+    assert "YOUNG_STOCK_RESEARCH_COMMAND" not in result.output
 
 
 def test_cli_diagnose_json_outputs_machine_readable_support_info(monkeypatch, tmp_path):
@@ -1498,7 +1534,7 @@ def test_cli_config_models_lists_endpoint_model_ids_only_with_list(monkeypatch, 
         def __init__(self, config):
             self.config = config
 
-        def list_models(self):
+        def list_models(self, **kwargs):
             return ["model-a", "model-b"]
 
     monkeypatch.setattr(cli_module, "LLMClient", DummyClient)
@@ -1519,7 +1555,7 @@ def test_cli_config_models_list_surfaces_clean_llm_error(monkeypatch, tmp_path):
         def __init__(self, config):
             self.config = config
 
-        def list_models(self):
+        def list_models(self, **kwargs):
             raise cli_module.LLMError("模型列表返回了非 JSON 响应，无法解析。")
 
     monkeypatch.setattr(cli_module, "LLMClient", DummyClient)
@@ -1670,7 +1706,7 @@ def test_cli_daily_llm_passes_lens_and_debate_rounds(monkeypatch, tmp_path):
     assert calls[0][1]["debate_rounds"] == 4
 
 
-def test_cli_analyze_accepts_every_lens_and_configurable_debate(monkeypatch):
+def test_cli_stock_accepts_every_lens_and_configurable_debate(monkeypatch):
     from click.testing import CliRunner
 
     calls = []
@@ -1679,12 +1715,12 @@ def test_cli_analyze_accepts_every_lens_and_configurable_debate(monkeypatch):
 
     result = CliRunner().invoke(
         cli,
-        ["analyze", "600519", "--llm", "--lens", "feng_liu"],
+        ["stock", "600519", "--llm", "--lens", "feng_liu"],
     )
 
     assert result.exit_code == 0
     assert calls[0][1] == {
-        "kind": "analyze",
+        "kind": "stock",
         "symbol": "600519",
         "lens": "feng_liu",
     }

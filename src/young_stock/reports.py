@@ -6,7 +6,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from .debate import DebateEngine, build_institutional_prompt
-from .lens import build_lens_prompt
+from .lens import build_lens_prompt, get_lens
 from .llm import LLMError
 from .research_style import review_research_report, to_research_evidence, to_research_methodology
 from .review_gate import review_investment_output
@@ -108,9 +108,30 @@ INTERNAL_FIELD_TITLES = {
     "_cache_note": "日期说明",
 }
 
+
+def _llm_report_structure_prompt(lens: str | None) -> str:
+    if not lens or lens in {"balanced", "all"}:
+        return LLM_REPORT_STRUCTURE_PROMPT
+    lens_name = get_lens(lens).name
+    return (
+        LLM_REPORT_STRUCTURE_PROMPT
+        + "\n"
+        + f"本次指定专家视角为 {lens_name}：一级标题必须包含“{lens_name}”；"
+        + f"最后一个二级标题必须写成“## {lens_name}持仓建议与风险提示”，"
+        + "不要再使用“## 综合持仓建议与风险提示”。"
+    )
+
 REPAIR_PROMPT = """你上一版输出未通过机械校验。只做约束内修复，不得新增证据外数字或主观评分。
-必须保留正式 Markdown，并补齐以下字段语义：总体态度、详细结论、证据、风险、行动建议、观察清单。
+必须保留正式 Markdown，并补齐以下字段语义：总体态度或投资评级/操作结论、详细结论、证据、风险、行动建议、观察清单。
 如果原文已有内容，只能重写为合规表达；若证据不足，明确写“证据暂缺”。"""
+
+
+def _has_blocking_mechanical_failure(checks: dict[str, bool]) -> bool:
+    """Return True only for checks unsafe enough to block user-facing reports."""
+    # ponytail: numeric grounding and fixed attitude wording are advisory; they are too noisy for
+    # natural market prose. Upgrade path: structured claim extraction and a report-kind schema.
+    advisory_checks = {"attitude_present", "numbers_grounded"}
+    return any(not passed for name, passed in checks.items() if name not in advisory_checks)
 
 
 def _public_source(value: Any) -> Any:
@@ -208,7 +229,7 @@ def generate_llm_daily_report(
     daily: bool = True,
 ) -> tuple[str, dict[str, Any]]:
     base_messages = [{"role": "system", "content": LLM_REPORT_SYSTEM_PROMPT}]
-    base_messages.append({"role": "system", "content": LLM_REPORT_STRUCTURE_PROMPT})
+    base_messages.append({"role": "system", "content": _llm_report_structure_prompt(lens)})
     if lens:
         lens_prompt = (
             DebateEngine("all", rounds=debate_rounds, daily=daily).prompt()
@@ -260,7 +281,7 @@ def generate_llm_daily_report(
             {
                 "role": "user",
                 "content": "请修复以下失败检查后重新输出完整 Markdown。"
-                "态度只能是：偏看多 / 中性 / 偏看空 / 回避。"
+                "态度可使用偏看多 / 中性 / 偏看空 / 回避，也可使用投资评级或操作结论表达。"
                 f"失败检查：{json.dumps(checks, ensure_ascii=False)}",
             },
         ]
@@ -268,7 +289,7 @@ def generate_llm_daily_report(
         markdown = review_research_report(repair_response.content, evidence)
         checks = review_investment_output(markdown, evidence)
         checks.pop("structured_candidate")
-        if not all(checks.values()):
+        if _has_blocking_mechanical_failure(checks):
             raise LLMError(f"LLM 输出未通过机械校验: {json.dumps(checks, ensure_ascii=False)}")
     metadata["mechanical_checks"] = checks
     return markdown, metadata

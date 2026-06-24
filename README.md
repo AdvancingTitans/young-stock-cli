@@ -18,7 +18,7 @@
 - 默认走 HTTP-only 公共数据路径。
 - 浏览器兜底只在显式开关下启用。
 - `young daily` 的默认模式不需要 LLM。
-- young analyze <symbol> 默认确定性数据源；young analyze <symbol> --llm 才深度复盘；只有显式 `--lens` 才会进入 lens。
+- young stock <symbol> 默认确定性数据源；young stock <symbol> --llm 才深度复盘；只有显式 `--lens` 才会进入 lens。
 - young daily 默认确定性数据源；young daily --llm 才深度复盘；只有显式 `--lens` 才会进入 lens。
 - 缺失的数据保持缺失，不把空值硬写成零。
 
@@ -39,6 +39,8 @@ young report
 young send
 ```
 
+如果你使用 Kimi Coding Plan、火山方舟 Ark 等 OpenAI-compatible 供应商，先配置 API key，再用 `young config models --list` 查询当前账号真正可用于 `daily --llm` / `stock --llm` 的 chat 模型；列表会过滤目录里有但不可调用的模型。
+
 如果你用的是普通 Python 环境：
 
 ```bash
@@ -49,7 +51,7 @@ young init
 ## 这套输出到底保证什么
 
 - `young daily` 默认是确定性的 watchlist 日报，不依赖模型。
-- `young daily --llm` 和 `young analyze <symbol>` 才会进入证据驱动深度复盘。
+- `young daily --llm` 和 `young stock <symbol> --llm` 才会进入证据驱动深度复盘。
 - `young report` 只负责把最新已保存 Markdown 导出成 PDF，不会主动再跑一遍 LLM。
 - `young send` 只发送最新 Markdown 和摘要；同名 PDF 存在时才会附带。
 - `young config show` 会遮蔽密钥。
@@ -62,9 +64,9 @@ young init
 | Scope | Commands | Notes |
 | --- | --- | --- |
 | Market snapshots | `young a`, `young hk`, `young us`, `young global`, `young indices`, `young zt-pool`, `young flow` | `--refresh` bypasses cache; `--browser-fallback` is explicit. |
-| Single-symbol evidence | `young stock <symbol>`, `young lhb <symbol>`, `young fund <code>`, `young news 3690.HK` | `young stock` can show quote/news plus financial, social, event, and technical fallback evidence. |
+| Single-symbol evidence | `young stock <symbol>`, `young stock <symbol> --llm`, `young lhb <symbol>`, `young fund <code>`, `young news 3690.HK` | Plain `stock` is deterministic; add `--llm` for deep replay. `--no-news` skips news/social/event lookups where supported. |
 | Watchlist reports | `young daily --format summary`, `young daily --format key-points`, `young daily --format full`, `young daily --llm`, `young daily --llm --lens ...` | Plain `daily` is deterministic; `--llm` is the only deep replay entry, and `--lens` only applies when you explicitly ask for it. |
-| Deep analysis | `young analyze <symbol>`, `young analyze <symbol> --llm`, `young analyze <symbol> --llm --lens ...` | Plain `analyze` is deterministic; `--llm` is the deep replay entry, and `--lens` only applies when explicitly provided. |
+| Deep analysis | `young stock <symbol> --llm`, `young stock <symbol> --llm --lens ...` | `stock --llm` is the single-symbol deep replay entry, and `--lens` only applies when explicitly provided. |
 | Export & delivery | `young report`, `young send` | `report` exports PDF only; `send` uses configured channels. |
 | Local state | `young profile ...`, `young portfolio ...`, `young memory ...`, `young style ...` | Profiles drive reports; portfolio is a lightweight local sandbox; memory is chat memory. |
 | Config & support | `young config ...`, `young diagnose`, `young init`, `young guide`, `young example`, `young cache-clear`, `young update`, `young uninstall`, `young chat` | `young update/uninstall` mirror the installation path you chose. |
@@ -130,7 +132,7 @@ The default data path is built around public no-login sources. In practice, youn
 
 ## Method cards
 
-Method cards are structural lenses, not scores. They exist to help `daily --llm` and `analyze` keep the same decision discipline.
+Method cards are structural lenses, not scores. They exist to help `daily --llm` and `stock --llm` keep the same decision discipline.
 
 - Valuation: `DCF-lite`, `Reverse DCF`, `Comps`, `LBO-lite`, `3-statement-lite`, `SOTP-lite`
 - Research: `财报解读`, `业绩前瞻`, `催化剂日历`, `投资逻辑追踪`, `行业综述`, `新闻情绪归因`, `持仓风险复盘`
@@ -138,7 +140,7 @@ Method cards are structural lenses, not scores. They exist to help `daily --llm`
 
 ## Daily framework: M1–M7
 
-`young daily --llm` 和 `young analyze <symbol>` 共享同一套七段结构。
+`young daily --llm` 和 `young stock <symbol> --llm` 共享同一套七段结构。
 
 | Module | Question it answers |
 | --- | --- |
@@ -210,6 +212,8 @@ young portfolio compare 600519 000858
 支持的 provider 包括 `openai`、`ark`、`kimi`、`moonshot`、`deepseek`、`qwen`、`ollama`、`anthropic`。
 
 保存或更新模型配置时必须指定 `--model`；不带 `--model` 时只允许用 `--list` 查询模型 ID，不会写入配置。
+`--list` 面向 `young daily --llm` / `young stock --llm` 这类 chat 工作流，会过滤 Ark 等服务返回的 `status=Shutdown` 目录项以及纯 embedding、图片、视频生成等非文本生成模型，并对候选模型做一次最小 `chat/completions` 探测；因此它比单纯查询 `/models` 慢，但只展示当前实际可调用的模型。
+这对使用 Coding Plan 或多模型网关的用户尤其重要：供应商控制台或 `/models` 返回的 ID 可能只是目录项，只有 `young config models --list` 通过探测后显示的模型，才适合作为 `--model` 或 `--fallback-model`。
 
 ```bash
 export OPENAI_API_KEY="..."
@@ -229,9 +233,9 @@ curl -sS "$API_BASE/models" \
 python3 -c 'import json,sys; print("\n".join(x["id"] for x in json.load(sys.stdin).get("data", [])))'
 ```
 
-Kimi Coding Plan (`https://api.kimi.com/coding/v1`, `kimi-for-coding`) 仅支持 Kimi Code CLI、Claude Code、Roo Code 等 Coding Agents，不适用于 `young daily --llm`、`young chat`、`young analyze --llm` 这类投研/问答工作流。请改用 Kimi OpenPlatform 通用 API 或其他 OpenAI-compatible 模型。
+Kimi Coding Plan (`https://api.kimi.com/coding/v1`, `kimi-for-coding`) 仅支持 Kimi Code CLI、Claude Code、Roo Code 等 Coding Agents，不适用于 `young daily --llm`、`young chat`、`young stock --llm` 这类投研/问答工作流。请改用 Kimi OpenPlatform 通用 API 或其他 OpenAI-compatible 模型。
 
-同一个 endpoint 需要回退模型时，可以用 `young config models ... --fallback-model X --fallback-model Y` 这样配置。只在限流、额度、瞬时服务错误或明确模型不可用时切换；认证、generic404、api_base 错误不切换。Ark 先用 `--list` 核对 model ID，即 `young config models --provider ark --list`，再填 `--model` 和 `--fallback-model`。
+同一个 endpoint 需要回退模型时，可以用 `young config models ... --fallback-model X --fallback-model Y` 这样配置。只在限流、额度、瞬时服务错误或明确模型不可用时切换；认证、generic404、api_base 错误不切换。Ark 先用 `--list` 核对 model ID，即 `young config models --provider ark --list`，再填 `--model` 和 `--fallback-model`；`--list` 会过滤到 chat 可调用范围，不要直接使用 raw `/models` 里 `status=Shutdown` 的模型目录项。
 
 Migration notes:
 
@@ -252,8 +256,7 @@ Migration notes:
 | CLI | Chat slash |
 | --- | --- |
 | `young a` | `/a` |
-| `young stock <symbol>` | `/stock <symbol>` |
-| `young analyze <symbol>` | `/analyze <symbol> [--llm] [--lens ...]` |
+| `young stock <symbol> [--llm] [--lens ...]` | `/stock <symbol> [--llm] [--lens ...]` |
 | `young fund <code>` | `/fund <code>` |
 | `young news 3690.HK` | `/news <query>` |
 | `young daily --llm` | `/daily [--llm] [--lens ...]` |
@@ -317,7 +320,7 @@ young uninstall
 A: No. Plain `young daily` is deterministic.
 
 **Q: When should I use `--llm`?**
-A: When you want the deep M1–M7 replay or a single-stock deep analysis. Plain `young daily` and `young analyze <symbol>` stay deterministic unless you explicitly add `--llm`.
+A: When you want the deep M1–M7 replay or a single-stock deep analysis. Plain `young daily` and `young stock <symbol>` stay deterministic unless you explicitly add `--llm`.
 
 **Q: Can it use a browser automatically?**
 A: No. Browser fallback stays explicit.

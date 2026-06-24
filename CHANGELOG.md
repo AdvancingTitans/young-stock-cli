@@ -1,5 +1,46 @@
 # Changelog
 
+## [0.3.7] - 2026-06-24
+
+### Fixed
+
+- Add explicit expert naming rules for specific `--lens` reports, including expert-specific title text and the final holding-advice heading.
+- Clarify `young config models --list` in README as the preferred way for Coding Plan and multi-model users to find chat-callable model IDs.
+- Relax `stock --llm` mechanical checks so natural single-stock reports are not blocked only because they use rating/action wording instead of fixed attitude words.
+- Keep `numbers_grounded` advisory for LLM reports after repair; unsupported numeric claims remain visible in metadata but no longer block otherwise complete reports.
+
+## [0.3.6] - 2026-06-24
+
+### Changed
+
+- Replace the old quote-only `young stock` command with the former deterministic/deep single-stock analysis flow; `young analyze` is no longer registered.
+- Add query date and current market-stage context to query command output.
+
+### Fixed
+
+- Remove the invalid research-bridge setup hint from empty enhanced-evidence output and diagnostics.
+- Respect `--no-news` in rich single-stock extras by skipping social/event lookups while keeping quote, LHB, financial, and technical evidence paths.
+
+## [0.3.5] - 2026-06-24
+
+### Fixed
+
+- Make `young config models --list` verify actual `chat/completions` availability before displaying model IDs, so catalog-only or inaccessible Ark models are hidden.
+
+## [0.3.4] - 2026-06-24
+
+### Fixed
+
+- Filter non-chat and `status=Shutdown` Ark model catalog entries from `young config models --list`, and clarify model-unavailable errors when a raw catalog ID is not callable.
+
+## [0.3.3] - 2026-06-24
+
+### Fixed
+
+- Relax LLM report mechanical checks for normal market-report wording, including common index names and localized full dates.
+- Accept formal daily-report synonyms such as 综合判断、综合持仓建议 and 下一交易日跟踪 without weakening unsupported financial-number checks.
+- Treat `numbers_grounded` as an advisory metadata check after repair instead of blocking otherwise valid LLM daily reports.
+
 ## [0.3.2] - 2026-06-24
 
 ### Changed

@@ -34,14 +34,14 @@ def test_chat_executes_existing_click_command():
     assert "groups" not in session.history[-1]["content"]
 
 
-def test_chat_allows_analyze_slash(monkeypatch):
+def test_chat_allows_stock_slash(monkeypatch):
     outputs = []
     session = ChatSession(output=outputs.append)
     calls = []
     monkeypatch.setattr(session, "_invoke_click", lambda args, echo=True: calls.append((args, echo)) or "")
 
-    assert session.handle_slash("/analyze 600519") is False
-    assert calls == [(["analyze", "600519"], True)]
+    assert session.handle_slash("/stock 600519 --llm") is False
+    assert calls == [(["stock", "600519", "--llm"], True)]
 
 
 def test_chat_allows_send_slash(monkeypatch):
@@ -88,9 +88,11 @@ def test_chat_blocks_write_or_mutating_slash_without_invoking_click(command, mes
 def test_chat_help_and_prompt_do_not_advertise_profile_group():
     assert "/profile group" not in chat_module.READ_ONLY_SLASH_HELP
     assert "/profile group" not in chat_module.SUPPORTED_SLASH_FOR_PROMPT
-    assert "/analyze <symbol> [--llm] [--lens ...]" in chat_module.READ_ONLY_SLASH_HELP
+    assert "/analyze" not in chat_module.READ_ONLY_SLASH_HELP
+    assert "/stock <symbol> [--llm] [--lens ...]" in chat_module.READ_ONLY_SLASH_HELP
     assert "/daily [--llm] [--lens ...]" in chat_module.READ_ONLY_SLASH_HELP
-    assert "/analyze <symbol> [--llm] [--lens ...]" in chat_module.SUPPORTED_SLASH_FOR_PROMPT
+    assert "/analyze" not in chat_module.SUPPORTED_SLASH_FOR_PROMPT
+    assert "/stock <symbol> [--llm] [--lens ...]" in chat_module.SUPPORTED_SLASH_FOR_PROMPT
     assert "/daily [--llm] [--lens ...]" in chat_module.SUPPORTED_SLASH_FOR_PROMPT
 
 
@@ -208,7 +210,8 @@ def test_style_set_affects_llm_prompt(monkeypatch, tmp_path):
     assert "我是 Buffett" in style_prompt
     assert "按这个风格对话" not in style_prompt
     assert "不要声称自己真的是历史上的该人物" in style_prompt
-    assert "/analyze <symbol>" in safety_prompt
+    assert "/stock <symbol>" in safety_prompt
+    assert "/analyze" not in safety_prompt
     assert "/send" in safety_prompt
     assert "/reach <query>" not in safety_prompt
     assert "不要直接拒绝" in safety_prompt
@@ -217,7 +220,7 @@ def test_style_set_affects_llm_prompt(monkeypatch, tmp_path):
 def test_chat_allowed_query_slashes_exist_in_click_registry():
     from young_stock.cli import cli
 
-    allowed_click_roots = {"a", "stock", "analyze", "fund", "news", "daily", "report", "diagnose", "send", "profile", "memory"}
+    allowed_click_roots = {"a", "stock", "fund", "news", "daily", "report", "diagnose", "send", "profile", "memory"}
 
     assert allowed_click_roots <= set(cli.commands)
 

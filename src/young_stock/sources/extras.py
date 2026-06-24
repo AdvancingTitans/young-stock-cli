@@ -173,6 +173,7 @@ def collect_stock_extras(
     trade_date: str,
     *,
     rich_source: bool = False,
+    include_news: bool = True,
 ) -> StockExtras:
     normalized, _ = core.normalize_stock_symbol(symbol)
     lhb = fetch_lhb(core, normalized, trade_date)
@@ -186,7 +187,11 @@ def collect_stock_extras(
             source_trace=["eastmoney:lhb"],
         )
     financials, events = _akshare_extras(normalized, trade_date)
-    social = social_heat(normalized)
+    if not include_news:
+        events = {"_unavailable": "--no-news 已跳过公告增强"}
+        social = {"_unavailable": "--no-news 已跳过社交热榜"}
+    else:
+        social = social_heat(normalized)
     technical = _yfinance_technical(normalized)
     return StockExtras(
         financial_trends=financials,

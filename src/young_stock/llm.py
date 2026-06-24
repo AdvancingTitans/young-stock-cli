@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -91,7 +92,7 @@ class LLMClient:
             raise LLMError(self._final_error_message(str(last_error), attempted_models)) from None
         raise LLMError(self._final_error_message("LLM 请求失败。", attempted_models))
 
-    def list_models(self) -> list[str]:
+    def list_models(self, *, verify_chat: bool = False) -> list[str]:
         provider = str(self.config.get("provider") or "").lower()
         if not provider:
             raise LLMNotConfigured("未指定 provider，请运行 `young config models --help`。")
@@ -121,6 +122,8 @@ class LLMClient:
         models = []
         for item in rows:
             if isinstance(item, dict):
+                if not self._is_listable_chat_model(item):
+                    continue
                 model_id = item.get("id") or item.get("name")
             elif isinstance(item, str):
                 model_id = item
@@ -128,7 +131,10 @@ class LLMClient:
                 raise LLMError("模型列表返回格式异常，无法解析可用模型 ID。")
             if model_id:
                 models.append(str(model_id))
-        return sorted(dict.fromkeys(models))
+        models = sorted(dict.fromkeys(models))
+        if verify_chat:
+            models = self._verified_chat_models(api_base, api_key, provider, models)
+        return models
 
     def _api_key(self) -> str:
         saved = normalize_api_key(self.config.get("api_key"))
@@ -154,6 +160,47 @@ class LLMClient:
 
     def _model_candidates(self, primary_model: str) -> list[str]:
         return [primary_model, *normalize_fallback_models(self.config.get("fallback_models"), primary_model)]
+
+    def _verified_chat_models(self, api_base: str, api_key: str, provider: str, models: list[str]) -> list[str]:
+        if not models:
+            return []
+        if self.session.__class__.__module__.startswith("requests") and len(models) > 1:
+            workers = min(12, len(models))
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                availability = list(
+                    executor.map(
+                        lambda model: self._can_chat_with_model(api_base, api_key, provider, model, session=requests.Session()),
+                        models,
+                    )
+                )
+            return [model for model, available in zip(models, availability) if available]
+        return [model for model in models if self._can_chat_with_model(api_base, api_key, provider, model)]
+
+    def _can_chat_with_model(
+        self,
+        api_base: str,
+        api_key: str,
+        provider: str,
+        model: str,
+        *,
+        session: Any | None = None,
+    ) -> bool:
+        if provider == "anthropic":
+            return True
+        session = session or self.session
+        headers = {"Content-Type": "application/json"}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        try:
+            response = session.post(
+                f"{api_base}/chat/completions",
+                headers=headers,
+                json={"model": model, "messages": [{"role": "user", "content": "ping"}], "max_tokens": 1},
+                timeout=(3.0, 8.0),
+            )
+        except requests.RequestException:
+            return False
+        return int(getattr(response, "status_code", 0) or 0) < 400
 
     def _is_retryable_exception(self, exc: requests.RequestException) -> bool:
         if isinstance(exc, requests.Timeout):
@@ -199,6 +246,29 @@ class LLMClient:
         hints = ("rate limit", "quota", "too many requests", "insufficient_quota")
         return any(hint in normalized for hint in hints)
 
+    def _is_listable_chat_model(self, item: dict[str, Any]) -> bool:
+        status = str(item.get("status") or "").strip().lower()
+        if status == "shutdown":
+            return False
+        task_type = item.get("task_type")
+        if isinstance(task_type, str):
+            tasks = {task_type.lower()}
+        elif isinstance(task_type, list):
+            tasks = {str(value).lower() for value in task_type}
+        else:
+            tasks = set()
+        if tasks and "textgeneration" not in tasks:
+            return False
+        modalities = item.get("modalities")
+        if isinstance(modalities, dict):
+            outputs = {str(value).lower() for value in modalities.get("output_modalities") or []}
+            inputs = {str(value).lower() for value in modalities.get("input_modalities") or []}
+            if outputs and "text" not in outputs:
+                return False
+            if inputs and "text" not in inputs:
+                return False
+        return True
+
     def _not_found_error_message(self, surface: str, provider: str, detail: str) -> str:
         base = f"{surface}请求失败（HTTP 404）。"
         if provider == "ark":
@@ -208,6 +278,19 @@ class LLMClient:
         if detail:
             return f"{base} 服务端提示：{detail.strip()}"
         return base
+
+    def _model_unavailable_error_message(self, surface: str, provider: str, detail: str) -> str:
+        if provider == "ark":
+            message = (
+                f"{surface}模型不存在、无权限或当前不可调用。"
+                "Ark `/models` 可能包含 status=Shutdown 的目录项；"
+                "请运行 `young config models --list` 选择可用于 chat 的模型 ID。"
+            )
+        else:
+            message = f"{surface}模型不存在、无权限或当前不可用。请运行 `young config models --list` 核对模型 ID。"
+        if detail:
+            message = f"{message} 服务端提示：{detail.strip()}"
+        return message
 
     def _request(self, method: str, url: str, *, surface: str, long_read: bool, **kwargs: Any) -> Any:
         timeout = self._request_timeout(long_read=long_read)
@@ -242,7 +325,7 @@ class LLMClient:
                 )
             if response.status_code in {400, 404, 422} and self._is_model_not_found_detail(detail):
                 raise _LLMRequestFailure(
-                    f"{surface}模型不存在或当前不可用。请运行 `young config models --list` 核对模型 ID。",
+                    self._model_unavailable_error_message(surface, provider, detail),
                     allow_model_fallback=True,
                 )
             if response.status_code == 404:

@@ -12,6 +12,15 @@ CLAIM_NUMBER_RE = re.compile(r"(?<![A-Za-z0-9])[+-]?\d+(?:\.\d+)?%?(?![A-Za-z0-9
 EVIDENCE_NUMBER_RE = re.compile(r"[+-]?\d+(?:\.\d+)?%?")
 DATE_TOKEN_RE = re.compile(r"^\d{8}$")
 HYPHENATED_DATE_RE = re.compile(r"(?<!\d)(\d{4})-(\d{1,2})-(\d{1,2})(?!\d)")
+SLASHED_DATE_RE = re.compile(r"(?<!\d)(\d{4})/(\d{1,2})/(\d{1,2})(?!\d)")
+LOCALIZED_DATE_RE = re.compile(r"(?<!\d)(\d{4})年\s*(\d{1,2})月\s*(\d{1,2})日(?!\d)")
+MARKET_INDEX_NAME_RE = re.compile(
+    r"(?:沪深|中证|上证|深证|科创|创业板|北证|国证|恒生|标普|纳斯达克|道琼斯|罗素)\s*\d+(?:\.\d+)?"
+)
+ATTITUDE_CONTEXT_RE = re.compile(
+    r"(?:总体态度|投资评级|操作建议|综合判断|核心结论|倾向|结论|建议)\s*[:：为]?\s*"
+    r"(?:持有观察|等待确认|不追高|谨慎|中性|震荡观察|偏强|偏弱|看多|看空|回避|增持|减持|观望)"
+)
 
 
 def _normalize_number_token(token: str) -> str:
@@ -41,16 +50,34 @@ def _allowed_numeric_signatures(evidence_text: str) -> set[tuple[str, bool]]:
     return allowed
 
 
+def _date_spans_grounded_by_evidence(text: str, allowed_numeric_signatures: set[tuple[str, bool]]) -> list[tuple[int, int]]:
+    spans: list[tuple[int, int]] = []
+    for pattern in (HYPHENATED_DATE_RE, SLASHED_DATE_RE, LOCALIZED_DATE_RE):
+        for match in pattern.finditer(text):
+            atomic_date = f"{match.group(1)}{int(match.group(2)):02d}{int(match.group(3)):02d}"
+            if (atomic_date, False) in allowed_numeric_signatures:
+                spans.append(match.span())
+    return spans
+
+
+def _market_index_name_spans(text: str) -> list[tuple[int, int]]:
+    return [match.span() for match in MARKET_INDEX_NAME_RE.finditer(text)]
+
+
+def _inside_any_span(start: int, end: int, spans: list[tuple[int, int]]) -> bool:
+    return any(span_start <= start and end <= span_end for span_start, span_end in spans)
+
+
+def _has_attitude(text: str) -> bool:
+    return any(attitude in text for attitude in ATTITUDES) or bool(ATTITUDE_CONTEXT_RE.search(text))
+
+
 def review_investment_output(markdown: str, evidence: dict[str, Any]) -> dict[str, bool]:
     text = str(markdown or "")
     evidence_text = json.dumps(evidence, ensure_ascii=False, default=str)
     allowed_numeric_signatures = _allowed_numeric_signatures(evidence_text)
-    grounded_date_spans = [
-        match.span()
-        for match in HYPHENATED_DATE_RE.finditer(text)
-        if (f"{match.group(1)}{int(match.group(2)):02d}{int(match.group(3)):02d}", False)
-        in allowed_numeric_signatures
-    ]
+    grounded_date_spans = _date_spans_grounded_by_evidence(text, allowed_numeric_signatures)
+    market_index_spans = _market_index_name_spans(text)
     numeric_claims = [
         match.group()
         for match in CLAIM_NUMBER_RE.finditer(text)
@@ -59,16 +86,17 @@ def review_investment_output(markdown: str, evidence: dict[str, Any]) -> dict[st
             and text[match.end() :].startswith((". ", "、"))
             and (match.start() == 0 or text[match.start() - 1] in "\n:：")
         )
-        and not any(start <= match.start() and match.end() <= end for start, end in grounded_date_spans)
+        and not _inside_any_span(match.start(), match.end(), grounded_date_spans)
+        and not _inside_any_span(match.start(), match.end(), market_index_spans)
     ]
-    structured_candidate = any(token in text for token in ("行动建议", "观察清单", "详细结论", "核心理由", "风险"))
+    structured_candidate = any(token in text for token in ("行动建议", "综合持仓建议", "观察清单", "详细结论", "核心理由", "风险"))
     return {
-        "attitude_present": any(attitude in text for attitude in ATTITUDES),
-        "conclusion_present": any(token in text for token in ("详细结论", "辩论后结论", "总体结论", "核心理由", "conclusion")),
-        "evidence_present": any(token in text for token in ("证据", "核心理由", "据公开")),
+        "attitude_present": _has_attitude(text),
+        "conclusion_present": any(token in text for token in ("详细结论", "辩论后结论", "总体结论", "综合判断", "核心理由", "conclusion")),
+        "evidence_present": any(token in text for token in ("证据", "核心理由", "据公开", "数据显示", "披露")),
         "risk_present": "风险" in text,
-        "action_present": any(token in text for token in ("行动建议", "持有", "观察", "回避", "降低暴露")),
-        "watchlist_present": any(token in text for token in ("观察清单", "action_watchlist")) or "持有观察" in text,
+        "action_present": any(token in text for token in ("行动建议", "综合持仓建议", "持有", "观察", "回避", "等待确认", "不追高", "降低暴露")),
+        "watchlist_present": any(token in text for token in ("观察清单", "下一交易日", "跟踪", "确认条件", "action_watchlist")) or "持有观察" in text,
         "no_subjective_score": not re.search(r"(?:评分|score)\s*[:：]?\s*\d+", text, re.IGNORECASE),
         "no_internal_jargon": not any(token in text for token in ("modules.", "fallback", "source_trace")),
         "numbers_grounded": all(

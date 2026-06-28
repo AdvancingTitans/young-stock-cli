@@ -164,6 +164,81 @@ def test_review_gate_accepts_stock_report_rating_as_attitude():
     assert result["attitude_present"] is True
 
 
+def test_review_gate_requires_committee_final_advice_sections():
+    result = review_investment_output(
+        "## 综合持仓建议与风险提示\n"
+        "### 最终态度\n中性。\n"
+        "### 交易计划草案\n若量能确认，可考虑提高观察优先级；失效条件是跌破关键均线；持仓动作草案是维持观察；不行动条件是证据不足。\n"
+        "### 风险管理意见\n市场风险、标的风险、组合集中度风险、流动性与波动风险、证据缺口风险均需跟踪；风险约束建议是暂不提高风险暴露。\n"
+        "### 组合经理最终意见\n最终态度：中性。具体意见：维持观察。组合层优先级：普通。暂不行动理由：证据不足。\n"
+        "### 下一交易日观察清单\n跟踪量能。",
+        {},
+    )
+
+    assert result["final_advice_present"] is True
+    assert result["final_attitude_section"] is True
+    assert result["trading_plan_section"] is True
+    assert result["risk_management_section"] is True
+    assert result["portfolio_opinion_section"] is True
+    assert result["next_watchlist_section"] is True
+    assert result["conditional_language"] is True
+
+
+def test_review_gate_allows_single_lens_final_advice_without_committee_sections():
+    result = review_investment_output(
+        "## 巴菲特持仓建议与风险提示\n"
+        "巴菲特态度：中性。\n"
+        "详细结论：据公开市场数据，证据仍需补充。\n"
+        "证据：证据暂缺。\n"
+        "持仓建议：若基本面证据确认，可维持观察，不生成新增动作。\n"
+        "风险提示：风险在于证据不足，下一交易日跟踪成交额。",
+        {"_meta": {"report_type": "single-stock"}},
+    )
+
+    assert result["final_advice_present"] is True
+    assert result["trading_plan_section"] is True
+    assert result["risk_management_section"] is True
+    assert result["portfolio_opinion_section"] is True
+    assert result["single_lens_no_committee_sections"] is True
+
+
+def test_review_gate_rejects_committee_sections_inside_single_lens_final_advice():
+    result = review_investment_output(
+        "## 巴菲特持仓建议与风险提示\n"
+        "巴菲特态度：中性。\n"
+        "详细结论：据公开市场数据，证据仍需补充。\n"
+        "证据：证据暂缺。\n"
+        "### 交易计划草案\n若确认，可维持观察。\n"
+        "### 风险管理意见\n风险在于证据不足。\n"
+        "持仓建议：维持观察，不生成新增动作。\n"
+        "风险提示：下一交易日跟踪成交额。",
+        {"_meta": {"report_type": "single-stock"}},
+    )
+
+    assert result["single_lens_no_committee_sections"] is False
+
+
+def test_review_gate_rejects_forbidden_trade_execution_language():
+    result = review_investment_output(
+        "## 综合持仓建议与风险提示\n"
+        "最终态度：看涨。交易计划草案：立即买入，已下单。风险管理意见：保证收益。组合经理最终意见：满仓。下一交易日观察清单：跟踪。",
+        {},
+    )
+
+    assert result["no_forbidden_trading_language"] is False
+    assert result["conditional_language"] is False
+
+
+def test_review_gate_rejects_fund_specific_forbidden_language():
+    result = review_investment_output(
+        "## 综合持仓建议与风险提示\n"
+        "最终态度：偏看涨。交易计划草案：立即申购，已申购。风险管理意见：保本保收益。组合经理最终意见：自动扣款。下一交易日观察清单：跟踪。",
+        {"_meta": {"asset_kind": "fund"}},
+    )
+
+    assert result["no_forbidden_trading_language"] is False
+
+
 def test_review_gate_opposite_sign_numbers_are_not_grounded():
     negative_percent = review_investment_output(
         "总体态度：中性\n核心理由：据公开数据，利润率为 -3%。\n风险：波动。\n行动建议：持有观察。",

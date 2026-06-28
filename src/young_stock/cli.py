@@ -30,7 +30,7 @@ from .config import (
     save_config,
     update_llm_config,
 )
-from .evidence import build_daily_evidence, build_stock_evidence
+from .evidence import build_daily_evidence, build_fund_evidence, build_stock_evidence
 from .lens.registry import lens_ids
 from .llm import LLMClient, LLMError, LLMNotConfigured
 from .local_store import load_store, now_label, save_store, young_home
@@ -90,10 +90,6 @@ def _print_first_use_guide() -> None:
     click.echo("  young profile add-fund 161725 --buy-date 2026-01-10 --quantity 1000")
     click.echo()
     click.echo(f"配置会保存到: {profile_path()}")
-
-
-def _human_bool(value: object) -> str:
-    return "是" if value else "否"
 
 
 def _mask_for_human(value: object) -> str:
@@ -805,16 +801,53 @@ def lhb(symbol: str, date: str | None, limit: int) -> None:
         click.echo(line)
 
 
-@cli.command(help="Show one fund estimate, top holdings quotes, and holding-stock news.")
+@cli.command(help="Show fund evidence; add --llm for deep fund analysis.")
 @click.argument("code")
 @_date_opt
 @_refresh_opt
 @click.option("--no-news", is_flag=True, help="Only show fund and holding quote data, skip news lookup.")
-def fund(code: str, date: str | None, refresh: bool, no_news: bool) -> None:
+@click.option("--llm", "use_llm", is_flag=True, help="Use the configured LLM for deep fund analysis.")
+@click.option("--lens", type=click.Choice(("balanced", "all", *lens_ids())), default=None, help="Explicit LLM lens. Requires --llm.")
+@click.option("--debate-rounds", default=3, show_default=True, type=click.IntRange(1, 5))
+@click.option("--rich-source", is_flag=True, help="Allow slower optional sources where available.")
+@click.option("--browser-fallback", is_flag=True, help="Allow browser fallback if a supporting capability decides it is needed.")
+@click.pass_context
+def fund(
+    ctx: click.Context,
+    code: str,
+    date: str | None,
+    refresh: bool,
+    no_news: bool,
+    use_llm: bool,
+    lens: str | None,
+    debate_rounds: int,
+    rich_source: bool,
+    browser_fallback: bool,
+) -> None:
     if refresh:
         _core.NO_CACHE = True
+    _core.BROWSER_FALLBACK = browser_fallback
     _core.cache_clear_old(days=7)
-    date_str = date or _core.nearest_trade_date()
+    date_str = date or (_default_report_trade_date() if use_llm else _core.nearest_trade_date())
+    _validate_llm_option_contract(
+        use_llm=use_llm,
+        lens=lens,
+        debate_rounds=debate_rounds,
+        debate_rounds_explicit=ctx.get_parameter_source("debate_rounds") is ParameterSource.COMMANDLINE,
+    )
+    if use_llm:
+        replay_options = {"kind": "fund", "symbol": code, "asset_kind": "fund"}
+        if lens:
+            replay_options["lens"] = lens
+        if lens == "all":
+            replay_options["debate_rounds"] = debate_rounds
+        if rich_source or browser_fallback:
+            replay_options.update(
+                rich_source=rich_source,
+                browser_fallback=browser_fallback,
+            )
+        _run_llm_replay(date_str, **replay_options)
+        return
     _print_query_context(date_str)
     _core.run_fund_report(code, date_str, include_news=not no_news)
 
@@ -907,18 +940,20 @@ def _run_llm_replay(
     date_str: str,
     kind: str = "replay",
     symbol: str | None = None,
+    asset_kind: str = "stock",
     lens: str | None = None,
     debate_rounds: int = 3,
     rich_source: bool = False,
     browser_fallback: bool = False,
 ):
     profile = load_profile()
-    evidence = (
-        build_stock_evidence(_core, symbol, date_str, rich_source=rich_source)
-        if symbol
-        else build_daily_evidence(_core, date_str, profile, rich_source=rich_source)
-    )
-    if symbol and rich_source:
+    if symbol and asset_kind == "fund":
+        evidence = build_fund_evidence(_core, symbol, date_str, rich_source=rich_source)
+    elif symbol:
+        evidence = build_stock_evidence(_core, symbol, date_str, rich_source=rich_source)
+    else:
+        evidence = build_daily_evidence(_core, date_str, profile, rich_source=rich_source)
+    if symbol and asset_kind != "fund" and rich_source:
         evidence.modules["STOCK"]["external_research"] = _internal_research_fallback(symbol)
     artifacts = ReportArtifacts(date_str)
     identity = _llm_report_identity(date_str, symbol, lens)
@@ -1114,10 +1149,10 @@ def config_show() -> None:
     default=None,
     type=click.Choice(["openai", "ark", "kimi", "moonshot", "deepseek", "qwen", "ollama", "anthropic"]),
 )
-@click.option("--model", default=None, help="Persist the model ID; when supplied, this command updates config.")
+@click.option("--model", default=None, help="Model ID used by chat and LLM reports.")
 @click.option("--api-key", default=None, hide_input=True)
 @click.option("--api-key-env", default=None, help="Environment variable containing the API key.")
-@click.option("--api-base", default=None, help="Provider API base, for example https://api.moonshot.ai/v1.")
+@click.option("--api-base", default=None, help="Override provider API base URL.")
 @click.option(
     "--fallback-model",
     "fallback_models",
@@ -1170,7 +1205,12 @@ def config_models(
             max_tokens=max_tokens if explicit_max_tokens else None,
         )
         llm = updated.get("llm") or {}
-        click.echo(f"LLM configured: provider={llm.get('provider')}; model={llm.get('model')}; config={config_path()}")
+        click.echo(
+            "LLM configured: "
+            f"provider={llm.get('provider')}; "
+            f"model={llm.get('model')}; "
+            f"config={config_path()}"
+        )
         return
 
     if not list_models:

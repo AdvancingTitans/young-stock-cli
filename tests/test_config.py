@@ -30,6 +30,17 @@ def test_config_round_trip_uses_young_home(monkeypatch, tmp_path):
     assert stat.S_IMODE((tmp_path / "config.json").stat().st_mode) & 0o077 == 0
 
 
+def test_model_and_api_base_round_trip_without_backend_url_migration(monkeypatch, tmp_path):
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
+    save_config({"llm": {"provider": "deepseek", "model": "old-model", "api_base": "https://old.example/v1"}})
+
+    llm = load_config()["llm"]
+
+    assert llm["model"] == "old-model"
+    assert llm["api_base"] == "https://old.example/v1"
+    assert "backend_url" not in llm
+
+
 def test_config_persists_api_key_env_fallback(monkeypatch, tmp_path):
     monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
     monkeypatch.setenv("MODEL_KEY", '  "env-secret"  ')

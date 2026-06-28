@@ -4,6 +4,7 @@ import pytest
 
 from young_stock.research_style import (
     ResearchStyleError,
+    normalize_report_markdown,
     review_research_report,
     to_research_evidence,
     to_research_methodology,
@@ -97,6 +98,39 @@ def test_review_research_report_removes_placeholder_only_line_but_keeps_context_
 
     assert "- 本模块证据暂缺。" not in reviewed
     assert "这句话只是提示本模块证据暂缺导致样本不足。" in reviewed
+
+
+def test_review_research_report_normalizes_markdown_spacing_and_percent_signs():
+    markdown = (
+        "# 复盘\n\n"
+        "## 综合持仓建议与风险提示\n"
+        "### 交易计划草案\n"
+        "- **触发条件**：若指数   跌超2 %，则维持观察。\n"
+        "    - 若半导体设备板块涨幅   超5 %，再提高观察优先级。\n"
+        "   - 若基金估算净值跌超3 %，暂不提高风险暴露。\n"
+        "- **不行动条件**：证据    不足时维持观察。\n"
+    )
+
+    reviewed = review_research_report(markdown, sample_evidence())
+
+    assert "跌超2%" in reviewed
+    assert "超5%" in reviewed
+    assert "跌超3%" in reviewed
+    assert "指数   跌" not in reviewed
+    assert "证据    不足" not in reviewed
+    assert "  - 若半导体设备板块" in reviewed
+    assert "  - 若基金估算净值" in reviewed
+    assert "    - 若半导体设备板块" not in reviewed
+    assert "   - 若基金估算净值" not in reviewed
+
+
+def test_normalize_report_markdown_keeps_code_blocks_untouched():
+    markdown = "```text\n跌超2 %\n    - raw   spacing\n```\n\n- 正文  跌超2 %"
+
+    normalized = normalize_report_markdown(markdown)
+
+    assert "跌超2 %\n    - raw   spacing" in normalized
+    assert "- 正文 跌超2%" in normalized
 
 
 def test_review_research_report_rejects_unrecognized_internal_field():

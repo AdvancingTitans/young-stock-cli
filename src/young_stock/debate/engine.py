@@ -54,6 +54,24 @@ def build_institutional_prompt(
 ) -> str:
     config = DebateConfig(rounds)
     scope = "今日大盘、市场风格与用户整体持仓" if daily else "单只股票及用户相关持仓"
+    if lens_id not in {"all", "balanced"}:
+        lens = get_lens(lens_id)
+        output_scope = (
+            "不新增 M7；在既有结构后只输出该专家视角的持仓建议与风险提示。"
+            if daily
+            else "最终只输出该专家视角的总体态度、详细结论、证据、风险和针对持仓的行动建议。"
+        )
+        return (
+            f"分析范围：{scope}。{output_scope}"
+            "态度只能是：偏看多 / 中性 / 偏看空 / 回避；不得输出主观评分。"
+            "所有数字必须来自给定证据；缺失时明确写证据暂缺。"
+            "方法卡只提供结构且不得压过所选专家原则："
+            f"{_methods_text(lens_id)}。\n"
+            f"采用 {lens.name}（{lens.school}）视角。"
+            f"原则：{'、'.join(lens.principles)}。"
+            f"优先证据：{'、'.join(lens.evidence_priorities)}。"
+            "不要触发辩论，不要模仿身份声明；保留明确态度和 3-5 段分析结论。"
+        )
     m7 = (
         "在既有 M1-M6 后新增且只新增 `## M7 机构化综合判断`，包含："
         "专家观点或委员会结论、轻量 comps/比率趋势、催化剂与业绩跟踪、"
@@ -72,14 +90,6 @@ def build_institutional_prompt(
         return (
             f"{common}\n采用 balanced 综合视角，不模拟任何专家人格，也不触发辩论。"
             "平衡基本面、估值、宏观、量价、组合暴露与反方证据。"
-        )
-    if lens_id != "all":
-        lens = get_lens(lens_id)
-        return (
-            f"{common}\n采用 {lens.name}（{lens.school}）视角。"
-            f"原则：{'、'.join(lens.principles)}。"
-            f"优先证据：{'、'.join(lens.evidence_priorities)}。"
-            "不要触发辩论，不要模仿身份声明；保留明确态度和 3-5 段分析结论。"
         )
 
     roster = "；".join(

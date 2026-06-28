@@ -209,6 +209,51 @@ def _compose_public_report(title: str | None, body_lines: list[str], disclaimer:
     return disclaimer
 
 
+_LIST_MARKER_RE = re.compile(r"^(?P<indent>[ \t]*)(?P<marker>[-*+•]|\d+[.)])(?P<gap>[ \t]+)(?P<body>.*)$")
+
+
+def _normalize_report_spacing(line: str) -> str:
+    line = re.sub(r"(?<=\d)[ \t\u3000]+%", "%", line)
+    indent = re.match(r"^[ \t]*", line).group(0)
+    body = line[len(indent):]
+    body = re.sub(r"[ \t\u3000]{2,}", " ", body)
+    return f"{indent}{body}".rstrip()
+
+
+def _normalize_markdown_list_line(line: str) -> str:
+    match = _LIST_MARKER_RE.match(line)
+    if not match:
+        return _normalize_report_spacing(line)
+    raw_indent = match.group("indent").replace("\t", "  ")
+    # ponytail: generated reports only need shallow Markdown lists; cap noisy 3-4 space
+    # child indents to 2. Upgrade path: a real Markdown AST formatter.
+    indent_len = len(raw_indent)
+    if 0 < indent_len <= 4:
+        indent_len = 2
+    else:
+        indent_len = (indent_len // 2) * 2
+    body = re.sub(r"[ \t\u3000]{2,}", " ", match.group("body")).strip()
+    body = re.sub(r"(?<=\d)[ \t\u3000]+%", "%", body)
+    return f"{' ' * indent_len}{match.group('marker')} {body}".rstrip()
+
+
+def normalize_report_markdown(markdown: str) -> str:
+    """Normalize generated Markdown spacing without changing report content."""
+    lines: list[str] = []
+    in_code_block = False
+    for raw_line in str(markdown or "").splitlines():
+        stripped = raw_line.strip()
+        if stripped.startswith("```"):
+            in_code_block = not in_code_block
+            lines.append(raw_line.rstrip())
+            continue
+        if in_code_block or not stripped:
+            lines.append(raw_line.rstrip())
+            continue
+        lines.append(_normalize_markdown_list_line(raw_line))
+    return "\n".join(lines).strip()
+
+
 def sanitize_public_report(markdown: str, evidence: dict[str, Any] | None = None, *, strict: bool = False) -> str:
     evidence = evidence or {}
     normalized_markdown = _normalized_line(markdown)
@@ -245,7 +290,7 @@ def sanitize_public_report(markdown: str, evidence: dict[str, Any] | None = None
     validation_lines = [_normalized_line(line) for line in reviewed.splitlines()]
     if any(_unsafe(line) or _editorial_noise(line) for line in validation_lines):
         raise ResearchStyleError("正式研报未通过研究语言审校。")
-    return reviewed
+    return normalize_report_markdown(reviewed)
 
 
 def review_research_report(markdown: str, evidence: dict[str, Any]) -> str:

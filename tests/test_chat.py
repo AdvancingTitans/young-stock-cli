@@ -1,4 +1,5 @@
 import pytest
+from rich.console import Console
 
 import young_stock.chat as chat_module
 from young_stock.chat import ChatSession, run_chat, slash_to_args
@@ -42,6 +43,16 @@ def test_chat_allows_stock_slash(monkeypatch):
 
     assert session.handle_slash("/stock 600519 --llm") is False
     assert calls == [(["stock", "600519", "--llm"], True)]
+
+
+def test_chat_allows_fund_llm_lens_slash(monkeypatch):
+    outputs = []
+    session = ChatSession(output=outputs.append)
+    calls = []
+    monkeypatch.setattr(session, "_invoke_click", lambda args, echo=True: calls.append((args, echo)) or "")
+
+    assert session.handle_slash("/fund 161725 --llm --lens all") is False
+    assert calls == [(["fund", "161725", "--llm", "--lens", "all"], True)]
 
 
 def test_chat_allows_send_slash(monkeypatch):
@@ -90,9 +101,11 @@ def test_chat_help_and_prompt_do_not_advertise_profile_group():
     assert "/profile group" not in chat_module.SUPPORTED_SLASH_FOR_PROMPT
     assert "/analyze" not in chat_module.READ_ONLY_SLASH_HELP
     assert "/stock <symbol> [--llm] [--lens ...]" in chat_module.READ_ONLY_SLASH_HELP
+    assert "/fund <code> [--llm] [--lens ...]" in chat_module.READ_ONLY_SLASH_HELP
     assert "/daily [--llm] [--lens ...]" in chat_module.READ_ONLY_SLASH_HELP
     assert "/analyze" not in chat_module.SUPPORTED_SLASH_FOR_PROMPT
     assert "/stock <symbol> [--llm] [--lens ...]" in chat_module.SUPPORTED_SLASH_FOR_PROMPT
+    assert "/fund <code> [--llm] [--lens ...]" in chat_module.SUPPORTED_SLASH_FOR_PROMPT
     assert "/daily [--llm] [--lens ...]" in chat_module.SUPPORTED_SLASH_FOR_PROMPT
 
 
@@ -223,6 +236,97 @@ def test_chat_allowed_query_slashes_exist_in_click_registry():
     allowed_click_roots = {"a", "stock", "fund", "news", "daily", "report", "diagnose", "send", "profile", "memory"}
 
     assert allowed_click_roots <= set(cli.commands)
+
+
+def test_chat_welcome_panel_contains_young_workflow_and_boundaries():
+    from young_stock.chat_ui import ChatRenderer
+
+    console = Console(record=True, width=90)
+    renderer = ChatRenderer(console)
+    renderer.render_welcome(style_name="balanced")
+    text = console.export_text()
+
+    assert "Welcome to young" in text
+    assert "Evidence Pack → Lens Research" in text
+    assert "Workflow Steps" in text
+    assert "No auto-trading" in text
+    assert "No brokerage connection" in text
+    assert "/fund <code> [--llm] [--lens ...]" in text
+    assert "TradingAgents" not in text
+    assert "Tauric Research" not in text
+
+
+def test_chat_default_prompt_is_clean_angle():
+    assert chat_module.DEFAULT_INPUT_PROMPT == "> "
+
+
+def test_run_chat_renders_welcome_once_and_uses_clean_prompt(monkeypatch):
+    prompts = []
+    welcomes = []
+
+    class FakeSession:
+        style_name = "balanced"
+
+        def handle_slash(self, text):
+            return text == "/exit"
+
+        def handle_message(self, text):
+            raise AssertionError("unexpected message")
+
+    class FakeRenderer:
+        def __init__(self, console):
+            self.console = console
+
+        def render_welcome(self, style_name):
+            welcomes.append(style_name)
+
+    monkeypatch.setattr(chat_module, "ChatSession", lambda: FakeSession())
+    monkeypatch.setattr(chat_module, "ChatRenderer", FakeRenderer)
+    monkeypatch.setattr(chat_module, "_read_chat_input", lambda prompt_text=chat_module.DEFAULT_INPUT_PROMPT: prompts.append(prompt_text) or "/exit")
+
+    run_chat()
+
+    assert welcomes == ["balanced"]
+    assert prompts == ["> "]
+
+
+def test_chat_message_renderer_does_not_add_role_prefix(monkeypatch):
+    rendered = []
+
+    class DummyClient:
+        def __init__(self, config):
+            self.config = config
+
+        def chat(self, messages):
+            return type("Response", (), {"content": "## 结论\n\n维持观察。"})()
+
+    class FakeRenderer:
+        def __init__(self, console):
+            pass
+
+        def markdown(self, message):
+            rendered.append(message)
+
+        def text(self, message):
+            rendered.append(message)
+
+        def error(self, message):
+            rendered.append(message)
+
+        def system(self, message):
+            rendered.append(message)
+
+        def slash(self, message):
+            rendered.append(message)
+
+    monkeypatch.setattr(chat_module, "LLMClient", DummyClient)
+    monkeypatch.setattr(chat_module, "ChatRenderer", FakeRenderer)
+    session = ChatSession(output=lambda value: rendered.append(value))
+
+    session.handle_message("怎么看？")
+
+    assert rendered == ["## 结论\n\n维持观察。"]
+    assert not rendered[0].lower().startswith(("young:", "assistant:"))
 
 
 def test_style_set_uses_selected_persona_name_in_prompt(monkeypatch, tmp_path):
@@ -385,7 +489,7 @@ def test_current_time_snapshot_falls_back_to_local_when_network_unavailable(monk
     assert snapshot["network"] is None
 
 
-def test_run_chat_banner_shows_style_options(monkeypatch, tmp_path, capsys):
+def test_run_chat_banner_shows_welcome_panel(monkeypatch, tmp_path, capsys):
     monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
 
     def raise_eof(*args, **kwargs):
@@ -397,11 +501,11 @@ def test_run_chat_banner_shows_style_options(monkeypatch, tmp_path, capsys):
     run_chat()
 
     captured = capsys.readouterr().out
-    assert "可选风格" in captured
+    assert "Welcome to young" in captured
+    assert "Workflow Steps" in captured
+    assert "No auto-trading" in captured
     assert "balanced" in captured
-    assert "当前风格" in captured
     assert "/style set <name>" in captured
-    assert "对话风格、自称口吻和分析框架" in captured
 
 
 def test_run_chat_uses_prompt_toolkit_with_fixed_prompt(monkeypatch, tmp_path):
@@ -416,7 +520,7 @@ def test_run_chat_uses_prompt_toolkit_with_fixed_prompt(monkeypatch, tmp_path):
 
     run_chat()
 
-    assert prompts == ["young "]
+    assert prompts == ["> "]
 
 
 def test_run_chat_falls_back_to_builtins_input_when_prompt_toolkit_unavailable(monkeypatch, tmp_path):
@@ -432,4 +536,4 @@ def test_run_chat_falls_back_to_builtins_input_when_prompt_toolkit_unavailable(m
 
     run_chat()
 
-    assert prompts == ["young "]
+    assert prompts == ["> "]

@@ -21,6 +21,12 @@ ATTITUDE_CONTEXT_RE = re.compile(
     r"(?:总体态度|投资评级|操作建议|综合判断|核心结论|倾向|结论|建议)\s*[:：为]?\s*"
     r"(?:持有观察|等待确认|不追高|谨慎|中性|震荡观察|偏强|偏弱|看多|看空|回避|增持|减持|观望)"
 )
+FINAL_ATTITUDES = ("看涨", "偏看涨", "中性", "偏看空", "看空", "回避", "证据不足", "偏看多")
+FORBIDDEN_TERMS = (
+    "立即买入", "立即卖出", "满仓", "梭哈", "稳赚", "必涨", "保证收益", "已下单", "自动执行", "连接券商", "实盘自动",
+)
+FUND_FORBIDDEN_TERMS = ("立即申购", "立即赎回", "自动扣款", "已申购", "已赎回", "保本保收益")
+CONDITIONAL_TERMS = ("如果", "若", "当", "除非", "触发", "确认", "失效", "维持观察", "暂不", "证据不足", "不行动", "观察", "等待")
 
 
 def _normalize_number_token(token: str) -> str:
@@ -69,7 +75,28 @@ def _inside_any_span(start: int, end: int, spans: list[tuple[int, int]]) -> bool
 
 
 def _has_attitude(text: str) -> bool:
-    return any(attitude in text for attitude in ATTITUDES) or bool(ATTITUDE_CONTEXT_RE.search(text))
+    return any(attitude in text for attitude in (*ATTITUDES, *FINAL_ATTITUDES)) or bool(ATTITUDE_CONTEXT_RE.search(text))
+
+
+def _is_fund_evidence(evidence: dict[str, Any]) -> bool:
+    evidence_text = json.dumps(evidence, ensure_ascii=False, default=str)
+    return '"asset_kind": "fund"' in evidence_text or '"report_type": "single-fund"' in evidence_text or '"FUND"' in evidence_text
+
+
+def _has_single_lens_final_title(text: str) -> bool:
+    return bool(re.search(r"(?m)^##\s+(?!综合)[^\n#]{1,24}持仓建议与风险提示\s*$", text))
+
+
+def _requires_final_advice_sections(text: str, evidence: dict[str, Any]) -> bool:
+    meta = evidence.get("_meta") if isinstance(evidence, dict) else {}
+    if _has_single_lens_final_title(text):
+        return False
+    return (
+        "交易计划草案" in text
+        or "风险管理意见" in text
+        or "组合经理最终意见" in text
+        or (isinstance(meta, dict) and bool(meta.get("report_type")))
+    )
 
 
 def review_investment_output(markdown: str, evidence: dict[str, Any]) -> dict[str, bool]:
@@ -90,6 +117,10 @@ def review_investment_output(markdown: str, evidence: dict[str, Any]) -> dict[st
         and not _inside_any_span(match.start(), match.end(), market_index_spans)
     ]
     structured_candidate = any(token in text for token in ("行动建议", "综合持仓建议", "观察清单", "详细结论", "核心理由", "风险"))
+    requires_final = _requires_final_advice_sections(text, evidence)
+    single_lens_final = _has_single_lens_final_title(text)
+    final_advice_present = "综合持仓建议与风险提示" in text or "持仓建议与风险提示" in text
+    no_forbidden = not any(token in text for token in (FORBIDDEN_TERMS + (FUND_FORBIDDEN_TERMS if _is_fund_evidence(evidence) else ())))
     return {
         "attitude_present": _has_attitude(text),
         "conclusion_present": any(token in text for token in ("详细结论", "辩论后结论", "总体结论", "综合判断", "核心理由", "conclusion")),
@@ -99,6 +130,16 @@ def review_investment_output(markdown: str, evidence: dict[str, Any]) -> dict[st
         "watchlist_present": any(token in text for token in ("观察清单", "下一交易日", "跟踪", "确认条件", "action_watchlist")) or "持有观察" in text,
         "no_subjective_score": not re.search(r"(?:评分|score)\s*[:：]?\s*\d+", text, re.IGNORECASE),
         "no_internal_jargon": not any(token in text for token in ("modules.", "fallback", "source_trace")),
+        "final_advice_present": (not requires_final) or final_advice_present,
+        "final_attitude_section": (not requires_final) or "最终态度" in text,
+        "trading_plan_section": (not requires_final) or "交易计划草案" in text,
+        "risk_management_section": (not requires_final) or "风险管理意见" in text,
+        "portfolio_opinion_section": (not requires_final) or "组合经理最终意见" in text,
+        "next_watchlist_section": (not requires_final) or "下一交易日观察清单" in text,
+        "single_lens_no_committee_sections": (not single_lens_final)
+        or not any(token in text for token in ("交易计划草案", "风险管理意见", "组合经理最终意见")),
+        "no_forbidden_trading_language": no_forbidden,
+        "conditional_language": no_forbidden and any(token in text for token in CONDITIONAL_TERMS),
         "numbers_grounded": all(
             (_normalize_number_token(token), token.endswith("%")) in allowed_numeric_signatures for token in numeric_claims
         ),

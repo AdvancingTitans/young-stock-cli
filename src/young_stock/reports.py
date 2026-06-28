@@ -5,6 +5,7 @@ import json
 from typing import Any
 from urllib.parse import urlparse
 
+from .committee import asset_kind_from_evidence, committee_prompt
 from .debate import DebateEngine, build_institutional_prompt
 from .lens import build_lens_prompt, get_lens
 from .llm import LLMError
@@ -28,8 +29,8 @@ NEGATIVE_NEWS_KEYWORDS = (
 LLM_REPORT_PROMPT_VERSION = "young-research-language-v4"
 LLM_REPORT_SYSTEM_PROMPT = """请基于用户提供的研报证据，撰写正式 A 股投资研究报告。
 你只能使用用户提供的研报证据，不得补写或外推任何缺失数字、日期、来源或持仓。
-你必须严格遵循 young-stock-cli 的 M1-M6 框架，并在其后新增 M7；默认 balanced 时不得把 M1-M6 替换、弱化或改写成任何个人投资框架。
-按以下顺序输出 Markdown：大盘指数概览、持仓分析、六模块深度复盘、M7 机构化综合判断、综合持仓建议与风险提示。
+你必须严格遵循 young-stock-cli 的 M1-M6 框架；默认 balanced 时不得把 M1-M6 替换、弱化或改写成任何个人投资框架。
+按结构约束输出 Markdown；只有 --lens all 使用 M7 机构化综合判断。
 “六模块深度复盘”下固定使用以下子标题顺序：M1 大盘指数与市场广度、M2 板块强弱与资金流、M3 赚钱效应与涨停结构、M4 下跌风险与炸板结构、M5 持仓与市场风格、M6 抗跌方向。
 每个有证据的模块给出关键判断、证据、风险/确认条件；建议必须是条件化触发器，不给无条件买卖指令。
 证据完整度不足时，只输出指数、持仓、已验证风险和下一交易日观察清单。
@@ -38,7 +39,7 @@ LLM_REPORT_SYSTEM_PROMPT = """请基于用户提供的研报证据，撰写正�
 正常数据使用“据公开市场数据”或“据交易所及财经终端披露”；回溯数据使用“按惯例回溯至该日”或“历史口径回溯”。
 公开版会在标题下统一加入短声明；不要重复免责声明，也不要在结尾追加长免责声明。"""
 
-LLM_REPORT_STRUCTURE_PROMPT = """输出结构必须固定：
+LLM_REPORT_COMMITTEE_STRUCTURE_PROMPT = """输出结构必须固定：
 # 标题
 ## 大盘指数概览
 ## 持仓分析
@@ -52,7 +53,25 @@ LLM_REPORT_STRUCTURE_PROMPT = """输出结构必须固定：
 ## M7 机构化综合判断
 ## 综合持仓建议与风险提示
 
-只有显式 lens 系统消息可以约束 M7 的专家视角；不得把 M1-M6 改写成人物风格模板。"""
+只有 --lens all 可以触发 M7 的多专家综合判断；不得输出逐轮辩论过程。
+最终建议章节必须包含：最终态度、交易计划草案、风险管理意见、组合经理最终意见、下一交易日观察清单。"""
+
+LLM_REPORT_SINGLE_LENS_STRUCTURE_PROMPT = """输出结构必须固定：
+# 标题
+## 大盘指数概览
+## 持仓分析
+## 六模块深度复盘
+### M1 大盘指数与市场广度
+### M2 板块强弱与资金流
+### M3 赚钱效应与涨停结构
+### M4 下跌风险与炸板结构
+### M5 持仓与市场风格
+### M6 抗跌方向
+## {lens_name}持仓建议与风险提示
+
+本次是单专家视角，不新增、不输出“## M7 机构化综合判断”。
+整篇报告都应使用 {lens_name} 的投资框架风格组织证据、态度和风险提示，但不得模仿身份声明或虚构专家发言。
+最后章节只需要包含 {lens_name} 的态度、持仓建议和风险提示；不要输出“交易计划草案”“风险管理意见”“组合经理最终意见”等委员会小节。"""
 
 MODULE_TITLES = {
     "M1": "大盘指数与市场广度",
@@ -111,11 +130,11 @@ INTERNAL_FIELD_TITLES = {
 
 def _llm_report_structure_prompt(lens: str | None) -> str:
     if not lens or lens in {"balanced", "all"}:
-        return LLM_REPORT_STRUCTURE_PROMPT
+        return LLM_REPORT_COMMITTEE_STRUCTURE_PROMPT
     lens_def = get_lens(lens)
     lens_name = lens_def.zh_name
     return (
-        LLM_REPORT_STRUCTURE_PROMPT
+        LLM_REPORT_SINGLE_LENS_STRUCTURE_PROMPT.format(lens_name=lens_name)
         + "\n"
         + f"本次指定专家视角为 {lens_def.name}；中文报告使用“{lens_name}”。"
         + f"一级标题必须包含“{lens_name}”；"
@@ -123,9 +142,22 @@ def _llm_report_structure_prompt(lens: str | None) -> str:
         + "不要再使用“## 综合持仓建议与风险提示”。"
     )
 
-REPAIR_PROMPT = """你上一版输出未通过机械校验。只做约束内修复，不得新增证据外数字或主观评分。
+REPAIR_PROMPT = """你上一版输出未通过机械校验。只做约束内修复，不得新增证据外数字、日期、来源、持仓或主观评分。
 必须保留正式 Markdown，并补齐以下字段语义：总体态度或投资评级/操作结论、详细结论、证据、风险、行动建议、观察清单。
-如果原文已有内容，只能重写为合规表达；若证据不足，明确写“证据暂缺”。"""
+最后建议章节必须补齐五个小节：最终态度、交易计划草案、风险管理意见、组合经理最终意见、下一交易日观察清单。
+删除真实交易执行、保证收益、无条件买卖/申购/赎回指令，改为条件化触发器。
+如果原文已有内容，只能重写为合规表达；若证据不足，明确写“证据暂缺”“维持观察，不生成新增动作”。"""
+
+SINGLE_LENS_REPAIR_PROMPT = """你上一版输出未通过机械校验。只做约束内修复，不得新增证据外数字、日期、来源、持仓或主观评分。
+必须保留正式 Markdown，并补齐以下字段语义：专家态度或投资评级/操作结论、详细结论、证据、风险提示、持仓建议、观察清单。
+本次是单专家视角，不输出 M7，也不要输出交易计划草案、风险管理意见、组合经理最终意见等委员会小节。
+最后建议章节只保留该专家投资框架下的态度、持仓建议和风险提示。
+删除真实交易执行、保证收益、无条件买卖/申购/赎回指令，改为条件化触发器。
+如果原文已有内容，只能重写为合规表达；若证据不足，明确写“证据暂缺”“维持观察，不生成新增动作”。"""
+
+
+def _repair_prompt(lens: str | None) -> str:
+    return SINGLE_LENS_REPAIR_PROMPT if lens and lens not in {"balanced", "all"} else REPAIR_PROMPT
 
 
 def _has_blocking_mechanical_failure(checks: dict[str, bool]) -> bool:
@@ -232,6 +264,8 @@ def generate_llm_daily_report(
 ) -> tuple[str, dict[str, Any]]:
     base_messages = [{"role": "system", "content": LLM_REPORT_SYSTEM_PROMPT}]
     base_messages.append({"role": "system", "content": _llm_report_structure_prompt(lens)})
+    asset_kind = asset_kind_from_evidence(evidence)
+    base_messages.append({"role": "system", "content": committee_prompt(asset_kind=asset_kind, lens=lens)})
     if lens:
         lens_prompt = (
             DebateEngine("all", rounds=debate_rounds, daily=daily).prompt()
@@ -277,7 +311,7 @@ def generate_llm_daily_report(
     if enforce_checks and not all(checks.values()):
         repair_messages = [
             *base_messages,
-            {"role": "system", "content": REPAIR_PROMPT},
+            {"role": "system", "content": _repair_prompt(lens)},
             messages[-1],
             {"role": "assistant", "content": response.content},
             {

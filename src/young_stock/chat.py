@@ -15,7 +15,6 @@ from urllib.request import Request, urlopen
 
 from click.testing import CliRunner
 from rich.console import Console
-from rich.markdown import Markdown
 
 try:  # pragma: no cover - optional dependency may be absent in some envs.
     from prompt_toolkit import prompt as _prompt_toolkit_prompt
@@ -27,6 +26,7 @@ try:  # pragma: no cover - import path differs across Python builds
 except ImportError:  # pragma: no cover - Python < 3.9 fallback safety
     ZoneInfo = None  # type: ignore[assignment]
 
+from .chat_ui import ChatRenderer
 from .config import load_config, save_config
 from .lens.registry import chat_style_profiles
 from .llm import LLMClient, LLMError
@@ -54,15 +54,16 @@ CHAT_STYLE_PROMPTS = {
     **chat_style_profiles(),
 }
 READ_ONLY_SLASH_HELP = (
-    "可用命令：/a、/stock <symbol> [--llm] [--lens ...]、/fund <code>、/news <query>、/daily [--llm] [--lens ...]、/report（仅导出 PDF）、/send、"
+    "可用命令：/a、/stock <symbol> [--llm] [--lens ...]、/fund <code> [--llm] [--lens ...]、/news <query>、/daily [--llm] [--lens ...]、/report（仅导出 PDF）、/send、"
     "/profile list、/memory show、/memory clear、/style、/style list、/style set <name>、"
     "/style show、/style clear、/diagnose、/help、/clear、/exit。"
 )
 SUPPORTED_SLASH_FOR_PROMPT = (
-    "/a, /stock <symbol> [--llm] [--lens ...], /fund <code>, /news <query>, /daily [--llm] [--lens ...], /report (PDF export only), /send, "
+    "/a, /stock <symbol> [--llm] [--lens ...], /fund <code> [--llm] [--lens ...], /news <query>, /daily [--llm] [--lens ...], /report (PDF export only), /send, "
     "/profile list, /memory show, /memory clear, /style, /style list, /style set <name>, "
     "/style show, /style clear, /diagnose, /help, /clear, /exit"
 )
+DEFAULT_INPUT_PROMPT = "> "
 _EXPLICIT_MEMORY_HINTS = ("记住", "记一下", "别忘了", "以后", "下次", "长期", "默认")
 _INVESTMENT_HINTS = (
     "持有",
@@ -260,7 +261,7 @@ def _current_time_system_note() -> str:
     )
 
 
-def _read_chat_input(prompt_text: str = "young ") -> str:
+def _read_chat_input(prompt_text: str = DEFAULT_INPUT_PROMPT) -> str:
     if callable(_prompt_toolkit_prompt):
         try:
             return _prompt_toolkit_prompt(prompt_text)
@@ -269,6 +270,26 @@ def _read_chat_input(prompt_text: str = "young ") -> str:
         except Exception:
             pass
     return builtins.input(prompt_text)
+
+
+class _OutputRenderer:
+    def __init__(self, output: Callable[[str], None]):
+        self.output = output
+
+    def text(self, message: str) -> None:
+        self.output(message)
+
+    def slash(self, message: str) -> None:
+        self.output(message)
+
+    def system(self, message: str) -> None:
+        self.output(message)
+
+    def error(self, message: str) -> None:
+        self.output(message)
+
+    def markdown(self, message: str) -> None:
+        self.output(message)
 
 
 def _is_time_query(text: str) -> bool:
@@ -538,7 +559,10 @@ class ChatSession:
     def __post_init__(self) -> None:
         self.console = Console()
         if self.output is None:
-            self.output = self.console.print
+            self.renderer = ChatRenderer(self.console)
+            self.output = self.renderer.text
+        else:
+            self.renderer = _OutputRenderer(self.output)
         self.long_term_memory = load_long_term_memory()
         self.style_name = _load_chat_style_name()
 
@@ -584,7 +608,7 @@ class ChatSession:
         return messages
 
     def _emit(self, message: str) -> None:
-        self.output(message)
+        self.renderer.slash(message)
 
     def _show_authoritative_help(self, prefix: str | None = None) -> None:
         message = READ_ONLY_SLASH_HELP if prefix is None else f"{prefix}\n{READ_ONLY_SLASH_HELP}"
@@ -676,9 +700,9 @@ class ChatSession:
         result = CliRunner().invoke(cli, args, color=False)
         text_output = result.output.rstrip()
         if text_output and echo:
-            self.output(text_output)
+            self.renderer.slash(text_output)
         if result.exception and not text_output and echo:
-            self.output(str(result.exception))
+            self.renderer.error(str(result.exception))
         if result.exception and not text_output:
             return str(result.exception)
         return text_output
@@ -708,13 +732,16 @@ class ChatSession:
             f"{summary_material}"
         )
 
+    def _llm_client(self, config: dict[str, object]) -> object:
+        return LLMClient(config)
+
     def handle_message(self, text: str) -> None:
         self.capture_long_term_memory(text)
         self.remember("user", text)
         if _is_time_query(text):
             answer = _format_time_answer(text)
             self.remember("assistant", answer)
-            self.output(answer)
+            self.renderer.text(answer)
             return
         config = load_config(strict=False).get("llm", {})
         extra_system_messages = []
@@ -722,29 +749,21 @@ class ChatSession:
         if research_context:
             extra_system_messages.append(research_context)
         try:
-            response = LLMClient(config).chat(self._build_messages(extra_system_messages))
+            response = self._llm_client(config).chat(self._build_messages(extra_system_messages))
         except LLMError as exc:
-            self.output(str(exc))
+            self.renderer.error(str(exc))
             return
         self.remember("assistant", response.content)
-        if self.output == self.console.print:
-            self.console.print(Markdown(response.content))
-        else:
-            self.output(response.content)
+        self.renderer.markdown(response.content)
 
 
 def run_chat() -> None:
     console = Console()
     session = ChatSession()
-    console.print(
-        "[bold #1B365D]young chat[/] — 输入 /help 查看命令，/exit 退出。"
-        f"\n可选风格：{_format_style_options()}。"
-    )
-    console.print(f"当前风格：{session.style_name}。")
-    console.print("可用 `/style set <name>` 同步设置对话风格、自称口吻和分析框架，例如 `/style set buffett`。")
+    ChatRenderer(console).render_welcome(style_name=session.style_name)
     while True:
         try:
-            text = _read_chat_input().strip()
+            text = _read_chat_input(DEFAULT_INPUT_PROMPT).strip()
         except (EOFError, KeyboardInterrupt):
             console.print("\n再见。")
             return

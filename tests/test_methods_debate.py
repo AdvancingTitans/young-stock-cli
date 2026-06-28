@@ -27,10 +27,11 @@ def test_all_lens_prompt_hides_configured_debate_and_requires_m7_for_daily():
 
 
 def test_single_lens_prompt_does_not_trigger_debate():
-    prompt = build_institutional_prompt("buffett", rounds=3)
+    prompt = build_institutional_prompt("buffett", rounds=3, daily=True)
 
     assert "采用 Buffett（价值）视角" in prompt
     assert "不要触发辩论" in prompt
+    assert "不新增 M7" in prompt
     assert "VCP" not in prompt
 
 

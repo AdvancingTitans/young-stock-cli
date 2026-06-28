@@ -243,6 +243,7 @@ def build_daily_evidence(
         "degrade_mode": degrade_mode,
         "source_events": [],
         "methodology": "young M1-M7",
+        "report_type": "daily",
     }
     return EvidenceBundle(modules=modules, meta=meta, quality_score=score, missing_modules=missing)
 
@@ -301,4 +302,59 @@ def build_stock_evidence(
     daily.meta["report_type"] = "single-stock"
     _record_source_event(daily.meta, "quote", str(quote_payload.get("source") or ""), quote_attempts)
     _record_source_event(daily.meta, "news", news_result.source, news_result.attempts)
+    return daily
+
+
+def build_fund_evidence(
+    core: Any,
+    code: str,
+    trade_date: str,
+    *,
+    rich_source: bool = False,
+    health: SourceHealthBook | None = None,
+) -> EvidenceBundle:
+    del health
+    fund_code = _call(code, core.normalize_fund_code, code) if hasattr(core, "normalize_fund_code") else code
+    daily = build_daily_evidence(core, trade_date, {"stocks": [], "funds": [fund_code]}, rich_source=rich_source)
+    estimate = _call({}, core.fetch_fund_estimate, fund_code, trade_date)
+    holdings_data = _call({}, core.fetch_fund_holdings, fund_code, trade_date, limit=10)
+    holdings = holdings_data.get("holdings") if isinstance(holdings_data, dict) else []
+    quotes_by_code = _call({}, core.fetch_fund_holding_quotes, holdings or [], trade_date) if holdings else {}
+    missing: list[str] = []
+    if not estimate or estimate.get("_error"):
+        missing.append("基金净值估值")
+    if not holdings:
+        missing.append("持仓结构")
+    fund_module = {
+        "available": bool(estimate and not estimate.get("_error")) or bool(holdings),
+        "fundcode": fund_code,
+        "name": estimate.get("name") or holdings_data.get("title") or fund_code if isinstance(estimate, dict) and isinstance(holdings_data, dict) else fund_code,
+        "fund_type": estimate.get("fund_type") if isinstance(estimate, dict) else None,
+        "nav": estimate.get("nav") if isinstance(estimate, dict) else None,
+        "nav_date": estimate.get("nav_date") if isinstance(estimate, dict) else None,
+        "estimate_nav": estimate.get("estimate_nav") if isinstance(estimate, dict) else None,
+        "estimate_change_pct": estimate.get("estimate_change_pct") if isinstance(estimate, dict) else None,
+        "estimate_time": estimate.get("estimate_time") if isinstance(estimate, dict) else None,
+        "fund_company": estimate.get("fund_company") if isinstance(estimate, dict) else None,
+        "fund_manager": estimate.get("fund_manager") if isinstance(estimate, dict) else None,
+        "fund_size": estimate.get("fund_size") if isinstance(estimate, dict) else None,
+        "holdings": holdings or [],
+        "holding_quotes": {
+            key: _quote_dict(value)
+            for key, value in (quotes_by_code or {}).items()
+        } if isinstance(quotes_by_code, dict) else {},
+        "tracking_index": estimate.get("tracking_index") if isinstance(estimate, dict) else None,
+        "tracking_error": estimate.get("tracking_error") if isinstance(estimate, dict) else None,
+        "premium_discount": estimate.get("premium_discount") if isinstance(estimate, dict) else None,
+        "liquidity": estimate.get("liquidity") if isinstance(estimate, dict) else None,
+        "fee": estimate.get("fee") if isinstance(estimate, dict) else None,
+        "source": estimate.get("_source") if isinstance(estimate, dict) else "公开基金数据",
+        "data_date": estimate.get("date") if isinstance(estimate, dict) else trade_date,
+        "missing_evidence": missing,
+    }
+    daily.modules["FUND"] = {key: value for key, value in fund_module.items() if value not in (None, "", {}, [])}
+    daily.meta["analysis_symbol"] = fund_code
+    daily.meta["asset_kind"] = "fund"
+    daily.meta["report_type"] = "single-fund"
+    daily.meta["missing_modules"] = sorted(set(daily.meta.get("missing_modules", []) + missing))
     return daily

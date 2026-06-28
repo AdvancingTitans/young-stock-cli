@@ -79,6 +79,13 @@ def test_openai_compatible_provider_maps_messages(monkeypatch):
     assert result.usage["total_tokens"] == 42
 
 
+def test_unknown_provider_without_api_base_is_rejected_clearly():
+    client = LLMClient({"provider": "mystery", "model": "x", "api_key": "secret"})
+
+    with pytest.raises(LLMNotConfigured, match="缺少 api_base"):
+        client.chat([{"role": "user", "content": "hi"}])
+
+
 def test_kimi_coding_plan_endpoint_is_rejected_for_non_coding_workflows():
     session = FakeSession([response(200, {"choices": [{"message": {"content": "ok"}}]})])
     client = LLMClient(

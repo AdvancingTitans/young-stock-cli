@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.3.13] - 2026-06-28
+
+### Changed
+
+- Treat single `--lens <expert>` reports as single-expert research: no hidden debate, no M7 section, and no committee final-advice subsections; the final chapter now uses the expert framework for attitude, holding advice, and risk notes.
+
+## [0.3.12] - 2026-06-28
+
+### Fixed
+
+- Normalize generated report Markdown spacing: list indentation now uses consistent two-space nesting, repeated inline spaces are collapsed, and spaces between numbers and percent signs are removed.
+
+## [0.3.11] - 2026-06-28
+
+### Changed
+
+- Fully revert LLM model configuration to the 0.3.8 single-model surface: no provider registry command, no quick/deep model fields, no `backend-url` alias, no `YOUNG_LLM_*` overrides, and no `LLMClient(mode=...)` routing.
+- Keep Ark configuration on the legacy-compatible `--api-base` option, including `https://ark.cn-beijing.volces.com/api/coding/v3`.
+
+## [0.3.10] - 2026-06-28
+
+### Changed
+
+- Revert model configuration back to a single `--model` field and remove the user-facing quick/deep model options.
+- Document the Volcengine Ark compatible endpoint command for `https://ark.cn-beijing.volces.com/api/coding/v3`.
+
+## [0.3.9] - 2026-06-28
+
+### Changed
+
+- Bump the release version for the current incremental architecture upgrade.
+
 ## [0.3.8] - 2026-06-24
 
 ### Fixed

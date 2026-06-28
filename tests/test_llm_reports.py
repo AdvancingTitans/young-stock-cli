@@ -189,6 +189,33 @@ def test_llm_report_with_specific_lens_uses_chinese_expert_name_for_chinese_repo
     assert "一级标题必须包含“巴菲特”" in system_text
     assert "## 巴菲特持仓建议与风险提示" in system_text
     assert "不要再使用“## 综合持仓建议与风险提示”" in system_text
+    assert "不新增、不输出“## M7 机构化综合判断”" in system_text
+    assert "不要输出“交易计划草案”“风险管理意见”“组合经理最终意见”等委员会小节" in system_text
+
+
+def test_single_lens_report_does_not_require_m7_or_committee_sections():
+    client = RecordingClient(
+        "# 巴菲特复盘\n\n"
+        "## 大盘指数概览\n据公开市场数据，市场震荡。\n"
+        "## 持仓分析\n详细结论：仍以持有观察为主。\n"
+        "证据：据公开市场数据，证据暂缺。\n"
+        "## 巴菲特持仓建议与风险提示\n"
+        "巴菲特态度：中性。\n"
+        "持仓建议：若后续证据确认基本面质量，可维持观察，不生成新增动作。\n"
+        "风险提示：风险在于证据不足，下一交易日跟踪成交额。"
+    )
+
+    markdown, metadata = generate_llm_daily_report({"modules": {}, "_meta": {}}, client, lens="buffett")
+
+    system_text = "\n".join(message["content"] for message in client.messages if message["role"] == "system")
+    assert "## M7 机构化综合判断" not in markdown
+    assert "交易计划草案" not in markdown
+    assert "风险管理意见" not in markdown
+    assert "组合经理最终意见" not in markdown
+    assert "只承载该专家框架下的态度、持仓建议和风险提示" in system_text
+    assert metadata["mechanical_checks"]["final_advice_present"] is True
+    assert metadata["mechanical_checks"]["trading_plan_section"] is True
+    assert metadata["mechanical_checks"]["single_lens_no_committee_sections"] is True
 
 
 def test_llm_report_adds_m7_and_hidden_committee_when_lens_all():
@@ -207,6 +234,53 @@ def test_llm_report_adds_m7_and_hidden_committee_when_lens_all():
     assert "不要向用户展示辩论过程" in system_text
     assert metadata["lens"] == "all"
     assert metadata["debate_rounds"] == 3
+
+
+def test_llm_report_prompt_requires_hidden_committee_final_advice():
+    client = RecordingClient(
+        "# 复盘\n\n"
+        "## M7 机构化综合判断\n核心共识：震荡。\n"
+        "## 综合持仓建议与风险提示\n"
+        "### 最终态度\n中性。\n"
+        "### 交易计划草案\n若量能确认，可考虑提高观察优先级；失效条件是量能回落；持仓动作草案是维持观察；不行动条件是证据不足。\n"
+        "### 风险管理意见\n市场风险、标的或基金风险、组合集中度风险、流动性与波动风险、证据缺口风险均需跟踪；风险约束建议是暂不提高风险暴露。\n"
+        "### 组合经理最终意见\n最终态度：中性。具体意见：维持观察。组合层优先级：普通。暂不行动理由：证据不足。下一交易日观察清单：跟踪量能。\n"
+        "### 下一交易日观察清单\n跟踪量能。"
+    )
+
+    markdown, metadata = generate_llm_daily_report({"modules": {}, "_meta": {}}, client, lens="all")
+
+    system_text = "\n".join(message["content"] for message in client.messages if message["role"] == "system")
+    assert "交易计划草案" in system_text
+    assert "风险管理意见" in system_text
+    assert "组合经理最终意见" in system_text
+    assert "Analyst Team" not in markdown
+    assert "Research Team" not in markdown
+    assert metadata["mechanical_checks"]["final_advice_present"] is True
+
+
+def test_fund_report_prompt_uses_fund_language_not_stock_company_language():
+    client = RecordingClient(
+        "# 基金复盘\n\n"
+        "## 基金概览\n据公开市场数据，基金净值待跟踪。\n"
+        "## M7 机构化综合判断\n核心共识：维持观察。\n"
+        "## 综合持仓建议与风险提示\n"
+        "### 最终态度\n证据不足。\n"
+        "### 交易计划草案\n若跟踪指数与溢价折价证据确认，可考虑提高观察优先级；失效条件是流动性不足；持仓动作草案是维持观察；不行动条件是证据不足。\n"
+        "### 风险管理意见\n市场风险、基金风险、组合集中度风险、流动性与波动风险、证据缺口风险均需跟踪；风险约束建议是暂不提高风险暴露。\n"
+        "### 组合经理最终意见\n最终态度：证据不足。具体意见：维持观察。组合层优先级：普通。暂不行动理由：证据不足。\n"
+        "### 下一交易日观察清单\n跟踪净值与成交额。"
+    )
+
+    generate_llm_daily_report(
+        {"modules": {"FUND": {"fundcode": "161725", "name": "招商中证白酒指数"}}, "_meta": {"asset_kind": "fund", "report_type": "single-fund"}},
+        client,
+        daily=False,
+    )
+
+    system_text = "\n".join(message["content"] for message in client.messages if message["role"] == "system")
+    assert "基金投研结构" in system_text
+    assert "不要把基金写成普通公司或个股" in system_text
 
 
 def test_llm_report_repairs_once_when_gate_fails_then_returns_valid_output():
@@ -266,7 +340,7 @@ def test_llm_report_does_not_block_when_only_number_grounding_fails_after_repair
     assert metadata["mechanical_checks"]["numbers_grounded"] is False
 
 
-def test_llm_stock_report_does_not_block_when_attitude_and_number_checks_are_advisory():
+def test_llm_stock_report_repairs_missing_final_advice_sections():
     client = SequencedClient(
         [
             "# 贵州茅台个股复盘\n\n"
@@ -276,11 +350,13 @@ def test_llm_stock_report_does_not_block_when_attitude_and_number_checks_are_adv
             "操作建议：等待放量确认，不追高。\n"
             "观察清单：跟踪下一交易日成交额与关键价位。",
             "# 贵州茅台个股复盘\n\n"
-            "综合判断：据公开市场数据，短线仍以震荡观察为主，成交额约 9999 亿元。\n"
-            "证据：公开行情显示价格波动可控。\n"
-            "风险提示：若量能不足，反弹延续性仍需确认。\n"
-            "操作建议：等待放量确认，不追高。\n"
-            "观察清单：跟踪下一交易日成交额与关键价位。",
+            "## M7 机构化综合判断\n核心共识：据公开市场数据，短线震荡观察。\n"
+            "## 综合持仓建议与风险提示\n"
+            "### 最终态度\n中性。\n"
+            "### 交易计划草案\n若量能确认，可考虑提高观察优先级；失效条件是量能回落；持仓动作草案是维持观察；不行动条件是证据不足。\n"
+            "### 风险管理意见\n市场风险、标的风险、组合集中度风险、流动性与波动风险、证据缺口风险均需跟踪；风险约束建议是暂不提高风险暴露。\n"
+            "### 组合经理最终意见\n最终态度：中性。具体意见：维持观察。组合层优先级：普通。暂不行动理由：证据不足。\n"
+            "### 下一交易日观察清单\n跟踪下一交易日成交额与关键价位。",
         ]
     )
 
@@ -290,9 +366,9 @@ def test_llm_stock_report_does_not_block_when_attitude_and_number_checks_are_adv
         daily=False,
     )
 
-    assert "贵州茅台个股复盘" in markdown
+    assert "综合持仓建议与风险提示" in markdown
     assert len(client.calls) == 2
-    assert metadata["mechanical_checks"]["numbers_grounded"] is False
+    assert metadata["mechanical_checks"]["final_advice_present"] is True
 
 
 def test_llm_report_repair_prompt_allows_rating_or_action_attitude_wording():

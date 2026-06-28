@@ -205,6 +205,25 @@ def test_cli_analyze_llm_without_explicit_lens_does_not_pass_lens_layer(monkeypa
     assert replay_calls == [("20260529", {"kind": "stock", "symbol": "600519"})]
 
 
+def test_cli_fund_llm_lens_all_uses_shared_replay(monkeypatch):
+    from click.testing import CliRunner
+
+    monkeypatch.setattr(cli_module, "_default_report_trade_date", lambda: "20260529")
+    replay_calls = []
+    monkeypatch.setattr(
+        cli_module,
+        "_run_llm_replay",
+        lambda date_str, **kwargs: replay_calls.append((date_str, kwargs)),
+    )
+
+    result = CliRunner().invoke(cli, ["fund", "161725", "--llm", "--lens", "all"])
+
+    assert result.exit_code == 0
+    assert replay_calls == [
+        ("20260529", {"kind": "fund", "symbol": "161725", "asset_kind": "fund", "lens": "all", "debate_rounds": 3})
+    ]
+
+
 def test_cli_daily_llm_without_explicit_lens_does_not_pass_lens_layer(monkeypatch):
     from click.testing import CliRunner
 
@@ -1267,20 +1286,20 @@ def test_cli_config_models_rejects_kimi_coding_plan_endpoint(monkeypatch, tmp_pa
             "config",
             "models",
             "--provider",
-            "openai",
+            "kimi",
             "--model",
-            "kimi-k2.7-code",
-            "--api-key",
-            "very-secret",
+            "kimi-for-coding",
+            "--api-key-env",
+            "KIMI_API_KEY",
             "--api-base",
-            "https://api.kimi.com/coding/",
+            "https://api.kimi.com/coding",
         ],
     )
+    shown = runner.invoke(cli, ["config", "show"])
 
     assert result.exit_code != 0
     assert "Kimi Coding Plan" in result.output
-    assert "young daily" in result.output
-    assert not (tmp_path / "config.json").exists()
+    assert "kimi-for-coding" not in shown.output
 
 
 def test_cli_config_show_is_human_readable_and_masks_secrets(monkeypatch, tmp_path):
@@ -1311,6 +1330,8 @@ def test_cli_config_show_is_human_readable_and_masks_secrets(monkeypatch, tmp_pa
     assert "}" not in shown.output
     assert "provider: deepseek" in shown.output
     assert "model: deepseek-chat" in shown.output
+    assert "deep_think_model" not in shown.output
+    assert "quick_think_model" not in shown.output
     assert "api_key" not in shown.output
     assert "very-secret" not in shown.output
 
@@ -1574,6 +1595,17 @@ def test_cli_config_models_requires_model_or_list():
 
     assert result.exit_code != 0
     assert "请提供 --model" in result.output
+
+
+def test_cli_config_models_help_only_exposes_single_model_option():
+    from click.testing import CliRunner
+
+    result = CliRunner().invoke(cli, ["config", "models", "--help"])
+
+    assert result.exit_code == 0
+    assert "--model" in result.output
+    assert "--deep-model" not in result.output
+    assert "--quick-model" not in result.output
 
 
 def test_cli_config_models_accepts_repeatable_fallback_model(monkeypatch, tmp_path):

@@ -18,8 +18,10 @@
 - 默认走 HTTP-only 公共数据路径。
 - 浏览器兜底只在显式开关下启用。
 - `young daily` 的默认模式不需要 LLM。
-- young stock <symbol> 默认确定性数据源；young stock <symbol> --llm 才深度复盘；只有显式 `--lens` 才会进入 lens。
-- young daily 默认确定性数据源；young daily --llm 才深度复盘；只有显式 `--lens` 才会进入 lens。
+- `young stock <symbol>` 默认确定性数据源；`young stock <symbol> --llm` 才深度复盘；只有显式 `--lens` 才会进入 lens。
+- `young fund <code>` 使用基金数据源；`young fund <code> --llm` 会继承 stock 的完整分析链路。
+- `young daily` 默认确定性数据源；`young daily --llm` 才深度复盘；只有显式 `--lens` 才会进入 lens。
+- young 是投研复盘工具：不会自动交易，不连接券商，也不会执行真实订单。
 - 缺失的数据保持缺失，不把空值硬写成零。
 
 Requires Python 3.9+.
@@ -39,7 +41,7 @@ young report
 young send
 ```
 
-如果你使用 Kimi Coding Plan、火山方舟 Ark 等 OpenAI-compatible 供应商，先配置 API key，再用 `young config models --list` 查询当前账号真正可用于 `daily --llm` / `stock --llm` 的 chat 模型；列表会过滤目录里有但不可调用的模型。
+如果你使用 Kimi Coding Plan、火山方舟 Ark 等 OpenAI-compatible 供应商，先配置 API key，再用 `young config models --list` 查询当前账号真正可用于 `daily --llm` / `stock --llm` / `fund --llm` 的 chat 模型；列表会过滤目录里有但不可调用的模型。
 
 如果你用的是普通 Python 环境：
 
@@ -52,6 +54,7 @@ young init
 
 - `young daily` 默认是确定性的 watchlist 日报，不依赖模型。
 - `young daily --llm` 和 `young stock <symbol> --llm` 才会进入证据驱动深度复盘。
+- 兼容口径：young stock <symbol> 默认确定性数据源；young daily 默认确定性数据源。
 - `young report` 只负责把最新已保存 Markdown 导出成 PDF，不会主动再跑一遍 LLM。
 - `young send` 只发送最新 Markdown 和摘要；同名 PDF 存在时才会附带。
 - `young config show` 会遮蔽密钥。
@@ -64,9 +67,9 @@ young init
 | Scope | Commands | Notes |
 | --- | --- | --- |
 | Market snapshots | `young a`, `young hk`, `young us`, `young global`, `young indices`, `young zt-pool`, `young flow` | `--refresh` bypasses cache; `--browser-fallback` is explicit. |
-| Single-symbol evidence | `young stock <symbol>`, `young stock <symbol> --llm`, `young lhb <symbol>`, `young fund <code>`, `young news 3690.HK` | Plain `stock` is deterministic; add `--llm` for deep replay. `--no-news` skips news/social/event lookups where supported. |
+| Single-symbol evidence | `young stock <symbol>`, `young stock <symbol> --llm`, `young lhb <symbol>`, `young fund <code>`, `young fund <code> --llm`, `young news 3690.HK` | Plain `stock` and `fund` are deterministic evidence views; add `--llm` for deep replay. `--no-news` skips news/social/event lookups where supported. |
 | Watchlist reports | `young daily --format summary`, `young daily --format key-points`, `young daily --format full`, `young daily --llm`, `young daily --llm --lens ...` | Plain `daily` is deterministic; `--llm` is the only deep replay entry, and `--lens` only applies when you explicitly ask for it. |
-| Deep analysis | `young stock <symbol> --llm`, `young stock <symbol> --llm --lens ...` | `stock --llm` is the single-symbol deep replay entry, and `--lens` only applies when explicitly provided. |
+| Deep analysis | `young stock <symbol> --llm`, `young stock <symbol> --llm --lens ...`, `young fund <code> --llm`, `young fund <code> --llm --lens ...` | `stock --llm` and `fund --llm` share the asset analysis pipeline; `--lens` only applies when explicitly provided. |
 | Export & delivery | `young report`, `young send` | `report` exports PDF only; `send` uses configured channels. |
 | Local state | `young profile ...`, `young portfolio ...`, `young memory ...`, `young style ...` | Profiles drive reports; portfolio is a lightweight local sandbox; memory is chat memory. |
 | Config & support | `young config ...`, `young diagnose`, `young init`, `young guide`, `young example`, `young cache-clear`, `young update`, `young uninstall`, `young chat` | `young update/uninstall` mirror the installation path you chose. |
@@ -103,6 +106,12 @@ The default data path is built around public no-login sources. In practice, youn
   - 技术指标 fallback
 - `young lhb <symbol>` is the standalone LHB view.
 - `young fund <code>` shows fund estimate, top holdings quotes, and holding-stock news.
+- `young fund <code> --llm` enters the same LLM, lens, investment committee, review gate, and final advice path as `young stock <symbol> --llm`; only the evidence builder and fund language differ.
+- Examples:
+  - `young fund 161725 --llm`
+  - `young fund 161725 --llm --lens all`
+  - `young fund 161725 --llm --lens buffett`
+  - in chat: `/fund 161725 --llm --lens all`
 - `young flow` can show whole-market flow, northbound flow, or a single-stock daily flow.
 - `young news 3690.HK` is the focused news-only view.
 
@@ -140,7 +149,7 @@ Method cards are structural lenses, not scores. They exist to help `daily --llm`
 
 ## Daily framework: M1–M7
 
-`young daily --llm` 和 `young stock <symbol> --llm` 共享同一套七段结构。
+`young daily --llm`、`young stock <symbol> --llm` 和 `young fund <code> --llm` 共享同一套证据驱动的报告纪律。
 
 | Module | Question it answers |
 | --- | --- |
@@ -150,9 +159,18 @@ Method cards are structural lenses, not scores. They exist to help `daily --llm`
 | M4 下跌风险与炸板结构 | 风险释放是否在扩大？ |
 | M5 持仓与市场风格 | 当前风格是否支持你的持仓？ |
 | M6 抗跌方向 | 哪些方向更稳，哪些更适合观察？ |
-| M7 机构化综合判断 | 把 lens、method cards、证据与持仓动作收束成结论 |
+| M7 机构化综合判断 | 仅在 `--lens all` 时形成研究委员会综合判断 |
 
-`--lens all` 会做一次隐藏的多 lens 讨论，然后只输出最后的态度、分歧、风险、证据和持仓相关动作，不输出主观评分。
+young 借鉴多角色投研思想，增强自身投资委员会最终建议，但仍保持 young 的 M1-M7 和资产分析报告结构，不提供“TradingAgents 模式”，也不新增 agent 参数。
+
+- 数据分析层强化 M1-M6、个股前半部分证据分析、基金证据分析。
+- 研究委员会通过 `--lens all` 形成 M7 判断；只输出压缩后的共识、分歧、看多证据、看空证据和待验证问题，不输出逐轮辩论。
+- 单个专家视角（例如 `--lens buffett`）不触发辩论，也不输出 M7；daily / stock / fund 都会按该专家框架给出态度、持仓建议和风险提示。
+- 交易计划角色只生成条件化交易计划草案。
+- 风险管理角色补充风险约束和证据缺口。
+- 组合经理角色整合最终态度和具体意见。
+
+`--lens all` 的最后一章“综合持仓建议与风险提示”会包含：最终态度、交易计划草案、风险管理意见、组合经理最终意见、下一交易日观察清单。单 lens 时最后一章沿用对应专家视角标题，例如“巴菲特持仓建议与风险提示”，只需要给出该专家框架下的态度、持仓建议和风险提示。所有动作都是条件化触发器；证据不足时会写“维持观察，不生成新增动作”或“证据不足，暂不提高风险暴露”。young 不会自动交易，不连接券商，不执行买入、卖出、申购、赎回、调仓、止损或对冲。
 
 ## Profile, portfolio, memory, diary
 
@@ -208,17 +226,18 @@ young portfolio compare 600519 000858
 - api base
 - timeout
 - max tokens
+- fallback models
 
 支持的 provider 包括 `openai`、`ark`、`kimi`、`moonshot`、`deepseek`、`qwen`、`ollama`、`anthropic`。
 
 保存或更新模型配置时必须指定 `--model`；不带 `--model` 时只允许用 `--list` 查询模型 ID，不会写入配置。
-`--list` 面向 `young daily --llm` / `young stock --llm` 这类 chat 工作流，会过滤 Ark 等服务返回的 `status=Shutdown` 目录项以及纯 embedding、图片、视频生成等非文本生成模型，并对候选模型做一次最小 `chat/completions` 探测；因此它比单纯查询 `/models` 慢，但只展示当前实际可调用的模型。
-这对使用 Coding Plan 或多模型网关的用户尤其重要：供应商控制台或 `/models` 返回的 ID 可能只是目录项，只有 `young config models --list` 通过探测后显示的模型，才适合作为 `--model` 或 `--fallback-model`。
+
+`--list` 面向 `young daily --llm` / `young stock --llm` / `young fund --llm` 这类 chat 工作流，会过滤 Ark 等服务返回的 `status=Shutdown` 目录项以及纯 embedding、图片、视频生成等非文本生成模型，并对候选模型做一次最小 `chat/completions` 探测；因此它比单纯查询 `/models` 慢，但只展示当前实际可调用的模型。失败时你仍然可以直接填写 custom model id。
 
 ```bash
 export OPENAI_API_KEY="..."
 young config models --provider openai --model gpt-4.1 --api-key-env OPENAI_API_KEY
-
+young config models --provider ark --api-base https://ark.cn-beijing.volces.com/api/coding/v3 --api-key-env ARK_API_KEY --model <model-id>
 young config models --provider ollama --model llama3.1 --api-base http://localhost:11434/v1
 young config models --list
 young config show
@@ -233,7 +252,9 @@ curl -sS "$API_BASE/models" \
 python3 -c 'import json,sys; print("\n".join(x["id"] for x in json.load(sys.stdin).get("data", [])))'
 ```
 
-Kimi Coding Plan (`https://api.kimi.com/coding/v1`, `kimi-for-coding`) 仅支持 Kimi Code CLI、Claude Code、Roo Code 等 Coding Agents，不适用于 `young daily --llm`、`young chat`、`young stock --llm` 这类投研/问答工作流。请改用 Kimi OpenPlatform 通用 API 或其他 OpenAI-compatible 模型。
+Kimi Coding Plan (`https://api.kimi.com/coding/v1`, `kimi-for-coding`) 主要面向 Coding Agents；如果你的 endpoint 只暴露 coding 任务接口，就不要拿它去跑 `young daily --llm`、`young chat`、`young stock --llm` 这类投研/问答工作流。`young` 更适合接 OpenAI-compatible 的通用 chat/completions endpoint。
+
+如果你要复制多行命令，记得反斜杠必须是行尾最后一个字符，后面不能有空格。最稳妥的写法还是直接用单行命令。
 
 同一个 endpoint 需要回退模型时，可以用 `young config models ... --fallback-model X --fallback-model Y` 这样配置。只在限流、额度、瞬时服务错误或明确模型不可用时切换；认证、generic404、api_base 错误不切换。Ark 先用 `--list` 核对 model ID，即 `young config models --provider ark --list`，再填 `--model` 和 `--fallback-model`；`--list` 会过滤到 chat 可调用范围，不要直接使用 raw `/models` 里 `status=Shutdown` 的模型目录项。
 
@@ -251,13 +272,21 @@ Migration notes:
 
 ## CLI ↔ slash correspondence
 
+`young chat` 启动后会先显示一个 Rich 欢迎框，包含 young 品牌、当前 style、常用命令、安全边界，以及研究工作流：
+
+```text
+Evidence Pack → Lens Research → Trading Plan Draft → Risk Review → Portfolio Final Opinion
+```
+
+这只是研究报告生成流程，不会自动交易、不连接券商，也不会执行真实订单。chat 输入提示符是干净的 `>`；输出通过统一 Rich renderer 展示，模型回复不额外添加 `young:` 或 `assistant:` 前缀。
+
 `young chat` 的 slash 命令和 Click 命令是同一套能力，只是入口不同。
 
 | CLI | Chat slash |
 | --- | --- |
 | `young a` | `/a` |
 | `young stock <symbol> [--llm] [--lens ...]` | `/stock <symbol> [--llm] [--lens ...]` |
-| `young fund <code>` | `/fund <code>` |
+| `young fund <code> [--llm] [--lens ...]` | `/fund <code> [--llm] [--lens ...]` |
 | `young news 3690.HK` | `/news <query>` |
 | `young daily --llm` | `/daily [--llm] [--lens ...]` |
 | `young report` | `/report` |

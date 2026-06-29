@@ -73,7 +73,7 @@ def test_daily_stock_and_send_default_to_latest_report_trade_date(monkeypatch, t
     runner = CliRunner()
     daily_result = runner.invoke(cli, ["daily"])
     analyze_result = runner.invoke(cli, ["stock", "600519"])
-    send_result = runner.invoke(cli, ["send"])
+    send_result = runner.invoke(cli, ["send", "--yes"])
 
     assert daily_result.exit_code == 0
     assert analyze_result.exit_code == 0

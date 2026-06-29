@@ -23,6 +23,7 @@ from .config import (
     is_kimi_coding_api_base,
     kimi_coding_plan_unsupported_message,
     load_config,
+    load_effective_config,
     mask_config,
     migrate_legacy_llm_api_key_fallback,
     normalize_api_base,
@@ -1138,8 +1139,7 @@ def config_path_command() -> None:
 
 @config.command("show", help="Show effective configuration with secrets masked.")
 def config_show() -> None:
-    migrate_legacy_llm_api_key_fallback()
-    for line in _render_config_lines(mask_config(load_config())):
+    for line in _render_config_lines(mask_config(load_effective_config())):
         click.echo(line)
 
 
@@ -1175,8 +1175,8 @@ def config_models(
     max_tokens: int,
     list_models: bool,
 ) -> None:
-    migrate_legacy_llm_api_key_fallback()
     saved = dict(load_config(strict=False).get("llm") or {})
+    effective_saved = dict(load_effective_config(strict=False).get("llm") or {})
     resolved_provider = provider or saved.get("provider")
     explicit_timeout = ctx.get_parameter_source("timeout") is ParameterSource.COMMANDLINE
     explicit_max_tokens = ctx.get_parameter_source("max_tokens") is ParameterSource.COMMANDLINE
@@ -1217,12 +1217,12 @@ def config_models(
         raise click.ClickException("请提供 --model 保存配置，或使用 --list 查询可用模型 ID。")
 
     query = {
-        **saved,
+        **effective_saved,
         "provider": resolved_provider,
-        "api_key": api_key if explicit_api_key else saved.get("api_key"),
-        "api_key_env": api_key_env if explicit_api_key_env else saved.get("api_key_env"),
-        "api_base": api_base if explicit_api_base else saved.get("api_base"),
-        "timeout": timeout if explicit_timeout else saved.get("timeout", timeout),
+        "api_key": api_key if explicit_api_key else effective_saved.get("api_key"),
+        "api_key_env": api_key_env if explicit_api_key_env else effective_saved.get("api_key_env"),
+        "api_base": api_base if explicit_api_base else effective_saved.get("api_base"),
+        "timeout": timeout if explicit_timeout else effective_saved.get("timeout", timeout),
     }
     try:
         models = LLMClient(query).list_models(verify_chat=True)
@@ -1321,12 +1321,33 @@ def report(date: str | None) -> None:
     click.echo(f"PDF: {pdf_path}")
 
 
+def _preview_send_bundle(date: str | None, channel_name: str | None) -> None:
+    bundle = ReportArtifacts.latest_delivery_artifacts(date)
+    if bundle is None:
+        if date:
+            raise click.ClickException(f"{date} 缺少可发送的 Markdown；请先生成对应日报或 LLM Markdown。")
+        raise click.ClickException("未找到可发送的 Markdown；请先生成日报或 LLM Markdown。")
+    click.echo("Dry run only; no remote message sent.")
+    click.echo(f"Markdown: {bundle.markdown}")
+    click.echo(f"PDF: {bundle.pdf if bundle.pdf is not None else '-'}")
+    click.echo(f"Channel: {channel_name or 'all configured channels'}")
+
+
 @cli.command(help="Send the latest Markdown report and summary; attach the same-name PDF only when it exists.")
 @_date_opt
 @click.option("--channel", "channel_name", default=None, help="Send only one configured channel.")
-def send(date: str | None, channel_name: str | None) -> None:
+@click.option("--dry-run", is_flag=True, help="Preview the resolved Markdown/PDF bundle and target channel.")
+@click.option("--yes", is_flag=True, help="Actually send to the configured remote channel(s).")
+def send(date: str | None, channel_name: str | None, dry_run: bool, yes: bool) -> None:
     from .channels import send_report
 
+    if dry_run and yes:
+        raise click.ClickException("`young send` 不能同时使用 --dry-run 和 --yes。")
+    if dry_run:
+        _preview_send_bundle(date, channel_name)
+        return
+    if not yes:
+        raise click.ClickException("`young send` 会向远端渠道发消息；请先运行 `young send --dry-run` 预览，确认后再加 `--yes`。")
     try:
         results = send_report(date, channel_name=channel_name)
     except (RuntimeError, ValueError) as exc:
@@ -1580,7 +1601,8 @@ def init() -> None:
     click.echo(f"Config: {config_path()}")
     click.echo(f"PDF: {'已就绪' if pdf_ready else '当前环境未检测到 PDF 渲染能力'}")
     if not pdf_ready:
-        click.echo("若当前环境缺少 PDF 渲染能力，请重新执行 `uv tool install --force 'young-stock-cli'`。")
+        click.echo("若你是从仓库根目录执行 `uv tool install --force .` 安装的，请改用 `uv tool install --force '.[pdf]'`。")
+        click.echo("若你是从 PyPI 安装的，请执行 `uv tool install --upgrade 'young-stock-cli[pdf]'`。")
     click.echo("下一步建议：")
     click.echo("1. young config show")
     click.echo("2. young config models --help")
@@ -1594,7 +1616,8 @@ def example() -> None:
     click.echo("young daily --format summary")
     click.echo("young daily --format key-points --order 基金,A股,港股,美股")
     click.echo("young profile add-stock 600519 --buy-date 2026-01-15 --quantity 100")
-    click.echo("young send --channel <name>")
+    click.echo("young send --dry-run")
+    click.echo("young send --yes --channel <name>")
 
 
 @cli.group(help="Manage local portfolios.")

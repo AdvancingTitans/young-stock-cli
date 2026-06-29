@@ -27,6 +27,7 @@ except ImportError:  # pragma: no cover - Python < 3.9 fallback safety
     ZoneInfo = None  # type: ignore[assignment]
 
 from .chat_ui import ChatRenderer
+from .command_registry import authoritative_slash_help, click_slash_roots, supported_slash_for_prompt
 from .config import load_config, save_config
 from .lens.registry import chat_style_profiles
 from .llm import LLMClient, LLMError
@@ -53,16 +54,9 @@ CHAT_STYLE_PROMPTS = {
     },
     **chat_style_profiles(),
 }
-READ_ONLY_SLASH_HELP = (
-    "可用命令：/a、/stock <symbol> [--llm] [--lens ...]、/fund <code> [--llm] [--lens ...]、/news <query>、/daily [--llm] [--lens ...]、/report（仅导出 PDF）、/send、"
-    "/profile list、/memory show、/memory clear、/style、/style list、/style set <name>、"
-    "/style show、/style clear、/diagnose、/help、/clear、/exit。"
-)
-SUPPORTED_SLASH_FOR_PROMPT = (
-    "/a, /stock <symbol> [--llm] [--lens ...], /fund <code> [--llm] [--lens ...], /news <query>, /daily [--llm] [--lens ...], /report (PDF export only), /send, "
-    "/profile list, /memory show, /memory clear, /style, /style list, /style set <name>, "
-    "/style show, /style clear, /diagnose, /help, /clear, /exit"
-)
+READ_ONLY_SLASH_HELP = authoritative_slash_help()
+SUPPORTED_SLASH_FOR_PROMPT = supported_slash_for_prompt()
+ALLOWED_CLICK_SLASH_ROOTS = click_slash_roots()
 DEFAULT_INPUT_PROMPT = "> "
 _EXPLICIT_MEMORY_HINTS = ("记住", "记一下", "别忘了", "以后", "下次", "长期", "默认")
 _INVESTMENT_HINTS = (
@@ -646,8 +640,8 @@ class ChatSession:
 
     def _resolve_click_args(self, args: list[str]) -> tuple[list[str] | None, str | None]:
         root = args[0]
-        if root in {"a", "stock", "fund", "news", "daily", "report", "diagnose", "send"}:
-            return args, None
+        if root == "send" and "--yes" not in args and "--dry-run" not in args:
+            return None, "/send 会真实发送到远端渠道；先用 /send --dry-run 预览，确认后再用 /send --yes。"
         if root == "profile":
             if len(args) >= 2 and args[1] in {"list", "show"}:
                 return args, None
@@ -658,6 +652,8 @@ class ChatSession:
             if len(args) >= 2 and args[1] == "clear":
                 return args, None
             return None, "chat 中仅支持 /memory show 和 /memory clear。"
+        if root in ALLOWED_CLICK_SLASH_ROOTS:
+            return args, None
         if root in {"config", "update", "uninstall"}:
             return None, f"chat 中禁止 /{root}，请在终端直接运行对应 CLI。"
         return None, f"不支持 /{root}。请输入 /help 查看 authoritative 命令列表。"

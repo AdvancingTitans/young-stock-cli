@@ -38,6 +38,12 @@ class ReportIdentity:
         return f"{self.trade_date}-{self.session}-{safe_topic}"
 
 
+@dataclass(frozen=True)
+class DeliveryArtifacts:
+    markdown: Path
+    pdf: Path | None
+
+
 @dataclass
 class ReportArtifacts:
     trade_date: str
@@ -86,6 +92,14 @@ class ReportArtifacts:
         if identified:
             candidates = identified
         return max(candidates, key=lambda path: path.stat().st_mtime) if candidates else None
+
+    @classmethod
+    def latest_delivery_artifacts(cls, trade_date: str | None = None) -> DeliveryArtifacts | None:
+        markdown = cls.latest_markdown(trade_date)
+        if markdown is None:
+            return None
+        pdf_candidate = markdown.with_suffix(".pdf")
+        return DeliveryArtifacts(markdown=markdown, pdf=pdf_candidate if pdf_candidate.exists() else None)
 
     @classmethod
     def latest_date(cls) -> str | None:

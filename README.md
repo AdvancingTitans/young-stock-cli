@@ -38,7 +38,8 @@ young profile add-fund 161725 --buy-date 2026-01-10 --quantity 1000
 young daily --format summary
 young daily --llm --lens all --debate-rounds 3
 young report
-young send
+young send --dry-run
+young send --yes
 ```
 
 如果你使用 Kimi Coding Plan、火山方舟 Ark 等 OpenAI-compatible 供应商，先配置 API key，再用 `young config models --list` 查询当前账号真正可用于 `daily --llm` / `stock --llm` / `fund --llm` 的 chat 模型；列表会过滤目录里有但不可调用的模型。
@@ -56,7 +57,8 @@ young init
 - `young daily --llm` 和 `young stock <symbol> --llm` 才会进入证据驱动深度复盘。
 - 兼容口径：young stock <symbol> 默认确定性数据源；young daily 默认确定性数据源。
 - `young report` 只负责把最新已保存 Markdown 导出成 PDF，不会主动再跑一遍 LLM。
-- `young send` 只发送最新 Markdown 和摘要；同名 PDF 存在时才会附带。
+- `young send --dry-run` 只预览将要发送的 Markdown/PDF 与渠道。
+- `young send --yes` 才会真的发送最新 Markdown 和摘要；同名 PDF 存在时才会附带。
 - `young config show` 会遮蔽密钥。
 - `young profile add-stock` 会基于 quote 自动生成可解释标签（market / asset_type / category / evidence），不是主观评分。
 - 需要浏览器时必须显式传 `--browser-fallback`。
@@ -70,7 +72,7 @@ young init
 | Single-symbol evidence | `young stock <symbol>`, `young stock <symbol> --llm`, `young lhb <symbol>`, `young fund <code>`, `young fund <code> --llm`, `young news 3690.HK` | Plain `stock` and `fund` are deterministic evidence views; add `--llm` for deep replay. `--no-news` skips news/social/event lookups where supported. |
 | Watchlist reports | `young daily --format summary`, `young daily --format key-points`, `young daily --format full`, `young daily --llm`, `young daily --llm --lens ...` | Plain `daily` is deterministic; `--llm` is the only deep replay entry, and `--lens` only applies when you explicitly ask for it. |
 | Deep analysis | `young stock <symbol> --llm`, `young stock <symbol> --llm --lens ...`, `young fund <code> --llm`, `young fund <code> --llm --lens ...` | `stock --llm` and `fund --llm` share the asset analysis pipeline; `--lens` only applies when explicitly provided. |
-| Export & delivery | `young report`, `young send` | `report` exports PDF only; `send` uses configured channels. |
+| Export & delivery | `young report`, `young send --dry-run`, `young send --yes` | `report` exports PDF only; `send` previews by default and only sends with explicit `--yes`. |
 | Local state | `young profile ...`, `young portfolio ...`, `young memory ...`, `young style ...` | Profiles drive reports; portfolio is a lightweight local sandbox; memory is chat memory. |
 | Config & support | `young config ...`, `young diagnose`, `young init`, `young guide`, `young example`, `young cache-clear`, `young update`, `young uninstall`, `young chat` | `young update/uninstall` mirror the installation path you chose. |
 
@@ -309,6 +311,9 @@ Pick one installation path and keep using the same family of commands.
 uv tool install young-stock-cli
 uv tool install --upgrade young-stock-cli
 uv tool install --force 'young-stock-cli'
+uv tool install --upgrade 'young-stock-cli[pdf]'
+# if you installed from this repo checkout:
+uv tool install --force '.[pdf]'
 uv tool uninstall young-stock-cli
 ```
 
@@ -316,6 +321,7 @@ uv tool uninstall young-stock-cli
 
 ```bash
 python3 -m pip install --upgrade young-stock-cli
+python3 -m pip install --upgrade 'young-stock-cli[pdf]'
 python3 -m pip uninstall -y young-stock-cli
 ```
 
@@ -326,7 +332,7 @@ young update
 young uninstall
 ```
 
-`young init` is the first-run check for local state, config, and PDF readiness.
+`young init` is the first-run check for local state, config, and PDF readiness. PDF export is an optional extra; if you installed from PyPI, use `young-stock-cli[pdf]`, and if you installed from the current repo checkout, use `'.[pdf]'`.
 
 ## Diagnostics, privacy, and FAQ
 
@@ -369,11 +375,9 @@ These assets live in `docs/images/` and are safe to reuse in issues, release not
 | Cover | `docs/images/cover.png` |
 | Indices demo | `docs/images/demo-indices.png` |
 | ZT pool demo | `docs/images/demo-zt-pool.png` |
-| Repository overview | `docs/images/repo-overview.png` |
 
 ![Indices demo](docs/images/demo-indices.png)
 ![ZT pool demo](docs/images/demo-zt-pool.png)
-![Repository overview](docs/images/repo-overview.png)
 
 ## License
 

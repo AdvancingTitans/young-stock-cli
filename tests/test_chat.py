@@ -55,14 +55,28 @@ def test_chat_allows_fund_llm_lens_slash(monkeypatch):
     assert calls == [(["fund", "161725", "--llm", "--lens", "all"], True)]
 
 
-def test_chat_allows_send_slash(monkeypatch):
+def test_chat_allows_send_slash_with_explicit_confirmation(monkeypatch):
     outputs = []
     session = ChatSession(output=outputs.append)
     calls = []
     monkeypatch.setattr(session, "_invoke_click", lambda args, echo=True: calls.append((args, echo)) or "")
 
+    assert session.handle_slash("/send --yes --channel feishu") is False
+    assert calls == [(["send", "--yes", "--channel", "feishu"], True)]
+
+
+def test_chat_blocks_send_slash_without_explicit_confirmation(monkeypatch):
+    outputs = []
+    session = ChatSession(output=outputs.append)
+    monkeypatch.setattr(
+        session,
+        "_invoke_click",
+        lambda args, echo=True: (_ for _ in ()).throw(AssertionError(f"unexpected click call: {args}")),
+    )
+
     assert session.handle_slash("/send --channel feishu") is False
-    assert calls == [(["send", "--channel", "feishu"], True)]
+    assert any("--dry-run" in output for output in outputs)
+    assert any("--yes" in output for output in outputs)
 
 
 def test_chat_unknown_command_does_not_exit():

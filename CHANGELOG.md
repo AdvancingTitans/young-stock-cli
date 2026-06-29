@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.3.15] - 2026-06-29
+
+### Fixed
+
+- Clarify the optional PDF install path for `uv tool` users: local source installs now point to `uv tool install --force '.[pdf]'`, while PyPI installs point to `uv tool install --upgrade 'young-stock-cli[pdf]'`, preventing accidental fallback from a local `0.3.14+` checkout to the older PyPI package.
+
+## [0.3.14] - 2026-06-29
+
+### Changed
+
+- Keep chat slash help/prompt/routing on one shared command descriptor registry, so `/send`, `/report`, `/style`, and read-only command guidance no longer drift independently.
+- Make `young send` explicit: `--dry-run` previews the resolved Markdown/PDF bundle and channel, and `--yes` is now required for the real remote send path.
+- Move WeasyPrint into the optional `pdf` extra; `young init`, README install docs, and PDF export errors now point to `young-stock-cli[pdf]`.
+
+### Fixed
+
+- Stop `young config show` and `young config models --list` from silently persisting API keys sourced from `--api-key-env`; they now hydrate env secrets in memory only.
+- Centralize send artifact selection through a shared Markdown/PDF bundle resolver instead of rediscovering the same-name PDF inside the channel layer.
+
 ## [0.3.13] - 2026-06-28
 
 ### Changed

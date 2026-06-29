@@ -1,7 +1,7 @@
 import json
 from datetime import datetime
 
-from young_stock.artifacts import ReportArtifacts, ReportIdentity, market_session, report_session
+from young_stock.artifacts import DeliveryArtifacts, ReportArtifacts, ReportIdentity, market_session, report_session
 from young_stock.reports import generate_llm_daily_report
 
 
@@ -90,3 +90,16 @@ def test_latest_markdown_prefers_identity_path_over_newer_legacy_file(monkeypatc
     legacy.touch()
 
     assert ReportArtifacts.latest_markdown("20260619") == identified
+
+
+def test_latest_delivery_artifacts_uses_same_name_pdf(monkeypatch, tmp_path):
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
+    identity = ReportIdentity("20260619", "盘后", "A股深度复盘")
+    artifacts = ReportArtifacts("20260619")
+    markdown = artifacts.write_report_markdown(identity, "# identity\n")
+    pdf = artifacts.path(identity.prefix, "pdf")
+    pdf.write_bytes(b"%PDF")
+
+    bundle = ReportArtifacts.latest_delivery_artifacts("20260619")
+
+    assert bundle == DeliveryArtifacts(markdown=markdown, pdf=pdf)

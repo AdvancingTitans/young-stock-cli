@@ -240,8 +240,9 @@ def _default_render(html_path: Path, pdf_path: Path) -> None:
     if renderer is None:
         raise PDFDependencyError(
             "当前环境未检测到 PDF 渲染能力。请先运行 `young init` 检查安装状态；"
-            "若仍缺少依赖，uv tool 用户请执行 `uv tool install --force 'young-stock-cli'`，"
-            "普通 Python 环境请执行 `python3 -m pip install --upgrade young-stock-cli`。"
+            "若你是从仓库根目录执行 `uv tool install --force .` 安装的，请改用 `uv tool install --force '.[pdf]'`；"
+            "若你是从 PyPI 安装的，请执行 `uv tool install --upgrade 'young-stock-cli[pdf]'`；"
+            "普通 Python 环境请执行 `python3 -m pip install --upgrade 'young-stock-cli[pdf]'`。"
         )
     renderer(filename=str(html_path), base_url=str(html_path.parent)).write_pdf(str(pdf_path))
 

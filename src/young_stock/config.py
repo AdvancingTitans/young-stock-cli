@@ -122,6 +122,17 @@ def load_config(*, strict: bool = True) -> dict[str, Any]:
     return _with_defaults(raw)
 
 
+def load_effective_config(*, strict: bool = True) -> dict[str, Any]:
+    config = load_config(strict=strict)
+    llm = config.setdefault("llm", {})
+    env_name = str(llm.get("api_key_env") or "").strip()
+    if env_name and not normalize_api_key(llm.get("api_key")):
+        resolved = normalize_api_key(os.environ.get(env_name))
+        if resolved:
+            llm["api_key"] = resolved
+    return config
+
+
 def save_config(data: dict[str, Any]) -> dict[str, Any]:
     normalized = _with_defaults(data)
     path = config_path()

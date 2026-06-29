@@ -786,6 +786,8 @@ def test_cli_send_help_mentions_optional_pdf():
     assert "latest Markdown report and summary" in result.output
     assert "same-name PDF only" in result.output
     assert "when it exists" in result.output
+    assert "--dry-run" in result.output
+    assert "--yes" in result.output
 
 
 def test_cli_config_models_lists_provider_models(monkeypatch):
@@ -1207,6 +1209,66 @@ def test_cli_init_bootstraps_local_state(monkeypatch, tmp_path):
     assert (tmp_path / "profile.json").exists()
 
 
+def test_cli_init_explains_local_and_pypi_pdf_install_paths(monkeypatch, tmp_path):
+    from click.testing import CliRunner
+
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path / "young-home"))
+    monkeypatch.setenv("YOUNG_STOCK_PROFILE", str(tmp_path / "profile.json"))
+    monkeypatch.setattr("young_stock.pdf._load_weasyprint", lambda: None)
+
+    result = CliRunner().invoke(cli, ["init"])
+
+    assert result.exit_code == 0
+    assert "uv tool install --force '.[pdf]'" in result.output
+    assert "uv tool install --upgrade 'young-stock-cli[pdf]'" in result.output
+
+
+def test_cli_config_show_is_read_only_when_env_secret_exists(monkeypatch, tmp_path):
+    from click.testing import CliRunner
+
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
+    monkeypatch.setenv("MODEL_KEY", "env-secret")
+    (tmp_path / "config.json").write_text(
+        json.dumps({"llm": {"provider": "deepseek", "model": "deepseek-chat", "api_key_env": "MODEL_KEY"}}),
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(cli, ["config", "show"])
+
+    assert result.exit_code == 0
+    assert "已配置(已遮蔽)" in result.output
+    assert "api_key" not in json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))["llm"]
+
+
+def test_cli_config_models_list_uses_env_secret_without_persisting(monkeypatch, tmp_path):
+    from click.testing import CliRunner
+
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
+    monkeypatch.setenv("MODEL_KEY", "env-secret")
+    (tmp_path / "config.json").write_text(
+        json.dumps({"llm": {"provider": "deepseek", "model": "deepseek-chat", "api_key_env": "MODEL_KEY"}}),
+        encoding="utf-8",
+    )
+    captured = {}
+
+    class DummyClient:
+        def __init__(self, config):
+            captured.update(config)
+
+        def list_models(self, verify_chat=True):
+            assert verify_chat is True
+            return ["deepseek-chat"]
+
+    monkeypatch.setattr(cli_module, "LLMClient", DummyClient)
+
+    result = CliRunner().invoke(cli, ["config", "models", "--list"])
+
+    assert result.exit_code == 0
+    assert "deepseek-chat" in result.output
+    assert captured["api_key"] == "env-secret"
+    assert "api_key" not in json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))["llm"]
+
+
 def test_cli_diagnose_outputs_network_guidance(monkeypatch):
     from click.testing import CliRunner
 
@@ -1520,7 +1582,7 @@ def test_cli_config_models_uses_saved_key_after_env_changes(monkeypatch, tmp_pat
     assert client.session.calls[0][1]["headers"]["Authorization"] == "Bearer saved-secret"
 
 
-def test_cli_config_show_migrates_legacy_api_key_env_fallback(monkeypatch, tmp_path):
+def test_cli_config_show_does_not_persist_legacy_api_key_env_fallback(monkeypatch, tmp_path):
     from click.testing import CliRunner
 
     monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
@@ -1533,7 +1595,8 @@ def test_cli_config_show_migrates_legacy_api_key_env_fallback(monkeypatch, tmp_p
     result = CliRunner().invoke(cli, ["config", "show"])
 
     assert result.exit_code == 0
-    assert json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))["llm"]["api_key"] == "env-secret"
+    assert "已配置(已遮蔽)" in result.output
+    assert "api_key" not in json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))["llm"]
 
 
 def test_cli_config_llm_command_redirects_to_models():
@@ -1951,4 +2014,41 @@ def test_cli_report_and_send_render_friendly_errors(monkeypatch):
     monkeypatch.setattr("young_stock.channels.send_report", lambda *args, **kwargs: (_ for _ in ()).throw(ValueError("run report first")))
     send_result = CliRunner().invoke(cli, ["send", "--date", "20260618"])
     assert send_result.exit_code != 0
-    assert "run report first" in send_result.output
+    assert "--dry-run" in send_result.output
+    assert "--yes" in send_result.output
+
+
+def test_cli_send_dry_run_previews_resolved_bundle(monkeypatch, tmp_path):
+    from click.testing import CliRunner
+
+    from young_stock.artifacts import ReportArtifacts, ReportIdentity
+
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
+    identity = ReportIdentity("20260618", "盘后", "A股深度复盘")
+    artifacts = ReportArtifacts("20260618")
+    markdown = artifacts.write_report_markdown(identity, "# 复盘\n\n正文")
+    pdf = artifacts.path(identity.prefix, "pdf")
+    pdf.write_bytes(b"%PDF")
+
+    result = CliRunner().invoke(cli, ["send", "--date", "20260618", "--dry-run", "--channel", "work"])
+
+    assert result.exit_code == 0
+    assert "Dry run only" in result.output
+    assert str(markdown) in result.output
+    assert str(pdf) in result.output
+    assert "work" in result.output
+
+
+def test_cli_send_requires_explicit_yes(monkeypatch):
+    from click.testing import CliRunner
+
+    monkeypatch.setattr(
+        "young_stock.channels.send_report",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("send_report should not be called")),
+    )
+
+    result = CliRunner().invoke(cli, ["send", "--date", "20260618"])
+
+    assert result.exit_code != 0
+    assert "--dry-run" in result.output
+    assert "--yes" in result.output

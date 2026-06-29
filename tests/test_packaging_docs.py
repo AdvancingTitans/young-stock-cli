@@ -31,12 +31,17 @@ def test_readme_covers_the_current_product_surface():
         "uv tool install young-stock-cli",
         "uv tool install --upgrade young-stock-cli",
         "uv tool install --force 'young-stock-cli'",
+        "uv tool install --upgrade 'young-stock-cli[pdf]'",
+        "uv tool install --force '.[pdf]'",
         "python3 -m pip install --upgrade young-stock-cli",
+        "python3 -m pip install --upgrade 'young-stock-cli[pdf]'",
         "young init",
         "young daily --format summary",
         "young daily --llm --lens all --debate-rounds 3",
         "young report",
         "young send",
+        "young send --dry-run",
+        "young send --yes",
         "young stock <symbol>",
         "young lhb <symbol>",
         "young fund <code>",
@@ -76,7 +81,6 @@ def test_readme_covers_the_current_product_surface():
         "docs/images/cover.png",
         "docs/images/demo-indices.png",
         "docs/images/demo-zt-pool.png",
-        "docs/images/repo-overview.png",
     ):
         assert phrase in readme
 
@@ -165,6 +169,7 @@ def test_pdf_template_is_declared_as_package_data():
 
     assert template.exists()
     assert "src/young_stock/templates/*.html" in pyproject
+    assert 'pdf = ["weasyprint>=62"]' in pyproject
     assert '"weasyprint>=62"' in pyproject
 
 

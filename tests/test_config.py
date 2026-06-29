@@ -6,6 +6,7 @@ import pytest
 from young_stock.config import (
     ConfigError,
     add_feishu_channel,
+    load_effective_config,
     load_config,
     mask_config,
     migrate_legacy_llm_api_key_fallback,
@@ -163,6 +164,17 @@ def test_migrate_legacy_llm_api_key_fallback_skips_when_env_missing(monkeypatch,
 
     assert migrated is False
     assert "api_key" not in load_config()["llm"]
+
+
+def test_load_effective_config_hydrates_env_secret_without_persisting(monkeypatch, tmp_path):
+    monkeypatch.setenv("YOUNG_STOCK_HOME", str(tmp_path))
+    monkeypatch.setenv("MODEL_KEY", '  "env-secret"  ')
+    save_config({"llm": {"provider": "deepseek", "model": "deepseek-chat", "api_key_env": "MODEL_KEY"}})
+
+    effective = load_effective_config(strict=False)
+
+    assert effective["llm"]["api_key"] == "env-secret"
+    assert "api_key" not in load_config(strict=False)["llm"]
 
 
 def test_config_masks_secrets_and_webhook_tokens():

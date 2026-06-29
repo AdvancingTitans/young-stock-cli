@@ -6,8 +6,8 @@ import pytest
 from young_stock.config import (
     ConfigError,
     add_feishu_channel,
-    load_effective_config,
     load_config,
+    load_effective_config,
     mask_config,
     migrate_legacy_llm_api_key_fallback,
     normalize_api_base,

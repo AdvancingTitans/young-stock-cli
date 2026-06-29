@@ -1,7 +1,13 @@
 import json
 from datetime import datetime
 
-from young_stock.artifacts import DeliveryArtifacts, ReportArtifacts, ReportIdentity, market_session, report_session
+from young_stock.artifacts import (
+    DeliveryArtifacts,
+    ReportArtifacts,
+    ReportIdentity,
+    market_session,
+    report_session,
+)
 from young_stock.reports import generate_llm_daily_report
 
 

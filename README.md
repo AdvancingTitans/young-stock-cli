@@ -1,6 +1,6 @@
 # young-stock-cli
 
-> Quiet personal research cockpit for the terminal.
+> Quiet personal research cockpit for A-shares, Hong Kong stocks, US stocks, funds, and after-hours portfolio review.
 > 轻量个人投研驾驶舱。
 
 [![PyPI](https://img.shields.io/pypi/v/young-stock-cli.svg)](https://pypi.org/project/young-stock-cli/)
@@ -11,6 +11,29 @@
 ![young-stock-cli cover](docs/images/cover.png)
 
 `young-stock-cli` 把 A 股、港股、美股的盘后查看、持仓复盘、证据驱动深度分析和本地报告导出收进一个小而完整的终端工作流。
+
+```bash
+uv tool install young-stock-cli
+young init
+young daily --format summary
+young stock 600519 --llm --lens buffett
+young report
+```
+
+Use it when you want a personal terminal workflow for watchlists, reports, local investment memory, PDF export, and Feishu/Lark delivery.
+
+## Why Star This Repo
+
+- One CLI covers market snapshots, single-symbol evidence, watchlist reports, local profiles, PDF export, and sending.
+- Deterministic by default: LLM analysis only runs when you pass `--llm`.
+- Built for real after-hours routines: cache, profile memory, dry-run delivery, and source diagnostics.
+- Designed to be useful as a CLI and as an AI-agent tool.
+
+## Which Repo Should I Use?
+
+- Use **`young-stock-cli`** for a polished personal investing cockpit.
+- Use [`stock-analysis`](https://github.com/AdvancingTitans/stock-analysis) for the lower-level evidence engine and global market recap framework.
+- See [`awesome-ai-agent-research-tools`](https://github.com/AdvancingTitans/awesome-ai-agent-research-tools) for related AI-agent research tools.
 
 它的定位很直接：
 

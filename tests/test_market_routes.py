@@ -24,14 +24,14 @@ def test_board_route_does_not_mix_current_rows_into_historical_report():
     result = route_board_data(
         "industry",
         "20250101",
-        direct=lambda kind, date, limit: calls.append("direct") or {"rows": []},
+        direct=lambda kind, date, limit: calls.append("direct") or {"rows": [{"name": "实时"}]},
         browser_service=lambda kind: calls.append("browser_service") or {"rows": [{"name": "实时"}]},
         playwright=lambda kind: calls.append("playwright") or {"rows": [{"name": "实时"}]},
         current_trade_date="20260618",
         browser_fallback=True,
     )
 
-    assert calls == ["direct"]
+    assert calls == []
     assert result["_unavailable"] == "历史数据不可得"
 
 

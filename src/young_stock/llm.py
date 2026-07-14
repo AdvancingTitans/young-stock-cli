@@ -18,17 +18,7 @@ from .config import (
     normalize_fallback_models,
     normalize_model_id,
 )
-
-PROVIDER_BASES = {
-    "openai": "https://api.openai.com/v1",
-    "ark": "https://ark.cn-beijing.volces.com/api/v3",
-    "kimi": "https://api.moonshot.ai/v1",
-    "moonshot": "https://api.moonshot.ai/v1",
-    "deepseek": "https://api.deepseek.com",
-    "qwen": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-    "ollama": "http://localhost:11434/v1",
-    "anthropic": "https://api.anthropic.com/v1",
-}
+from .providers import ProviderSpec, default_api_base, provider_spec
 
 
 class LLMError(RuntimeError):
@@ -54,6 +44,7 @@ class LLMResponse:
     model: str
     usage: dict[str, Any] = field(default_factory=dict)
     raw: dict[str, Any] = field(default_factory=dict)
+    transport: str = "api"
 
 
 class LLMClient:
@@ -66,23 +57,24 @@ class LLMClient:
         model = str(self.config.get("model") or "")
         if not provider or not model:
             raise LLMNotConfigured("未配置 LLM，请运行 `young config models --help`。")
-        api_base = normalize_api_base(provider, self.config.get("api_base") or PROVIDER_BASES.get(provider) or "")
+        spec = self._provider_spec(provider)
+        api_base = self._api_base(provider, spec)
         if not api_base:
-            raise LLMNotConfigured(f"provider {provider} 缺少 api_base；请运行 `young config models --help`。")
+            raise LLMNotConfigured(f"{spec.display_name} 缺少 api_base/Base URL；请运行 `young config models --help`。")
         if is_kimi_coding_api_base(api_base):
             raise LLMError(kimi_coding_plan_unsupported_message())
         model = normalize_model_id(provider, api_base, model)
         api_key = self._api_key()
-        if provider != "ollama" and not api_key:
-            raise LLMNotConfigured("未配置 LLM API key；请运行 `young config models --help`。")
+        if spec.requires_api_key and not api_key:
+            raise LLMNotConfigured(f"未配置 {spec.display_name} API key；请运行 `young config models --help`。")
         attempted_models: list[str] = []
         last_error: _LLMRequestFailure | None = None
         for index, candidate in enumerate(self._model_candidates(model)):
             attempted_models.append(candidate)
             try:
-                if provider == "anthropic":
-                    return self._anthropic(api_base, api_key, candidate, messages)
-                return self._openai_compatible(api_base, api_key, provider, candidate, messages)
+                if spec.protocol == "anthropic-messages":
+                    return self._anthropic(api_base, api_key, candidate, messages, spec)
+                return self._openai_compatible(api_base, api_key, provider, candidate, messages, spec)
             except _LLMRequestFailure as exc:
                 last_error = exc
                 if exc.allow_model_fallback and index < len(self._model_candidates(model)) - 1:
@@ -96,27 +88,30 @@ class LLMClient:
         provider = str(self.config.get("provider") or "").lower()
         if not provider:
             raise LLMNotConfigured("未指定 provider，请运行 `young config models --help`。")
-        api_base = normalize_api_base(provider, self.config.get("api_base") or PROVIDER_BASES.get(provider) or "")
+        spec = self._provider_spec(provider)
+        api_base = self._api_base(provider, spec)
         if not api_base:
-            raise LLMNotConfigured(f"provider {provider} 缺少 api_base；请运行 `young config models --help`。")
+            raise LLMNotConfigured(f"{spec.display_name} 缺少 api_base/Base URL；请运行 `young config models --help`。")
         api_key = self._api_key()
-        if provider != "ollama" and not api_key:
-            raise LLMNotConfigured("未配置 LLM API key；请运行 `young config models --help`。")
+        if spec.requires_api_key and not api_key:
+            raise LLMNotConfigured(f"未配置 {spec.display_name} API key；请运行 `young config models --help`。")
         headers = {"Accept": "application/json"}
-        if provider == "anthropic":
+        if spec.protocol == "anthropic-messages":
             headers.update({"x-api-key": api_key, "anthropic-version": "2023-06-01"})
         elif api_key:
             headers["Authorization"] = f"Bearer {api_key}"
-        response = self._get(f"{api_base}/models", headers=headers)
+        response = self._get(self._url(api_base, spec.models_path), headers=headers)
         try:
             data = response.json()
         except Exception as exc:
             raise LLMError("模型列表返回了非 JSON 响应，无法解析。") from exc
         if not isinstance(data, dict):
             raise LLMError("模型列表返回格式异常，无法解析可用模型 ID。")
-        rows = data.get("data")
-        if rows is None:
-            rows = data.get("models")
+        rows = None
+        for container in spec.models_response_containers:
+            rows = data.get(container)
+            if rows is not None:
+                break
         if rows is None or not isinstance(rows, list):
             raise LLMError("模型列表返回格式异常，无法解析可用模型 ID。")
         models = []
@@ -132,9 +127,34 @@ class LLMClient:
             if model_id:
                 models.append(str(model_id))
         models = sorted(dict.fromkeys(models))
-        if verify_chat:
-            models = self._verified_chat_models(api_base, api_key, provider, models)
+        if verify_chat and spec.supports_model_probe:
+            models = self._verified_chat_models(api_base, api_key, provider, models, spec)
         return models
+
+    def _provider_spec(self, provider: str) -> ProviderSpec:
+        spec = provider_spec(provider)
+        if spec is not None:
+            return spec
+        return ProviderSpec(
+            provider,
+            provider,
+            "openai-chat",
+            "",
+            "",
+            "/models",
+            ("data", "models"),
+            "/chat/completions",
+        )
+
+    def _api_base(self, provider: str, spec: ProviderSpec) -> str:
+        return normalize_api_base(provider, self.config.get("api_base") or default_api_base(provider) or "")
+
+    def _url(self, api_base: str, path: str) -> str:
+        return f"{api_base.rstrip('/')}/{path.strip('/')}"
+
+    def _surface(self, surface: str) -> str:
+        spec = self._provider_spec(str(self.config.get("provider") or "").lower())
+        return f"{surface}（{spec.display_name}）"
 
     def _api_key(self) -> str:
         saved = normalize_api_key(self.config.get("api_key"))
@@ -143,6 +163,9 @@ class LLMClient:
         env_name = str(self.config.get("api_key_env") or "").strip()
         if env_name and os.environ.get(env_name):
             return normalize_api_key(os.environ[env_name])
+        spec = provider_spec(self.config.get("provider"))
+        if spec and spec.default_api_key_env and os.environ.get(spec.default_api_key_env):
+            return normalize_api_key(os.environ[spec.default_api_key_env])
         return ""
 
     def _base_timeout(self) -> float:
@@ -161,7 +184,14 @@ class LLMClient:
     def _model_candidates(self, primary_model: str) -> list[str]:
         return [primary_model, *normalize_fallback_models(self.config.get("fallback_models"), primary_model)]
 
-    def _verified_chat_models(self, api_base: str, api_key: str, provider: str, models: list[str]) -> list[str]:
+    def _verified_chat_models(
+        self,
+        api_base: str,
+        api_key: str,
+        provider: str,
+        models: list[str],
+        spec: ProviderSpec,
+    ) -> list[str]:
         if not models:
             return []
         if self.session.__class__.__module__.startswith("requests") and len(models) > 1:
@@ -169,12 +199,12 @@ class LLMClient:
             with ThreadPoolExecutor(max_workers=workers) as executor:
                 availability = list(
                     executor.map(
-                        lambda model: self._can_chat_with_model(api_base, api_key, provider, model, session=requests.Session()),
+                        lambda model: self._can_chat_with_model(api_base, api_key, provider, model, spec, session=requests.Session()),
                         models,
                     )
                 )
             return [model for model, available in zip(models, availability) if available]
-        return [model for model in models if self._can_chat_with_model(api_base, api_key, provider, model)]
+        return [model for model in models if self._can_chat_with_model(api_base, api_key, provider, model, spec)]
 
     def _can_chat_with_model(
         self,
@@ -182,10 +212,11 @@ class LLMClient:
         api_key: str,
         provider: str,
         model: str,
+        spec: ProviderSpec,
         *,
         session: Any | None = None,
     ) -> bool:
-        if provider == "anthropic":
+        if spec.protocol == "anthropic-messages":
             return True
         session = session or self.session
         headers = {"Content-Type": "application/json"}
@@ -193,7 +224,7 @@ class LLMClient:
             headers["Authorization"] = f"Bearer {api_key}"
         try:
             response = session.post(
-                f"{api_base}/chat/completions",
+                self._url(api_base, spec.chat_path),
                 headers=headers,
                 json={"model": model, "messages": [{"role": "user", "content": "ping"}], "max_tokens": 1},
                 timeout=(3.0, 8.0),
@@ -267,6 +298,16 @@ class LLMClient:
                 return False
             if inputs and "text" not in inputs:
                 return False
+        elif isinstance(modalities, list):
+            values = {str(value).lower() for value in modalities}
+            if values and "text" not in values:
+                return False
+        outputs = {str(value).lower() for value in item.get("output_modalities") or []}
+        inputs = {str(value).lower() for value in item.get("input_modalities") or []}
+        if outputs and "text" not in outputs:
+            return False
+        if inputs and "text" not in inputs:
+            return False
         return True
 
     def _not_found_error_message(self, surface: str, provider: str, detail: str) -> str:
@@ -335,10 +376,10 @@ class LLMClient:
             return response
 
     def _post(self, url: str, **kwargs: Any) -> Any:
-        return self._request("post", url, surface="LLM", long_read=True, **kwargs)
+        return self._request("post", url, surface=self._surface("LLM"), long_read=True, **kwargs)
 
     def _get(self, url: str, **kwargs: Any) -> Any:
-        return self._request("get", url, surface="模型列表", long_read=False, **kwargs)
+        return self._request("get", url, surface=self._surface("模型列表"), long_read=False, **kwargs)
 
     def _error_detail(self, response: Any) -> str:
         try:
@@ -385,6 +426,7 @@ class LLMClient:
         provider: str,
         model: str,
         messages: list[dict[str, str]],
+        spec: ProviderSpec,
     ) -> LLMResponse:
         headers = {"Content-Type": "application/json"}
         if api_key:
@@ -392,7 +434,7 @@ class LLMClient:
         payload: dict[str, Any] = {"model": model, "messages": messages}
         if self.config.get("max_tokens"):
             payload["max_tokens"] = int(self.config["max_tokens"])
-        response = self._post(f"{api_base}/chat/completions", headers=headers, json=payload)
+        response = self._post(self._url(api_base, spec.chat_path), headers=headers, json=payload)
         data = self._response_json(response, surface="LLM")
         try:
             content = data["choices"][0]["message"]["content"]
@@ -408,6 +450,7 @@ class LLMClient:
         api_key: str,
         model: str,
         messages: list[dict[str, str]],
+        spec: ProviderSpec,
     ) -> LLMResponse:
         system = "\n\n".join(item["content"] for item in messages if item.get("role") == "system")
         payload: dict[str, Any] = {
@@ -418,7 +461,7 @@ class LLMClient:
         if system:
             payload["system"] = system
         response = self._post(
-            f"{api_base}/messages",
+            self._url(api_base, spec.chat_path),
             headers={
                 "Content-Type": "application/json",
                 "x-api-key": api_key,

@@ -1,4 +1,4 @@
-"""Thin adapters over existing core fetchers plus a minimal Yahoo chart fallback."""
+"""Thin adapters over existing core fetchers plus structured source adapters."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from urllib.parse import quote
 
 import requests
 
-from .contracts import SourceResult
+from ..contracts import SourceResult
 
 _CORE_QUOTE_FETCHERS = {
     "sina": {

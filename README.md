@@ -1,6 +1,7 @@
 # young-stock-cli
 
-> Quiet personal research cockpit for A-shares, Hong Kong stocks, US stocks, funds, and after-hours portfolio review.
+> Quiet personal research cockpit for the terminal.
+> Covers A-shares, Hong Kong stocks, US stocks, funds, and after-hours portfolio review.
 > 轻量个人投研驾驶舱。
 
 [![PyPI](https://img.shields.io/pypi/v/young-stock-cli.svg)](https://pypi.org/project/young-stock-cli/)
@@ -10,7 +11,7 @@
 
 ![young-stock-cli cover](docs/images/cover.png)
 
-`young-stock-cli` 把 A 股、港股、美股的盘后查看、持仓复盘、证据驱动深度分析和本地报告导出收进一个小而完整的终端工作流。
+`young-stock-cli` 把 A 股、港股、美股、基金的行情查看、持仓复盘、精选资讯、证据驱动深度分析和本地报告导出收进一个小而完整的终端工作流。
 
 ```bash
 uv tool install young-stock-cli
@@ -26,14 +27,27 @@ Use it when you want a personal terminal workflow for watchlists, reports, local
 
 - One CLI covers market snapshots, single-symbol evidence, watchlist reports, local profiles, PDF export, and sending.
 - Deterministic by default: LLM analysis only runs when you pass `--llm`.
-- Built for real after-hours routines: cache, profile memory, dry-run delivery, and source diagnostics.
+- Built for real routines: pre-market, intraday, after-hours, single-stock, fund, cache, profile memory, dry-run delivery, and source diagnostics.
+- Evidence stays honest: missing indicators remain missing, while stable supplemental sources and selected news are added when available.
 - Designed to be useful as a CLI and as an AI-agent tool.
+
+## What Should I Run?
+
+| I want to... | Run |
+| --- | --- |
+| See today's market and watchlist quickly | `young daily --format summary` |
+| Generate a full evidence report | `young daily --llm` |
+| Add investor-style expert views | `young daily --llm --lens all` or `young stock 600519 --llm --lens buffett` |
+| Review one stock with quotes, flow, announcements, reports, and selected news | `young stock 600519 --llm --rich-source` |
+| Review one fund with fund profile, holdings, holding quotes, and holding-news radar | `young fund 161725 --llm --rich-source` |
+| Export or send the latest saved report | `young report`, then `young send --dry-run` |
+| Check whether data/model/PDF/channels are ready | `young diagnose` |
+
+`--rich-source` is opt-in because it may query slower supplemental sources. If a source is unavailable, young records the gap instead of fabricating a replacement value.
 
 ## Which Repo Should I Use?
 
-- Use **`young-stock-cli`** for a polished personal investing cockpit.
-- Use [`stock-analysis`](https://github.com/AdvancingTitans/stock-analysis) for the lower-level evidence engine and global market recap framework.
-- See [`awesome-ai-agent-research-tools`](https://github.com/AdvancingTitans/awesome-ai-agent-research-tools) for related AI-agent research tools.
+Use **`young-stock-cli`** when you want the packaged personal investing cockpit: CLI commands, local profiles, evidence bundles, optional model reports, PDF export, and delivery channels in one workflow.
 
 它的定位很直接：
 
@@ -48,6 +62,14 @@ Use it when you want a personal terminal workflow for watchlists, reports, local
 - 缺失的数据保持缺失，不把空值硬写成零。
 
 Requires Python 3.9+.
+
+## What's New In 0.3.16
+
+- All report paths can use supplemental evidence: daily, single-stock, fund, pre-market, intraday, after-hours, and their expert-lens versions.
+- Selected news radar is compressed before it reaches the model: source, URL, publish time, title, event grouping, and truncation status are kept; duplicate raw feed noise is not.
+- Fund analysis now includes fund profile evidence and a holding-stock news radar when data is available.
+- Short-term sentiment evidence covers objective items such as limit-up structure, seal ratio, board ladder, promotion rate, blow-up risk, and turnover leaders. It is evidence only, not a trading signal.
+- Missing modules are explicit. Reports use natural language such as `相关指标当日未披露` or `历史数据不可得` instead of zeros or guesses.
 
 ## 30 秒上手
 
@@ -114,11 +136,13 @@ young init
 The default data path is built around public no-login sources. In practice, young prefers the stable HTTP path first and only widens the net when you ask for it.
 
 1. Primary path: stable HTTP sources for A/HK/US market snapshots, quotes, news, flow, and board data.
-2. Optional rich path: `--rich-source` unlocks slower supplemental sources for extra financial, social, and event evidence.
+2. Optional rich path: `--rich-source` unlocks slower supplemental sources for extra financial, social, and event evidence. Missing optional libraries remain explicit unavailable records rather than hard failures.
 3. Browser path: `--browser-fallback` enables the explicit browser fallback for capabilities that support it.
 4. Safety rule: if a source is weak or missing, young prefers cached or shorter verified output over guessing.
 
 `young diagnose` shows recent source health and readiness so you can see which path is currently safe to lean on.
+
+Dates are part of the evidence contract. Responses distinguish the requested date, actual `as_of` date, stale cached data, latest-available fallbacks, and truly missing values; empty pools are not rewritten as zero.
 
 ## Stock, LHB, fund, social, and event coverage
 
@@ -254,6 +278,7 @@ young portfolio compare 600519 000858
 - fallback models
 
 支持的 provider 包括 `openai`、`ark`、`kimi`、`moonshot`、`deepseek`、`qwen`、`ollama`、`anthropic`。
+`young config providers` 会列出当前注册表中的 API providers。兼容 OpenAI chat/completions 的自定义端点请使用显式 `openai-compatible`，并同时配置 `--api-base` 和 `--model`，不要把第三方端点伪装成官方 OpenAI。
 
 保存或更新模型配置时必须指定 `--model`；不带 `--model` 时只允许用 `--list` 查询模型 ID，不会写入配置。
 
@@ -286,14 +311,25 @@ Kimi Coding Plan (`https://api.kimi.com/coding/v1`, `kimi-for-coding`) 主要面
 Migration notes:
 
 - `young init` 会补齐本地默认配置结构。
+- 旧配置未写 `transport` 时自动按 `api` 迁移。
 - `young config show` 会遮蔽密钥。
 - `young config show` 和 `young config channel list` 默认输出 human-readable bullets，而不是直接 JSON。
 - `chat.style` 和 `chat.analysis_framework` 会同步成同一个值。
 - 旧配置里如果已经有 `api-key-env`，运行时会尽量把已解析的密钥回填到本地配置，减少重复输入。
 
+### Subscription CLI transport
+
+`young config models --transport subscription-cli ...` 只调用本机已经登录的订阅 CLI。它在临时空目录运行、通过 stdin 传入 young 已构造的 Evidence 和 Prompt、设置超时并清理临时目录；它不会开放 profile 写入、文件访问、shell、交易、数据抓取工具或高权限自动批准参数。该 transport 不支持 `--list`，模型可用性请在对应本机 CLI 中确认。
+
 ### Delivery channels
 
 `young config channel add|list|remove` 管理通知渠道，`young send` 使用这些配置发报告。Feishu 支持 webhook 模式和 app 模式。
+
+## MCP
+
+`young mcp` 启动只读 stdio MCP server，供外部 agent 调用 young 的标准 Evidence 能力。工具只返回客观数据切片，例如 quote、market indices、market emotion、daily/stock/fund evidence、stock news、announcements、research reports、fund flow 和 source health。
+
+MCP 不调用模型，不保存配置，不发送消息，不修改 profile、memory、diary、cache 或任何交易状态。
 
 ## CLI ↔ slash correspondence
 
@@ -372,6 +408,20 @@ young uninstall
 - Local state lives under `~/.young_stock/` and is not uploaded by default.
 - Browser fallback and richer sources only run when you ask for them.
 
+### Optional dependencies
+
+- Base install: `requests`, `rich`, `click`, `prompt-toolkit`.
+- PDF export: install `young-stock-cli[pdf]` for `weasyprint`.
+- Rich sources such as library-backed market data remain optional and are not required for ordinary CLI, report, or MCP use.
+
+### Troubleshooting
+
+- Run `young diagnose --json` before filing a data-source issue.
+- Use `young config show` to confirm provider, transport, model, masked key source, and channel setup.
+- For Ark or other model gateways, run `young config models --provider <provider> --list` before saving a model ID.
+- For stale market data, compare `requested_date`, `as_of`, `_date_note`, and `source` before assuming the source is wrong.
+- For network-sensitive checks, mark tests explicitly with `@pytest.mark.network`; ordinary CI should stay offline and fixture-driven.
+
 ### FAQ
 
 **Q: Does `young daily` need a model?**
@@ -405,3 +455,7 @@ These assets live in `docs/images/` and are safe to reuse in issues, release not
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+## References
+
+This project uses public market-data endpoints and standard Python packaging conventions, and it is licensed under MIT. Thanks to the broader open-source investing-tooling community for API-shape references and fixture ideas; young keeps those references as inspiration, not copied runtime code.

@@ -49,6 +49,26 @@ def test_to_research_evidence_is_pure_and_contains_no_internal_names():
     assert "相关指标当日未披露" in text
 
 
+def test_to_research_evidence_handles_numeric_ladder_keys():
+    evidence = {
+        "modules": {
+            "M3": {
+                "emotion": {
+                    "ladder": {
+                        3: [{"code": "600002", "name": "B"}],
+                    }
+                }
+            }
+        },
+        "_meta": {},
+    }
+
+    converted = to_research_evidence(evidence)
+
+    ladder = converted["研报证据"]["赚钱效应与涨停结构"]["短线情绪证据"]["连板梯队"]
+    assert ladder["3"] == [{"code": "600002", "name": "B"}]
+
+
 def test_review_research_report_handles_markdown_wrapped_engineering_phrases():
     markdown = (
         "# 复盘\n\n"

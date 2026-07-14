@@ -20,11 +20,11 @@ def route_board_data(
     current_trade_date: str | None = None,
     browser_fallback: bool = False,
 ) -> dict[str, Any]:
+    if current_trade_date and trade_date != current_trade_date:
+        return {"board_type": board_type, "rows": [], "_unavailable": "历史数据不可得"}
     result = direct(board_type, trade_date, limit)
     if _rows(result):
         return result
-    if current_trade_date and trade_date != current_trade_date:
-        return {"board_type": board_type, "rows": [], "_unavailable": "历史数据不可得"}
     if not browser_fallback:
         return result or {"board_type": board_type, "rows": [], "_unavailable": "本模块证据暂缺"}
     for browser_source in (browser_service, playwright):

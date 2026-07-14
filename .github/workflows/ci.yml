@@ -29,4 +29,4 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - run: pip install -e ".[dev]"
-      - run: pytest --cov=young_stock --cov-report=term-missing
+      - run: pytest -m "not network" --cov=young_stock --cov-report=term-missing --cov-fail-under=67

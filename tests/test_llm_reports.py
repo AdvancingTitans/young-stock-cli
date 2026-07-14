@@ -54,6 +54,85 @@ def test_llm_report_context_translates_internal_fields_for_research_writing():
     assert "板块强弱与资金流" in prompt
 
 
+def test_llm_report_context_translates_news_radar_fields():
+    client = RecordingClient("# 复盘\n\n据公开市场数据，资讯事件已压缩。")
+    evidence = {
+        "modules": {
+            "M1": {
+                "available": True,
+                "news_radar": {
+                    "events": [
+                        {
+                            "title": "Fed holds rates",
+                            "sources": ["Reuters"],
+                            "latest_published_at": "2026-07-08T01:00:00Z",
+                            "items": [
+                                {
+                                    "url": "https://example.com/fed",
+                                    "time_status": "ok",
+                                    "content_status": "missing",
+                                    "source_status": "ok",
+                                }
+                            ],
+                        }
+                    ]
+                },
+            }
+        },
+        "_meta": {"news_radar": {"raw_count": 12, "event_count": 1, "truncated": True}},
+    }
+
+    generate_llm_daily_report(evidence, client)
+
+    prompt = client.messages[-1]["content"]
+    assert "资讯事件" in prompt
+    assert "时间解析状态" in prompt
+    assert "正文状态" in prompt
+    assert "news_radar" not in prompt
+    assert "time_status" not in prompt
+    assert "content_status" not in prompt
+
+
+def test_llm_prompt_requires_supplemental_evidence_for_all_report_kinds_and_lenses():
+    client = RecordingClient(
+        "# 巴菲特基金复盘\n\n"
+        "总体态度：中性\n"
+        "详细结论：据公开市场数据，基金持仓与精选资讯均需继续跟踪。\n"
+        "证据：相关指标当日未披露，补充证据显示白酒批价改善。\n"
+        "风险：证据缺口仍在。\n"
+        "行动建议：维持观察。\n"
+        "观察清单：跟踪净值、重仓股行情和精选资讯。\n"
+        "## 巴菲特持仓建议与风险提示\n"
+        "态度：中性。持仓建议：证据不足时维持观察。风险提示：跟踪净值、重仓股行情和精选资讯。"
+    )
+    evidence = {
+        "modules": {
+            "FUND": {
+                "available": True,
+                "fundcode": "161725",
+                "profile": {"returns": {"近1年": 12.3}},
+                "holding_news_radar": {"events": [{"title": "白酒批价改善", "sources": ["东方财富"]}]},
+            }
+        },
+        "_meta": {
+            "asset_kind": "fund",
+            "report_type": "single-fund",
+            "missing_modules": ["M2"],
+            "supplemental_evidence": {"candidates": {"M2": ["板块资金流", "精选资讯"]}},
+        },
+    }
+
+    generate_llm_daily_report(evidence, client, lens="buffett", daily=False)
+
+    system_text = "\n".join(message["content"] for message in client.messages if message["role"] == "system")
+    user_text = client.messages[-1]["content"]
+    assert "盘前、盘中、盘后、个股、基金及对应专家视角" in system_text
+    assert "优先引用补充证据、精选资讯和稳定公开数据源" in system_text
+    assert "仍不可得的指标必须写成相关指标当日未披露" in system_text
+    assert "持仓股精选资讯" in user_text
+    assert "补充证据" in user_text
+
+
 def test_llm_report_output_removes_engineering_language():
     client = RecordingClient(
         "# 复盘\n\n证据: modules.M2.available 为 false。\n"
@@ -313,7 +392,7 @@ def test_llm_report_raises_llm_error_after_failed_repair_and_does_not_save_inval
         generate_llm_daily_report({"modules": {}, "_meta": {}}, client)
 
 
-def test_llm_report_does_not_block_when_only_number_grounding_fails_after_repair():
+def test_llm_report_blocks_unsupported_numbers_after_one_repair():
     client = SequencedClient(
         [
             "# 日报\n\n"
@@ -333,11 +412,10 @@ def test_llm_report_does_not_block_when_only_number_grounding_fails_after_repair
         ]
     )
 
-    markdown, metadata = generate_llm_daily_report({"modules": {}, "_meta": {}}, client)
+    with pytest.raises(LLMError):
+        generate_llm_daily_report({"modules": {}, "_meta": {}}, client)
 
-    assert "成交额约 9999 亿元" in markdown
     assert len(client.calls) == 2
-    assert metadata["mechanical_checks"]["numbers_grounded"] is False
 
 
 def test_llm_stock_report_repairs_missing_final_advice_sections():
@@ -409,7 +487,7 @@ def test_llm_report_accepts_grounded_symbol_digits_without_repair():
     assert all(metadata["mechanical_checks"].values())
 
 
-def test_llm_report_repairs_date_fragment_claims_against_atomic_date_evidence():
+def test_llm_report_repairs_unsupported_date_fragments_against_atomic_date_evidence():
     client = SequencedClient(
         [
             "# 日报\n\n"

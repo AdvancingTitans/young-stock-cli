@@ -12,7 +12,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 from .local_store import young_home
 
-DEFAULT_CONFIG: dict[str, Any] = {"schema_version": 1, "llm": {}, "channels": {"feishu": {}}, "chat": {}}
+DEFAULT_CONFIG: dict[str, Any] = {"schema_version": 2, "llm": {}, "channels": {"feishu": {}}, "chat": {}}
 SECRET_KEYS = {"api_key", "app_secret", "tenant_access_token"}
 
 
@@ -89,8 +89,10 @@ def _with_defaults(data: dict[str, Any] | None) -> dict[str, Any]:
     if not isinstance(data, dict):
         return result
     result.update({key: value for key, value in data.items() if key not in {"llm", "channels", "chat"}})
-    result["schema_version"] = 1
+    result["schema_version"] = 2
     result["llm"] = dict(data.get("llm") or {})
+    if result["llm"]:
+        result["llm"].setdefault("transport", "api")
     channels = data.get("channels") or {}
     result["channels"] = dict(channels) if isinstance(channels, dict) else {}
     result["channels"].setdefault("feishu", {})

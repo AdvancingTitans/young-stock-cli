@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.3.16] - 2026-07-15
+
+### Added
+
+- Add independent evidence, provider, transport, cache, global-market, news-radar, and read-only MCP modules without introducing any dependency on another project.
+- Add source provenance and schema metadata to structured evidence, including bounded enhanced-research source material.
+
+### Changed
+
+- Reject live-only board routes for historical requests before making a network call.
+- Make unsupported numeric or date claims blocking after one LLM repair attempt.
+- Gate CI and publishing on lint, tests, and coverage, then smoke-test the built wheel before release.
+
+### Fixed
+
+- Save the local investment profile atomically, keep a last-known-good backup, recover a corrupt primary file, and refuse destructive overwrites when no valid backup exists.
+
 ## [0.3.15] - 2026-06-29
 
 ### Fixed

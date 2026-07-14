@@ -6,7 +6,19 @@ on:
       - "v*"
 
 jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - run: ruff check .
+      - run: pytest -m "not network" --cov=young_stock --cov-report=term-missing --cov-fail-under=67
+
   build:
+    needs: verify
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -14,7 +26,15 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install build
+      - name: Verify tag matches package version
+        run: python -c 'import os, tomllib; version=tomllib.load(open("pyproject.toml", "rb"))["project"]["version"]; assert os.environ["GITHUB_REF_NAME"] == f"v{version}", (os.environ["GITHUB_REF_NAME"], version)'
       - run: python -m build
+      - name: Smoke-test built wheel
+        run: |
+          python -m venv /tmp/young-wheel
+          /tmp/young-wheel/bin/pip install dist/*.whl
+          /tmp/young-wheel/bin/young --version
+          /tmp/young-wheel/bin/young --help
       - uses: actions/upload-artifact@v4
         with:
           name: dist

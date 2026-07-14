@@ -1,0 +1,302 @@
+[
+  {
+    "id": "reuters_markets",
+    "name": "Reuters Markets",
+    "url": "https://www.reutersagency.com/feed/?best-topics=business-finance&post_type=best",
+    "track": "global_market",
+    "country_or_language": "en",
+    "default_enabled": true,
+    "may_need_proxy": true,
+    "health_status": "unknown"
+  },
+  {
+    "id": "ap_business",
+    "name": "AP Business",
+    "url": "https://apnews.com/hub/business?output=rss",
+    "track": "global_market",
+    "country_or_language": "en",
+    "default_enabled": true,
+    "may_need_proxy": true,
+    "health_status": "unknown"
+  },
+  {
+    "id": "marketwatch_top",
+    "name": "MarketWatch Top Stories",
+    "url": "https://feeds.marketwatch.com/marketwatch/topstories/",
+    "track": "global_market",
+    "country_or_language": "en",
+    "default_enabled": true,
+    "may_need_proxy": true,
+    "health_status": "unknown"
+  },
+  {
+    "id": "cnbc_world",
+    "name": "CNBC World News",
+    "url": "https://www.cnbc.com/id/100727362/device/rss/rss.html",
+    "track": "global_market",
+    "country_or_language": "en",
+    "default_enabled": true,
+    "may_need_proxy": true,
+    "health_status": "unknown"
+  },
+  {
+    "id": "fed_press",
+    "name": "Federal Reserve Press Releases",
+    "url": "https://www.federalreserve.gov/feeds/press_all.xml",
+    "track": "macro",
+    "country_or_language": "US/en",
+    "default_enabled": true,
+    "may_need_proxy": true,
+    "health_status": "unknown"
+  },
+  {
+    "id": "ecb_press",
+    "name": "European Central Bank Press",
+    "url": "https://www.ecb.europa.eu/rss/press.html",
+    "track": "macro",
+    "country_or_language": "EU/en",
+    "default_enabled": true,
+    "may_need_proxy": true,
+    "health_status": "unknown"
+  },
+  {
+    "id": "imf_news",
+    "name": "IMF News",
+    "url": "https://www.imf.org/en/News/RSS",
+    "track": "macro",
+    "country_or_language": "global/en",
+    "default_enabled": true,
+    "may_need_proxy": true,
+    "health_status": "unknown"
+  },
+  {
+    "id": "world_bank_news",
+    "name": "World Bank News",
+    "url": "https://www.worldbank.org/en/news/all?displayconttype_exact=Press+Release&lang_exact=English&format=feed",
+    "track": "macro",
+    "country_or_language": "global/en",
+    "default_enabled": false,
+    "may_need_proxy": true,
+    "health_status": "unknown"
+  },
+  {
+    "id": "eastmoney_finance",
+    "name": "东方财富财经要闻",
+    "url": "https://finance.eastmoney.com/a/cywjh.xml",
+    "track": "china_market",
+    "country_or_language": "CN/zh",
+    "default_enabled": true,
+    "may_need_proxy": false,
+    "health_status": "unknown"
+  },
+  {
+    "id": "eastmoney_global",
+    "name": "东方财富国际财经",
+    "url": "https://finance.eastmoney.com/a/cgjjj.xml",
+    "track": "global_market",
+    "country_or_language": "CN/zh",
+    "default_enabled": true,
+    "may_need_proxy": false,
+    "health_status": "unknown"
+  },
+  {
+    "id": "eastmoney_stock",
+    "name": "东方财富证券要闻",
+    "url": "https://finance.eastmoney.com/a/czqyw.xml",
+    "track": "china_market",
+    "country_or_language": "CN/zh",
+    "default_enabled": true,
+    "may_need_proxy": false,
+    "health_status": "unknown"
+  },
+  {
+    "id": "jrj_stock",
+    "name": "金融界股票",
+    "url": "https://stock.jrj.com.cn/rss/stock.xml",
+    "track": "china_market",
+    "country_or_language": "CN/zh",
+    "default_enabled": false,
+    "may_need_proxy": false,
+    "health_status": "unknown"
+  },
+  {
+    "id": "hkex_news",
+    "name": "HKEX News",
+    "url": "https://www.hkex.com.hk/News/RSS?sc_lang=en",
+    "track": "hong_kong_market",
+    "country_or_language": "HK/en",
+    "default_enabled": true,
+    "may_need_proxy": true,
+    "health_status": "unknown"
+  },
+  {
+    "id": "sec_press",
+    "name": "SEC Press Releases",
+    "url": "https://www.sec.gov/news/pressreleases.rss",
+    "track": "us_market",
+    "country_or_language": "US/en",
+    "default_enabled": true,
+    "may_need_proxy": true,
+    "health_status": "unknown"
+  },
+  {
+    "id": "nasdaq_news",
+    "name": "Nasdaq News",
+    "url": "https://www.nasdaq.com/feed/rssoutbound?category=Markets",
+    "track": "us_market",
+    "country_or_language": "US/en",
+    "default_enabled": false,
+    "may_need_proxy": true,
+    "health_status": "unknown"
+  },
+  {
+    "id": "semiconductor_engineering",
+    "name": "Semiconductor Engineering",
+    "url": "https://semiengineering.com/feed/",
+    "track": "semiconductor",
+    "country_or_language": "en",
+    "default_enabled": true,
+    "may_need_proxy": true,
+    "health_status": "unknown"
+  },
+  {
+    "id": "semiconductor_today",
+    "name": "Semiconductor Today",
+    "url": "https://www.semiconductor-today.com/rss/news.xml",
+    "track": "semiconductor",
+    "country_or_language": "en",
+    "default_enabled": false,
+    "may_need_proxy": true,
+    "health_status": "unknown"
+  },
+  {
+    "id": "techcrunch_ai",
+    "name": "TechCrunch AI",
+    "url": "https://techcrunch.com/category/artificial-intelligence/feed/",
+    "track": "ai",
+    "country_or_language": "en",
+    "default_enabled": false,
+    "may_need_proxy": true,
+    "health_status": "unknown"
+  },
+  {
+    "id": "the_decoder_ai",
+    "name": "The Decoder AI",
+    "url": "https://the-decoder.com/feed/",
+    "track": "ai",
+    "country_or_language": "en",
+    "default_enabled": false,
+    "may_need_proxy": true,
+    "health_status": "unknown"
+  },
+  {
+    "id": "electrek",
+    "name": "Electrek",
+    "url": "https://electrek.co/feed/",
+    "track": "ev",
+    "country_or_language": "en",
+    "default_enabled": false,
+    "may_need_proxy": true,
+    "health_status": "unknown"
+  },
+  {
+    "id": "pv_magazine",
+    "name": "pv magazine",
+    "url": "https://www.pv-magazine.com/feed/",
+    "track": "solar",
+    "country_or_language": "en",
+    "default_enabled": false,
+    "may_need_proxy": true,
+    "health_status": "unknown"
+  },
+  {
+    "id": "utility_dive",
+    "name": "Utility Dive",
+    "url": "https://www.utilitydive.com/feeds/news/",
+    "track": "energy",
+    "country_or_language": "en",
+    "default_enabled": false,
+    "may_need_proxy": true,
+    "health_status": "unknown"
+  },
+  {
+    "id": "fierce_pharma",
+    "name": "Fierce Pharma",
+    "url": "https://www.fiercepharma.com/rss/xml",
+    "track": "pharma",
+    "country_or_language": "en",
+    "default_enabled": false,
+    "may_need_proxy": true,
+    "health_status": "unknown"
+  },
+  {
+    "id": "fierce_biotech",
+    "name": "Fierce Biotech",
+    "url": "https://www.fiercebiotech.com/rss/xml",
+    "track": "biotech",
+    "country_or_language": "en",
+    "default_enabled": false,
+    "may_need_proxy": true,
+    "health_status": "unknown"
+  },
+  {
+    "id": "retail_dive",
+    "name": "Retail Dive",
+    "url": "https://www.retaildive.com/feeds/news/",
+    "track": "consumer",
+    "country_or_language": "en",
+    "default_enabled": false,
+    "may_need_proxy": true,
+    "health_status": "unknown"
+  },
+  {
+    "id": "food_dive",
+    "name": "Food Dive",
+    "url": "https://www.fooddive.com/feeds/news/",
+    "track": "consumer",
+    "country_or_language": "en",
+    "default_enabled": false,
+    "may_need_proxy": true,
+    "health_status": "unknown"
+  },
+  {
+    "id": "banking_dive",
+    "name": "Banking Dive",
+    "url": "https://www.bankingdive.com/feeds/news/",
+    "track": "finance",
+    "country_or_language": "en",
+    "default_enabled": false,
+    "may_need_proxy": true,
+    "health_status": "unknown"
+  },
+  {
+    "id": "coindesk",
+    "name": "CoinDesk",
+    "url": "https://www.coindesk.com/arc/outboundfeeds/rss/",
+    "track": "crypto",
+    "country_or_language": "en",
+    "default_enabled": false,
+    "may_need_proxy": true,
+    "health_status": "unknown"
+  },
+  {
+    "id": "the_block",
+    "name": "The Block",
+    "url": "https://www.theblock.co/rss.xml",
+    "track": "crypto",
+    "country_or_language": "en",
+    "default_enabled": false,
+    "may_need_proxy": true,
+    "health_status": "unknown"
+  },
+  {
+    "id": "supply_chain_dive",
+    "name": "Supply Chain Dive",
+    "url": "https://www.supplychaindive.com/feeds/news/",
+    "track": "supply_chain",
+    "country_or_language": "en",
+    "default_enabled": false,
+    "may_need_proxy": true,
+    "health_status": "unknown"
+  }
+]

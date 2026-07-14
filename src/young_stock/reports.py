@@ -33,6 +33,10 @@ LLM_REPORT_SYSTEM_PROMPT = """请基于用户提供的研报证据，撰写正�
 按结构约束输出 Markdown；只有 --lens all 使用 M7 机构化综合判断。
 “六模块深度复盘”下固定使用以下子标题顺序：M1 大盘指数与市场广度、M2 板块强弱与资金流、M3 赚钱效应与涨停结构、M4 下跌风险与炸板结构、M5 持仓与市场风格、M6 抗跌方向。
 每个有证据的模块给出关键判断、证据、风险/确认条件；建议必须是条件化触发器，不给无条件买卖指令。
+盘前、盘中、盘后、个股、基金及对应专家视角都必须优先引用补充证据、精选资讯和稳定公开数据源。
+如果证据包提供了补充证据、资讯事件、基金画像、持仓股精选资讯、公告/研报/资金流/短线情绪等内容，必须纳入对应章节的证据或观察清单。
+仍不可得的指标必须写成相关指标当日未披露，不得补零、猜测或用相邻指标替代。
+短线情绪只作为证据，不得直接写成买入、卖出或仓位信号；M7 只接收并引用压缩后的情绪摘要。
 证据完整度不足时，只输出指数、持仓、已验证风险和下一交易日观察清单。
 正文只写投资研究语言。不得出现内部字段名、程序结构、工具名称、本地路径、文件扩展名、技术切换过程或机械占位段。
 某模块无证据时优先省略该小节；确需说明时使用“相关指标当日未披露”或“历史数据不可得”等自然表述。
@@ -81,6 +85,7 @@ MODULE_TITLES = {
     "M5": "持仓与市场风格",
     "M6": "抗跌方向",
     "STOCK": "个股证据",
+    "FUND": "基金证据",
 }
 
 FIELD_TITLES = {
@@ -100,6 +105,32 @@ FIELD_TITLES = {
     "blowup_ratio": "炸板率",
     "dt_pool": "跌停明细",
     "zb_pool": "炸板明细",
+    "emotion": "短线情绪证据",
+    "emotion_market": "市场情绪宽度",
+    "limit_up_diffusion": "涨停扩散",
+    "emotion_alignment": "持仓与活跃方向关系",
+    "emotion_persistence": "短线持续性",
+    "m7_emotion_summary": "M7 压缩情绪摘要",
+    "data_date": "数据日期",
+    "as_of": "截至日期",
+    "seal_ratio": "封板率",
+    "max_board": "最高板",
+    "lianban_count": "连板家数",
+    "ladder": "连板梯队",
+    "previous_zt_count": "昨日涨停家数",
+    "promotion_numerator": "晋级分子",
+    "promotion_denominator": "晋级分母",
+    "promotion_rate": "晋级率",
+    "promotion": "晋级口径",
+    "high_break_count": "高位断板家数",
+    "turnover_top": "成交额 Top",
+    "missing_fields": "缺失字段",
+    "stale": "是否过期",
+    "holding_codes": "持仓代码",
+    "limit_up_holdings": "持仓涨停交集",
+    "limit_down_holdings": "持仓跌停交集",
+    "blowup_holdings": "持仓炸板交集",
+    "active_industries": "活跃行业",
     "holdings": "持仓",
     "style_signals": "风格观察",
     "growth_board_count": "科创板与创业板活跃样本数",
@@ -107,6 +138,29 @@ FIELD_TITLES = {
     "quote": "行情",
     "block_trades": "大宗交易",
     "news": "公开信息",
+    "news_radar": "资讯事件",
+    "holding_news_radar": "持仓股精选资讯",
+    "profile": "基金画像",
+    "fundcode": "基金代码",
+    "returns": "区间收益",
+    "fees": "费率",
+    "scale": "规模",
+    "managers": "基金经理",
+    "supplemental_evidence": "补充证据",
+    "candidates": "候选补充来源",
+    "rule": "补充规则",
+    "events": "事件聚合",
+    "title": "标题",
+    "sources": "来源",
+    "latest_published_at": "最新发布时间",
+    "items": "证据条目",
+    "url": "链接",
+    "time_status": "时间解析状态",
+    "content_status": "正文状态",
+    "source_status": "来源确认状态",
+    "raw_count": "原始资讯条数",
+    "event_count": "聚合事件数",
+    "truncated": "是否截断",
     "trade_date": "交易日",
     "quality_score": "证据完整度评分",
     "missing_modules": "证据暂缺模块",
@@ -162,9 +216,9 @@ def _repair_prompt(lens: str | None) -> str:
 
 def _has_blocking_mechanical_failure(checks: dict[str, bool]) -> bool:
     """Return True only for checks unsafe enough to block user-facing reports."""
-    # ponytail: numeric grounding and fixed attitude wording are advisory; they are too noisy for
-    # natural market prose. Upgrade path: structured claim extraction and a report-kind schema.
-    advisory_checks = {"attitude_present", "numbers_grounded"}
+    # ponytail: fixed attitude wording remains advisory because equivalent research ratings are
+    # common. Numeric grounding is blocking: unsupported figures must not reach saved reports.
+    advisory_checks = {"attitude_present"}
     return any(not passed for name, passed in checks.items() if name not in advisory_checks)
 
 
@@ -297,6 +351,7 @@ def generate_llm_daily_report(
     response = llm_client.chat(messages)
     metadata = {
         "prompt_version": LLM_REPORT_PROMPT_VERSION,
+        "transport": getattr(response, "transport", "api"),
         "provider": response.provider,
         "model": response.model,
         "usage": response.usage,
@@ -308,7 +363,7 @@ def generate_llm_daily_report(
     markdown = review_research_report(response.content, evidence)
     checks = review_investment_output(markdown, evidence)
     enforce_checks = checks.pop("structured_candidate")
-    if enforce_checks and not all(checks.values()):
+    if enforce_checks and _has_blocking_mechanical_failure(checks):
         repair_messages = [
             *base_messages,
             {"role": "system", "content": _repair_prompt(lens)},
@@ -582,8 +637,14 @@ def _json_top_names(raw: str | None, limit: int) -> str:
         return ""
     parts = []
     for row in rows[:limit]:
-        name = row.get("name") or row.get("行业") or "-"
-        net = row.get("net")
+        if isinstance(row, dict):
+            name = row.get("name") or row.get("行业") or "-"
+            net = row.get("net")
+        elif isinstance(row, (list, tuple)) and row:
+            name = row[0]
+            net = row[1] if len(row) > 1 else None
+        else:
+            continue
         parts.append(f"{name}({net:+.1f}亿)" if isinstance(net, (int, float)) else str(name))
     return "、".join(parts)
 

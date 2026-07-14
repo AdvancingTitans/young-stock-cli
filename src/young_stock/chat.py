@@ -32,6 +32,7 @@ from .config import load_config, save_config
 from .lens.registry import chat_style_profiles
 from .llm import LLMClient, LLMError
 from .local_store import load_store, now_label, save_store
+from .model_transport.registry import model_transport_for_config
 from .research_bridge import compact_research_output, run_research_bridge
 
 CHAT_MEMORY_STORE = "chat_memory"
@@ -161,6 +162,7 @@ _TIME_VERIFICATION_CACHE: dict[str, object] = {
     "local_now": None,
 }
 _TIME_VERIFICATION_TTL = timedelta(minutes=5)
+_DEFAULT_LLM_CLIENT = LLMClient
 
 
 def beijing_now() -> datetime:
@@ -729,7 +731,9 @@ class ChatSession:
         )
 
     def _llm_client(self, config: dict[str, object]) -> object:
-        return LLMClient(config)
+        if LLMClient is not _DEFAULT_LLM_CLIENT:
+            return LLMClient(config)
+        return model_transport_for_config(config)
 
     def handle_message(self, text: str) -> None:
         self.capture_long_term_memory(text)

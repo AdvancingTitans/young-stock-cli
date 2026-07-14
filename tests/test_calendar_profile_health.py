@@ -1,8 +1,11 @@
 from datetime import datetime
 
+import pytest
+
 from young_stock import calendar as trade_calendar
 from young_stock.health import SourceHealthBook
 from young_stock.profile import (
+    ProfileCorruptError,
     add_profile_item,
     clear_profile,
     clear_profile_kind,
@@ -122,6 +125,29 @@ def test_profile_load_keeps_legacy_style_and_exposes_category(monkeypatch, tmp_p
         "style": "消费",
         "evidence": ["name=贵州茅台"],
     }
+
+
+def test_profile_recovers_last_good_backup_when_primary_is_corrupt(monkeypatch, tmp_path):
+    monkeypatch.setenv("YOUNG_STOCK_PROFILE", str(tmp_path / "profile.json"))
+    add_profile_item("stocks", "600519")
+    add_profile_item("funds", "161725")
+
+    profile_path().write_text("{broken", encoding="utf-8")
+
+    recovered = load_profile()
+    assert recovered["stocks"] == ["600519"]
+    assert recovered["funds"] == []
+
+    add_profile_item("funds", "161725")
+    assert load_profile()["funds"] == ["161725"]
+
+
+def test_profile_reports_corruption_instead_of_silently_returning_empty(monkeypatch, tmp_path):
+    monkeypatch.setenv("YOUNG_STOCK_PROFILE", str(tmp_path / "profile.json"))
+    profile_path().write_text("{broken", encoding="utf-8")
+
+    with pytest.raises(ProfileCorruptError, match="profile.json"):
+        load_profile()
 
 
 def test_source_health_book_tracks_recent_failures():

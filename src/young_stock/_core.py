@@ -34,9 +34,11 @@ from functools import wraps
 from pathlib import Path
 from typing import Any
 
+from .cache_v2 import CacheKey, JsonCacheV2
 from .calendar import nearest_trade_date as calendar_nearest_trade_date
 from .health import SOURCE_HEALTH
 from .market_routes import route_board_data
+from .net import DomainPolicy, ManagedHttpClient
 
 # ------------------------------------------------------------------
 # 配置
@@ -206,6 +208,18 @@ TENCENT_QUOTE_URL = "https://qt.gtimg.cn/q={codes}"
 # 诊断记录
 DIAGNOSTICS: list[str] = []
 NEWS_URL_VALIDATION_CACHE: dict[str, bool] = {}
+_HTTP_CLIENT = ManagedHttpClient(
+    policies={
+        "eastmoney": DomainPolicy(
+            domain_group="eastmoney",
+            max_concurrency=1,
+            min_interval=REQUEST_INTERVAL,
+            jitter_range=(0.05, 0.25),
+            proxy_mode="direct",
+        )
+    },
+    max_attempts=MAX_RETRIES + 1,
+)
 def diag(msg: str) -> None:
     DIAGNOSTICS.append(msg)
 
@@ -275,9 +289,54 @@ def _cache_write_path(symbol: str, date_str: str, source: str) -> Path:
     return d / _cache_key(symbol, date_str, source)
 
 
+def _cache_v2() -> JsonCacheV2:
+    return JsonCacheV2(CACHE_DIR / "v2")
+
+
+def _cache_v2_key(symbol: str, date_str: str, source: str) -> CacheKey:
+    return CacheKey(
+        schema_version=2,
+        capability=symbol,
+        source=source,
+        market="default",
+        symbol=symbol,
+        effective_date=date_str,
+        parameters={},
+    )
+
+
+def _payload_as_of(data: dict[str, Any], date_str: str) -> str:
+    value = str(data.get("date") or data.get("_as_of") or "").strip()
+    if re.fullmatch(r"\d{8}", value):
+        return _display_date(value)
+    if value:
+        return _source_date(value)
+    return _display_date(date_str)
+
+
+def _mark_stale_cache_payload(data: dict[str, Any], date_str: str, as_of: str) -> dict[str, Any]:
+    if as_of.replace("-", "") == date_str:
+        return data
+    marked = dict(data)
+    marked.setdefault("_requested_date", _display_date(date_str))
+    marked.setdefault("_date_note", "latest_available")
+    return marked
+
+
 def cache_load(symbol: str, date_str: str, source: str, ttl: int = CACHE_TTL_SECONDS) -> dict[str, Any] | None:
     if NO_CACHE:
         return None
+    v2 = _cache_v2()
+    v2_key = _cache_v2_key(symbol, date_str, source)
+    v2_path = v2.path_for(v2_key)
+    if v2_path.exists():
+        try:
+            if time.time() - v2_path.stat().st_mtime <= ttl:
+                record = v2.load(v2_key)
+                if record is not None and isinstance(record.payload, dict):
+                    return _mark_stale_cache_payload(record.payload, date_str, record.as_of)
+        except Exception:
+            pass
     p = _cache_path(symbol, date_str, source)
     if p.exists():
         try:
@@ -295,15 +354,32 @@ def cache_save(symbol: str, date_str: str, source: str, data: dict[str, Any]) ->
     # 空数据/错误响应不入缓存，避免污染后续读取
     if not data:
         return
+    if data.get("_error"):
+        return
     payload = data.get("data") if isinstance(data, dict) else None
     if payload is not None and not payload:  # data: [] / data: {}
         return
+    as_of = _payload_as_of(data, date_str)
+    _cache_v2().save_payload(
+        _cache_v2_key(symbol, date_str, source),
+        data,
+        source=source,
+        as_of=as_of,
+        stale=as_of.replace("-", "") != date_str,
+    )
     p = _cache_write_path(symbol, date_str, source)
+    tmp = p.with_name(f".{p.name}.{os.getpid()}.tmp")
     try:
-        with open(p, "w", encoding="utf-8") as f:
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, default=str)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, p)
     except Exception:
-        pass
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
 
 
 def load_latest_fund_flow_cache(date_str: str) -> dict[str, str] | None:
@@ -462,12 +538,14 @@ def _fetch_raw(url: str, headers: dict[str, str] | None = None, timeout: int = 1
     }
     if headers:
         default_headers.update(headers)
-    req = urllib.request.Request(url, headers=default_headers)
-    # 绕过本地代理（Clash 等会拦截东财 API 返 502）
-    proxy_handler = urllib.request.ProxyHandler({})
-    opener = urllib.request.build_opener(proxy_handler)
-    with opener.open(req, timeout=timeout) as resp:
-        return resp.read().decode("utf-8", errors="ignore")
+    resp = _HTTP_CLIENT.request("GET", url, headers=default_headers, timeout=timeout)
+    status = getattr(resp, "status_code", 200)
+    if status >= 400:
+        raise urllib.error.HTTPError(url, status, getattr(resp, "reason", ""), getattr(resp, "headers", None), None)
+    content = getattr(resp, "content", b"")
+    if content:
+        return content.decode("utf-8", errors="ignore")
+    return str(getattr(resp, "text", ""))
 
 
 def fetch_json(url: str, headers: dict[str, str] | None = None) -> dict[str, Any]:
@@ -1661,17 +1739,34 @@ def _fetch_a_indices_tencent() -> list[dict[str, Any]]:
     return result
 
 
+def _quote_symbol_key(symbol: str) -> str:
+    raw = str(symbol or "").upper()
+    if raw.endswith(".HK"):
+        code = raw[:-3].lstrip("0") or "0"
+        if code.isdigit():
+            return f"{code.zfill(5)}.HK"
+    return raw
+
+
 def merge_quotes_by_symbol(primary: list[QuoteData], fallback: list[QuoteData], order: list[str]) -> list[QuoteData]:
     """保留主源已有报价，仅用备用源补齐缺失 symbol。"""
-    lookup: dict[str, QuoteData] = {q.symbol.upper(): q for q in fallback}
-    lookup.update({q.symbol.upper(): q for q in primary})
-    return [lookup[s.upper()] for s in order if s.upper() in lookup]
+    lookup: dict[str, QuoteData] = {_quote_symbol_key(q.symbol): q for q in fallback}
+    lookup.update({_quote_symbol_key(q.symbol): q for q in primary})
+    merged = []
+    for sym in order:
+        key = _quote_symbol_key(sym)
+        if key not in lookup:
+            continue
+        qd = lookup[key]
+        qd.symbol = key
+        merged.append(qd)
+    return merged
 
 
 def enrich_quotes_by_symbol(primary: list[QuoteData], supplemental: list[QuoteData], order: list[str]) -> list[QuoteData]:
     """保留主源价格口径，用补充源填充成交额、估值、市值等扩展字段。"""
-    fallback = {q.symbol.upper(): q for q in supplemental}
-    primary_lookup = {q.symbol.upper(): q for q in primary}
+    fallback = {_quote_symbol_key(q.symbol): q for q in supplemental}
+    primary_lookup = {_quote_symbol_key(q.symbol): q for q in primary}
     enriched: list[QuoteData] = []
     enrich_fields = (
         "turnover",
@@ -1685,10 +1780,11 @@ def enrich_quotes_by_symbol(primary: list[QuoteData], supplemental: list[QuoteDa
         "amplitude_pct",
     )
     for sym in order:
-        key = sym.upper()
+        key = _quote_symbol_key(sym)
         qd = primary_lookup.get(key) or fallback.get(key)
         if not qd:
             continue
+        qd.symbol = key
         extra = fallback.get(key)
         if extra and qd is not extra:
             changed = False
@@ -1704,8 +1800,8 @@ def enrich_quotes_by_symbol(primary: list[QuoteData], supplemental: list[QuoteDa
 
 
 def _has_all_quotes(quotes: list[QuoteData], order: list[str]) -> bool:
-    found = {q.symbol.upper() for q in quotes}
-    return all(symbol.upper() in found for symbol in order)
+    found = {_quote_symbol_key(q.symbol) for q in quotes}
+    return all(_quote_symbol_key(symbol) in found for symbol in order)
 
 
 # ------------------------------------------------------------------
@@ -1788,14 +1884,14 @@ def normalize_stock_symbol(symbol: str) -> tuple[str, str]:
     if raw.endswith(".HK"):
         code = raw[:-3].lstrip("0") or "0"
         if code.isdigit() and len(code) <= 5:
-            return f"{code.zfill(4)}.HK", "hk_market"
+            return f"{code.zfill(5)}.HK", "hk_market"
         raise ValueError(f"无法识别的港股代码: {symbol}")
 
     if raw.isdigit():
         if len(raw) == 6:
             return raw, "cn_market"
         if 1 <= len(raw) <= 5:
-            return f"{raw.lstrip('0').zfill(4)}.HK", "hk_market"
+            return f"{raw.lstrip('0').zfill(5)}.HK", "hk_market"
         raise ValueError(f"无法识别的股票代码: {symbol}")
 
     if re.fullmatch(r"[A-Z][A-Z0-9.\-]{0,9}", raw):
@@ -2292,6 +2388,16 @@ def fetch_block_trades(symbol: str, date_str: str, limit: int = 10) -> dict[str,
     }
     cache_save("block_trades", f"{date_str}_{normalized}_{limit}", "eastmoney_datacenter", result)
     return result
+
+
+def fetch_a_share_extensions(symbol: str, date_str: str, *, rich_source: bool = False) -> dict[str, Any]:
+    """Fetch default A-share extension evidence through structured adapters."""
+    normalized, market = normalize_stock_symbol(symbol)
+    if market != "cn_market":
+        return {}
+    from .sources.adapters.a_share_extensions import collect_a_share_extensions
+
+    return collect_a_share_extensions(normalized, date_str, rich_source=rich_source)
 
 
 # ------------------------------------------------------------------
@@ -3291,6 +3397,8 @@ def _stock_secid_for_history(symbol: str) -> tuple[str, str, str]:
 
 def fetch_stock_close_on_or_after(symbol: str, buy_date: str) -> dict[str, Any]:
     """Fetch first available split-adjusted daily close on/after buy_date."""
+    from .global_market import parse_eastmoney_kline_close
+
     compact = _compact_date(buy_date)
     if not re.fullmatch(r"\d{8}", compact):
         return {"_error": "买入日期应为 YYYYMMDD 或 YYYY-MM-DD"}
@@ -3307,20 +3415,25 @@ def fetch_stock_close_on_or_after(symbol: str, buy_date: str) -> dict[str, Any]:
     if "_error" in data:
         return data
     klines = (data.get("data") or {}).get("klines") or []
-    for row in klines:
-        parts = str(row).split(",")
-        if len(parts) >= 3:
-            result = {
-                "symbol": normalized,
-                "market": market,
-                "date": parts[0],
-                "close": _safe_float(parts[2]),
-                "_source": "东方财富历史K线",
-            }
-            if result["close"] is not None:
-                cache_save(f"stock_buy_{normalized}", compact, "eastmoney_kline", result)
-                return result
+    result = parse_eastmoney_kline_close(
+        normalized,
+        market,
+        klines,
+        requested_date=compact,
+        today=datetime.now().strftime("%Y%m%d"),
+    )
+    if result.get("close") is not None:
+        cache_save(f"stock_buy_{normalized}", compact, "eastmoney_kline", result)
+        return result
+    if result.get("_error"):
+        return result
     return {"_error": "买入日附近未获取到可用股票收盘价"}
+
+
+def fetch_global_market_extensions(symbol: str, date_str: str, *, rich_source: bool = False) -> dict[str, Any]:
+    from .global_market import collect_global_market_extensions
+
+    return collect_global_market_extensions(sys.modules[__name__], symbol, date_str, rich_source=rich_source)
 
 
 def fetch_fund_nav_on_or_after(fund_code: str, buy_date: str) -> dict[str, Any]:
@@ -4251,6 +4364,52 @@ def run_global_market(date_str: str) -> None:
         print_diagnostic_summary()
 
     print_report_footer()
+
+
+def fetch_news_radar(
+    *,
+    mode: str,
+    date_str: str,
+    profile: dict[str, Any] | None = None,
+    symbol: str | None = None,
+    stock_context: dict[str, Any] | None = None,
+    rich_source: bool = False,
+    max_chars: int = 6000,
+) -> dict[str, Any]:
+    from .news_radar import NewsRadar, build_news_evidence, load_news_sources, select_news_sources
+
+    sources = select_news_sources(
+        load_news_sources(),
+        mode=mode,
+        profile=profile or {},
+        rich_source=rich_source,
+        stock_context=stock_context or {},
+    )
+    radar = NewsRadar(cache_dir=CACHE_DIR, global_concurrency=6)
+    results = radar.fetch_sources(sources)
+    raw_items = [item for result in results for item in result.items]
+    evidence = build_news_evidence(
+        raw_items,
+        mode=mode,
+        profile=profile or {},
+        stock_context=stock_context or {},
+        rich_source=rich_source,
+        max_chars=max_chars,
+    )
+    evidence["fetch_status"] = [
+        {
+            "source": result.source.id,
+            "status": result.status,
+            "from_cache": result.from_cache,
+            "error": result.error,
+        }
+        for result in results
+    ]
+    evidence["source_health"] = {result.source.id: result.health for result in results}
+    if symbol:
+        evidence["symbol"] = symbol
+    evidence["date_str"] = date_str
+    return evidence
 
 
 # ------------------------------------------------------------------

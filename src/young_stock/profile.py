@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,10 @@ EMPTY_PROFILE = {
 }
 
 
+class ProfileCorruptError(RuntimeError):
+    """Raised when profile state cannot be decoded and no good backup exists."""
+
+
 def profile_path() -> Path:
     override = os.environ.get("YOUNG_STOCK_PROFILE")
     if override:
@@ -30,9 +35,16 @@ def load_profile() -> dict[str, list[str]]:
     if not path.exists():
         return _empty_profile()
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = _read_profile_json(path)
     except (OSError, json.JSONDecodeError):
-        return _empty_profile()
+        backup = _profile_backup_path(path)
+        try:
+            data = _read_profile_json(backup)
+        except (OSError, json.JSONDecodeError) as backup_exc:
+            raise ProfileCorruptError(
+                f"投资记忆文件损坏且没有可用备份: {path}"
+            ) from backup_exc
+        _atomic_write_text(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
     return {
         "stocks": [str(v) for v in data.get("stocks", []) if str(v).strip()],
         "funds": [str(v) for v in data.get("funds", []) if str(v).strip()],
@@ -45,7 +57,39 @@ def load_profile() -> dict[str, list[str]]:
 def save_profile(profile: dict[str, list[str]]) -> None:
     path = profile_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(profile, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    if path.exists():
+        try:
+            current = path.read_text(encoding="utf-8")
+            json.loads(current)
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ProfileCorruptError(f"拒绝覆盖损坏的投资记忆文件: {path}") from exc
+        _atomic_write_text(_profile_backup_path(path), current)
+    _atomic_write_text(path, json.dumps(profile, ensure_ascii=False, indent=2) + "\n")
+
+
+def _profile_backup_path(path: Path) -> Path:
+    return path.with_suffix(path.suffix + ".bak")
+
+
+def _read_profile_json(path: Path) -> dict[str, Any]:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise json.JSONDecodeError("profile root must be an object", str(data), 0)
+    return data
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temporary_path = Path(temporary)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, path)
+    finally:
+        temporary_path.unlink(missing_ok=True)
 
 
 def add_profile_item(

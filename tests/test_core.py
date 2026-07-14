@@ -1,4 +1,5 @@
 import inspect
+import json
 from datetime import datetime
 
 import pytest
@@ -34,8 +35,8 @@ def test_detect_market_type():
 def test_normalize_single_stock_symbol():
     assert _core.normalize_stock_symbol("600519") == ("600519", "cn_market")
     assert _core.normalize_stock_symbol("000001.SZ") == ("000001", "cn_market")
-    assert _core.normalize_stock_symbol("0700") == ("0700.HK", "hk_market")
-    assert _core.normalize_stock_symbol("700.hk") == ("0700.HK", "hk_market")
+    assert _core.normalize_stock_symbol("0700") == ("00700.HK", "hk_market")
+    assert _core.normalize_stock_symbol("700.hk") == ("00700.HK", "hk_market")
     assert _core.normalize_stock_symbol("AAPL") == ("AAPL", "us_market")
 
 
@@ -51,6 +52,52 @@ def test_cache_load_missing_entry_does_not_create_directory(monkeypatch, tmp_pat
 
     assert _core.cache_load("index_all", "20260612", "eastmoney") is None
     assert not cache_dir.exists()
+
+
+def test_core_cache_save_writes_v2_record(monkeypatch, tmp_path):
+    monkeypatch.setattr(_core, "CACHE_DIR", tmp_path)
+
+    _core.cache_save("index_all", "20260612", "eastmoney", {"data": [{"f12": "000001"}]})
+
+    files = list((tmp_path / "v2").rglob("*.json"))
+    assert len(files) == 1
+    data = json.loads(files[0].read_text(encoding="utf-8"))
+    assert data["schema_version"] == 2
+    assert data["source"] == "eastmoney"
+    assert data["capability"] == "index_all"
+    assert data["as_of"] == "2026-06-12"
+    assert data["payload"] == {"data": [{"f12": "000001"}]}
+
+
+def test_core_cache_load_marks_stale_v2_payload(monkeypatch, tmp_path):
+    monkeypatch.setattr(_core, "CACHE_DIR", tmp_path)
+
+    _core.cache_save("fund_flow", "20260612", "eastmoney", {"date": "2026-06-11", "主力净流入": "1"})
+
+    cached = _core.cache_load("fund_flow", "20260612", "eastmoney")
+
+    assert cached["_requested_date"] == "2026-06-12"
+    assert cached["_date_note"] == "latest_available"
+
+
+def test_fetch_raw_uses_managed_http_client(monkeypatch):
+    class Response:
+        content = b'{"ok": true}'
+
+    class Client:
+        def __init__(self):
+            self.calls = []
+
+        def request(self, method, url, **kwargs):
+            self.calls.append((method, url, kwargs))
+            return Response()
+
+    client = Client()
+    monkeypatch.setattr(_core, "_HTTP_CLIENT", client)
+
+    assert _core._fetch_raw("https://push2.eastmoney.com/a?token=secret") == '{"ok": true}'
+    assert client.calls[0][0] == "GET"
+    assert client.calls[0][2]["headers"]["Accept"] == "application/json"
 
 
 def test_get_index_ignores_invalid_cached_shape(monkeypatch):
@@ -111,7 +158,7 @@ def test_get_single_stock_quote_uses_hk_fallback_chain(monkeypatch):
     monkeypatch.setattr(_core, "fetch_hk_stocks_tencent", lambda symbols, date: [])
 
     fallback = _core.QuoteData(
-        symbol="0700.HK",
+        symbol="00700.HK",
         name="腾讯控股",
         market="hk_market",
         date="2026-05-29",
@@ -130,7 +177,7 @@ def test_get_single_stock_quote_uses_hk_fallback_chain(monkeypatch):
     qd = _core.get_single_stock_quote("0700", "20260529")
 
     assert qd is not None
-    assert qd.symbol == "0700.HK"
+    assert qd.symbol == "00700.HK"
     assert qd.name == "腾讯控股"
     assert qd.source == "eastmoney_stock_get"
 
@@ -156,7 +203,7 @@ def test_fetch_stock_fund_flow_daily_parses_hk_push2his(monkeypatch):
     data = _core.fetch_stock_fund_flow_daily("0700.HK", "20260612", limit=3)
 
     assert "secid=116.00700" in seen["url"]
-    assert data["symbol"] == "0700.HK"
+    assert data["symbol"] == "00700.HK"
     assert data["market"] == "hk_market"
     assert data["name"] == "腾讯控股"
     assert data["rows"][0]["date"] == "2026-06-12"

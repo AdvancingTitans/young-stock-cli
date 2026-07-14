@@ -16,6 +16,7 @@ MODULE_TITLES = {
     "M5": "持仓与市场风格",
     "M6": "抗跌方向",
     "STOCK": "个股证据",
+    "FUND": "基金证据",
 }
 
 FIELD_TITLES = {
@@ -35,6 +36,32 @@ FIELD_TITLES = {
     "blowup_ratio": "炸板率",
     "dt_pool": "跌停明细",
     "zb_pool": "炸板明细",
+    "emotion": "短线情绪证据",
+    "emotion_market": "市场情绪宽度",
+    "limit_up_diffusion": "涨停扩散",
+    "emotion_alignment": "持仓与活跃方向关系",
+    "emotion_persistence": "短线持续性",
+    "m7_emotion_summary": "M7 压缩情绪摘要",
+    "data_date": "数据日期",
+    "as_of": "截至日期",
+    "seal_ratio": "封板率",
+    "max_board": "最高板",
+    "lianban_count": "连板家数",
+    "ladder": "连板梯队",
+    "previous_zt_count": "昨日涨停家数",
+    "promotion_numerator": "晋级分子",
+    "promotion_denominator": "晋级分母",
+    "promotion_rate": "晋级率",
+    "promotion": "晋级口径",
+    "high_break_count": "高位断板家数",
+    "turnover_top": "成交额 Top",
+    "missing_fields": "缺失字段",
+    "stale": "是否过期",
+    "holding_codes": "持仓代码",
+    "limit_up_holdings": "持仓涨停交集",
+    "limit_down_holdings": "持仓跌停交集",
+    "blowup_holdings": "持仓炸板交集",
+    "active_industries": "活跃行业",
     "holdings": "持仓",
     "style_signals": "风格观察",
     "growth_board_count": "科创板与创业板活跃样本数",
@@ -42,6 +69,29 @@ FIELD_TITLES = {
     "quote": "行情",
     "block_trades": "大宗交易",
     "news": "公开信息",
+    "news_radar": "资讯事件",
+    "holding_news_radar": "持仓股精选资讯",
+    "profile": "基金画像",
+    "fundcode": "基金代码",
+    "returns": "区间收益",
+    "fees": "费率",
+    "scale": "规模",
+    "managers": "基金经理",
+    "supplemental_evidence": "补充证据",
+    "candidates": "候选补充来源",
+    "rule": "补充规则",
+    "events": "事件聚合",
+    "title": "标题",
+    "sources": "来源",
+    "latest_published_at": "最新发布时间",
+    "items": "证据条目",
+    "url": "链接",
+    "time_status": "时间解析状态",
+    "content_status": "正文状态",
+    "source_status": "来源确认状态",
+    "raw_count": "原始资讯条数",
+    "event_count": "聚合事件数",
+    "truncated": "是否截断",
     "trade_date": "交易日",
     "quality_score": "证据完整度评分",
     "missing_modules": "证据暂缺模块",
@@ -97,24 +147,25 @@ def _convert(value: Any) -> Any:
         return value
     result = {}
     for key, item in value.items():
-        if key == "available":
+        key_text = str(key)
+        if key_text == "available":
             result["证据状态"] = "据公开市场数据" if item else "相关指标当日未披露"
-        elif key in {"source", "_source"}:
+        elif key_text in {"source", "_source"}:
             result["数据来源"] = _public_source(item)
-        elif key in {"_date_note", "_cache_note"}:
+        elif key_text in {"_date_note", "_cache_note"}:
             result["日期说明"] = "历史口径回溯"
-        elif key == "missing_modules":
+        elif key_text == "missing_modules":
             result["证据暂缺模块"] = [MODULE_TITLES.get(name, name) for name in item]
-        elif key == "degrade_mode":
+        elif key_text == "degrade_mode":
             result["报告范围"] = {
                 "full": "完整报告",
                 "degraded": "证据受限报告",
                 "simplified": "简化报告",
             }.get(str(item), str(item))
-        elif key.startswith("_"):
+        elif key_text.startswith("_"):
             continue
         else:
-            result[FIELD_TITLES.get(key, key)] = _convert(item)
+            result[FIELD_TITLES.get(key_text, key_text)] = _convert(item)
     return result
 
 

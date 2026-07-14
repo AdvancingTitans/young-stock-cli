@@ -23,10 +23,25 @@ ATTITUDE_CONTEXT_RE = re.compile(
 )
 FINAL_ATTITUDES = ("看涨", "偏看涨", "中性", "偏看空", "看空", "回避", "证据不足", "偏看多")
 FORBIDDEN_TERMS = (
-    "立即买入", "立即卖出", "满仓", "梭哈", "稳赚", "必涨", "保证收益", "已下单", "自动执行", "连接券商", "实盘自动",
+    "立即买入", "立即卖出", "买入信号", "卖出信号", "仓位信号", "提高仓位", "降低仓位",
+    "满仓", "梭哈", "稳赚", "必涨", "保证收益", "已下单", "自动执行", "连接券商", "实盘自动",
 )
 FUND_FORBIDDEN_TERMS = ("立即申购", "立即赎回", "自动扣款", "已申购", "已赎回", "保本保收益")
 CONDITIONAL_TERMS = ("如果", "若", "当", "除非", "触发", "确认", "失效", "维持观察", "暂不", "证据不足", "不行动", "观察", "等待")
+CONCLUSION_TERMS = (
+    "详细结论",
+    "辩论后结论",
+    "总体结论",
+    "综合判断",
+    "核心理由",
+    "核心观点",
+    "核心结论",
+    "投资结论",
+    "结论要点",
+    "主要结论",
+    "综合意见",
+    "conclusion",
+)
 
 
 def _normalize_number_token(token: str) -> str:
@@ -123,7 +138,7 @@ def review_investment_output(markdown: str, evidence: dict[str, Any]) -> dict[st
     no_forbidden = not any(token in text for token in (FORBIDDEN_TERMS + (FUND_FORBIDDEN_TERMS if _is_fund_evidence(evidence) else ())))
     return {
         "attitude_present": _has_attitude(text),
-        "conclusion_present": any(token in text for token in ("详细结论", "辩论后结论", "总体结论", "综合判断", "核心理由", "conclusion")),
+        "conclusion_present": any(token in text for token in CONCLUSION_TERMS),
         "evidence_present": any(token in text for token in ("证据", "核心理由", "据公开", "数据显示", "披露")),
         "risk_present": "风险" in text,
         "action_present": any(token in text for token in ("行动建议", "综合持仓建议", "持有", "观察", "回避", "等待确认", "不追高", "降低暴露")),

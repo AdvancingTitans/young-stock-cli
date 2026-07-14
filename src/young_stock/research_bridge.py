@@ -95,4 +95,10 @@ def run_research_bridge(query: str, *, timeout: float = 20.0) -> dict[str, str]:
     summary = compact_research_output(output)
     if not summary:
         return {"_unavailable": "可选联网研究桥未返回可提炼内容。请调整查询或桥接命令。"}
-    return {"summary_material": summary, "_source": "configured research bridge"}
+    # ponytail: retain a bounded audit copy beside the compact model context; callers that need
+    # larger artifacts should persist the bridge output separately instead of raising this ceiling.
+    return {
+        "summary_material": summary,
+        "source_material": output[:10000],
+        "_source": "configured research bridge",
+    }

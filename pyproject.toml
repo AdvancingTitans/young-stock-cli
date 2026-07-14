@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "young-stock-cli"
-version = "0.3.15"
-description = "A-share (China stock market) after-hours CLI — no login, no scraping tricks, just data."
+version = "0.3.16"
+description = "Personal investing cockpit CLI for A/HK/US stocks, funds, evidence reports, and local workflows."
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
@@ -55,6 +55,7 @@ packages = ["src/young_stock"]
 [tool.hatch.build]
 include = [
     "src/young_stock/**/*.py",
+    "src/young_stock/data/*.json",
     "src/young_stock/templates/*.html",
 ]
 
@@ -69,3 +70,6 @@ ignore = ["E501", "F402"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-v"
+markers = [
+    "network: explicit live-network checks; excluded from ordinary CI unless requested",
+]

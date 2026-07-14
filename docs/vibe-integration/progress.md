@@ -1,0 +1,200 @@
+# Integration Progress
+
+当前阶段：
+第 9 阶段总体验收部分完成。本轮只做收尾、文档、测试和小步拆分；不新增数据功能。
+
+已完成：
+- 只读核实 young 当前数据源接口、registry、resolver、health、`_core.py` 请求与缓存、Evidence Bundle、daily/stock/fund 报告、M1-M7、Lens/committee、LLM、Chat、Profile/Memory/Diary、CLI、测试和依赖配置。
+- 只读核实 Vibe-Research 后端 runtime、随仓 Skill 文档、RSS 雷达、本机订阅 CLI、MCP 和测试体系。
+- 明确区分 Vibe 文档声明、Vibe 后端实际接入、Skill-only 能力。
+- 创建本目录五份项目记忆文件。
+- 新增 `src/young_stock/providers.py`，定义统一 `ProviderSpec` 与 provider registry。
+- `LLMClient` 改为通过 registry 解析默认 API Base、API Key env、模型列表路径、chat 路径、协议类型和模型探测能力。
+- CLI `--provider` choice 改为从 registry 动态生成，并新增 `young config providers`。
+- 正式登记 `openai`、`xai`、`ark`、`kimi`、`moonshot`、`deepseek`、`qwen`、`ollama`、`anthropic`、`siliconflow`、`minimax`、`openrouter`、`groq`、`together`、`openai-compatible`。
+- `openai-compatible` 需要显式 Base URL 和模型；不会把该配置保存成 `openai`。
+- 模型列表过滤兼容 `data`、`models`、`modalities`、`input_modalities`、`output_modalities`，并继续过滤非文本模型。
+- 保留已有 fallback models、重试、认证/限流/模型不存在/网络错误分类，以及 Anthropic messages 协议。
+- 新增 `src/young_stock/model_transport/`，包含 `ModelTransport`、`ApiTransport`、`SubscriptionCliTransport` 和 transport registry。
+- 配置 schema 升级到 2；旧配置没有 `llm.transport` 时自动视为 `api`，无需用户手动迁移。
+- `young config models` 新增 `--transport`，保留原 API provider/model 用法，并支持保存 `subscription-cli` + `codex`/`claude`。
+- `daily`、`stock`、`fund`、`chat` 的模型调用入口改为 transport registry；APITransport 继续复用阶段 1 的 `LLMClient` 与 Provider Registry。
+- Subscription CLI 当前登记 OpenAI local CLI 与 Claude Code；当前环境验证到本机 OpenAI CLI 与 `Claude Code 2.1.186` 的版本/help 形态。
+- Subscription CLI 使用 stdin 非交互输入，在临时空目录运行，超时后终止进程组，结束后清理临时目录，并保留 stderr 诊断。
+- Subscription CLI 安全边界：只接收 young 已构造的 Evidence 与 Prompt；不开放数据源、仓库工具、Profile 修改、高权限自动批准参数或项目目录访问。
+- 报告 Metadata 新增保存 `transport`，继续保存 `provider`、`model`、`usage`；不保存 API Key、Authorization Header 或临时敏感路径。
+- 新增 `src/young_stock/net/`，包含 `ManagedHttpClient`、`DomainPolicy`、`DomainRateLimiter`、`CircuitBreaker` 和 `RequestTrace`。
+- 网络层集中处理 Session 复用、域名/域组并发限制、最小请求间隔、随机抖动、429 Retry-After、408/429/5xx 退避、403 熔断、超时分类、direct/proxy/auto 策略、备用域切换和脱敏 trace。
+- 东财相关域名默认归入同一个 `eastmoney` 限流域组；`_core._fetch_raw` 作为现有请求试点接入 `ManagedHttpClient`。
+- 新增 `src/young_stock/cache_v2.py`，定义包含 schema、capability、source、market、symbol、effective_date 和参数哈希的缓存键，以及包含 requested_at、as_of、source、capability、schema_version、stale、payload 的缓存记录。
+- `cache_save/cache_load` 作为兼容试点接入 v2：新写入 v2，同时保留旧路径写入；读取优先 v2，旧缓存仍可兼容读取；请求错误、默认空结果不入缓存；旧日期 payload 会标注 `_requested_date` 和 `_date_note=latest_available`，不伪装成当天数据。
+- 修复 key-points 报告对资金流 fallback 中 list-pair 形态 `_sector_in` 的兼容解析，避免合法缓存形态导致报告失败。
+- 将 `src/young_stock/evidence.py` 迁移为兼容 package：保留 `young_stock.evidence` 原有导入面，并新增 `src/young_stock/evidence/emotion.py`。
+- 新增标准化短线情绪 evidence：数据日期、真实 `as_of`、涨停/跌停/炸板家数、封板率、炸板率、最高板、连板家数、连板梯队、昨日涨停家数、晋级分子/分母/晋级率、早盘涨停、成交额 Top、来源、缺失字段、stale 状态和高位断板家数。
+- 晋级率口径已固定为“昨日涨停代码集合与今日二板以上代码集合的交集 / 昨日涨停代码集合”，同时保存分子和分母；不得用“今日二板以上数量 / 昨日涨停数量”替代。
+- 缺失指标保持 `None` 或进入 `missing_fields`；空池与缺失分开处理，日期回退显示真实 `as_of`。
+- Daily Evidence 已把短线情绪接入 M1-M6：M1 市场情绪宽度与成交额 Top，M2 涨停扩散，M3 涨停、封板、最高板、梯队和晋级，M4 跌停、炸板、高位断板和负反馈，M5 持仓与活跃方向关系，M6 持续性。
+- M7 只使用 `_meta.m7_emotion_summary` 的压缩情绪摘要；报告 prompt 明确短线情绪不得直接写成买入、卖出或仓位信号。
+- Review Gate 增加对“买入信号 / 卖出信号 / 仓位信号 / 提高仓位 / 降低仓位”等情绪交易化措辞的拦截。
+- 修复 Click 测试/程序内复用时 `--refresh` 把 `_core.NO_CACHE` 长期留为 `True` 的状态污染；每次 CLI 调用结束后复位运行期缓存标志。
+- 将 `src/young_stock/sources/adapters.py` 迁移为兼容 package `src/young_stock/sources/adapters/__init__.py`，保留原有 `build_core_adapters`、`yahoo_chart_adapter` 等导入面。
+- 新增 A 股扩展 Adapter 拆分：`eastmoney_base.py`、`eastmoney_market.py`、`eastmoney_capital.py`、`eastmoney_reports.py`、`cninfo.py`、`ths.py`、`mootdx.py`。
+- `EastmoneyHttpAdapter` 统一复用阶段 3 的 `ManagedHttpClient` 与 `JsonCacheV2`；Adapter 返回 young 标准 `SourceResult`，报告层不接收东财原始字段。
+- 默认 A 股扩展数据覆盖：个股资金流、行业/概念资金流、融资融券、龙虎榜、限售解禁、股东户数、大宗交易、分红送转、公告、研报、行业和概念归属。
+- `mootdx` 已登记为 rich-source 可选 library source；默认 policy 不选中，且未加入基础依赖。
+- `_core.fetch_a_share_extensions()` 作为生产入口调用标准 Adapter，并显式跳过 rich-source 项：mootdx、五档盘口、逐笔成交、完整财务三表、历史估值分位、一致预期、互动问答、PDF 研报。
+- Stock Evidence 已消费 A 股扩展数据并明确映射：个股资金流进入 `STOCK` 与 M2；行业/概念归属进入 `STOCK`、M2、M5、M6；龙虎榜进入 `STOCK` 与 M3；融资融券进入 `STOCK` 与 M4；股东户数和大宗交易进入 `STOCK` 与 M5；限售解禁、分红送转和公告进入 `_meta.risk_calendar`；研报只作为 `STOCK` 补充证据。
+- Registry 更新 Eastmoney A 股扩展 capabilities，并新增 `mootdx` optional source。
+- 新增 `src/young_stock/global_market.py`，集中处理港美股 symbol 规范化、轻量 source plan、东财候选精确匹配、历史 K 线日期裁剪、全球指数汇总和 rich-source 结构化占位。
+- 港股 symbol 统一补齐为五位 `.HK`，例如 `700`、`0700.hk` 规范化为 `00700.HK`；quote merge/enrich 使用规范化匹配键，避免四位/五位后缀差异导致不同数据源漏匹配。
+- 东财候选筛选优先精确代码匹配；过滤票据、认购认沽、牛熊、杠杆/反向 ETF、ETN、warrant 等相似标的，避免普通股票误配到衍生品或相似代码。
+- 轻量 fallback plan 固定为：港美股 quote 默认新浪、腾讯、东财；history 默认东财、Yahoo；港股指数默认腾讯、新浪、东财；美股指数默认新浪、腾讯、东财。
+- `fetch_stock_close_on_or_after()` 复用统一 K 线解析；请求日期晚于当前日期时返回明确错误，且不会选取当前日期之后的 K 线。
+- 全球市场扩展继续进入既有 Evidence Bundle：非 A 股 `STOCK.global_market` 保存 symbol、market、quote/history source plan、history 和 rich-source 跳过或不可用状态；不建立独立分析体系。
+- `--rich-source` 仅增加 SEC 10-K/10-Q/8-K、XBRL 财务、分析师预期、机构持仓、美股期权和完整财务报表的结构化入口或缺依赖提示；SEC fixture 只提取 form、filed、accession number 和关键 section snippet，不把 filing 全文传入模型。
+- 新增 `src/young_stock/data/news_sources.json`，以来源目录记录名称、URL、赛道、国家/语言、默认是否启用、是否可能需要代理和健康状态；覆盖宏观、全球市场、中国市场、港美市场、半导体、AI、新能源、医药、消费、金融、加密和供应链等赛道。
+- 新增 `src/young_stock/news_radar.py`：RSS/Atom 解析、全局并发、复用 `ManagedHttpClient` 的单域名并发/超时/重试/熔断、ETag/Last-Modified、304 缓存复用、原子缓存、Canonical URL、链接去重、相似标题事件聚合、时间解析状态、正文缺失标记和 Source Health。
+- 普通 daily 只选择宏观、全球市场和持仓相关行业赛道；持仓行业匹配时可启用该行业源，但不会打开所有赛道；`rich_source=True` 才选择全部未禁用赛道。
+- 个股 Evidence 只保留公司、所属行业/概念、上下游关键词和明确相关宏观事件；stock 构建时关闭 daily 资讯雷达，避免混入非个股范围。
+- `_core.fetch_news_radar()` 作为生产入口执行 `原始资讯 -> 清洗 -> 去重 -> 事件聚合 -> 相关性过滤 -> 压缩 Evidence`，并只把压缩后的 `compressed` 写入 `build_daily_evidence()`/`build_stock_evidence()`；原始 RSS 标题列表不进入模型。
+- 新闻来源无法确认、发布时间异常或正文缺失时，Evidence 保留 `source_status`、`time_status`、`content_status`，不补写事实。
+- `research_style.py`/`reports.py` 增加资讯雷达字段中文化，避免 `news_radar`、`time_status` 等内部字段名进入 LLM prompt。
+- `pyproject.toml` 已把 `src/young_stock/data/*.json` 纳入构建包数据。
+- 新增 `src/young_stock/mcp_server.py`，提供无新增依赖的 MCP stdio JSON-RPC server，并通过 `young mcp` 启动；EOF 或 `shutdown` 后退出，不启动后台服务。
+- MCP 暴露只读工具：`get_quote`、`get_market_indices`、`get_market_emotion`、`get_daily_evidence`、`get_stock_evidence`、`get_fund_evidence`、`get_stock_news`、`get_announcements`、`get_research_reports`、`get_fund_flow`、`get_source_health`。
+- `get_quote` 通过 `resolve_quote()` 和 `SourceResolver` 获取标准 quote；daily/stock/fund、市场指数、市场情绪、个股新闻、公告、研报和资金流均从 `build_daily_evidence()`、`build_stock_evidence()` 或 `build_fund_evidence()` 的 young 标准 Evidence 中切片返回，不新增第二套数据实现。
+- MCP 响应统一包含 `requested_date`、实际 `as_of`、`source`、`stale`、`missing`、`warnings` 和 `evidence`；日期回退、缺失、last-known-good 和 latest-available 不伪装成当天完整数据。
+- MCP 禁止暴露写能力：未提供持仓/Profile/Memory/Diary/cache/channel/trading/shell/file 等 mutation 工具；未知工具调用返回 JSON-RPC 参数错误。
+- 第 9 阶段将 A 股扩展聚合从 `_core.py` 移入 `src/young_stock/sources/adapters/a_share_extensions.py`；`_core.fetch_a_share_extensions()` 保留为兼容入口。
+- 本地修复 `/daily --llm` 报错 `'int' object has no attribute 'startswith'`：先读取本机 profile/config，复现得到完整栈，定位到 `generate_llm_daily_report()` 在 LLM 调用前执行 `to_research_evidence()` 时崩溃。根因是 `M3.emotion.ladder` 的连板梯队使用整数 key（如 14、9、8、7、5、3、2），而 `research_style._convert()` 假设所有 dict key 都是字符串并直接调用 `key.startswith("_")`。修复方式是在研报发布化转换边界把 key 统一转为字符串，再做内部字段过滤和中文标题映射；不修改内部 Evidence 数据模型，保留 `emotion.ladder[3]` 等已有行为。
+- 为该问题新增回归测试 `test_to_research_evidence_handles_numeric_ladder_keys`，覆盖 `{3: [...]}` 连板梯队进入研报证据时应输出字符串 key `"3"`，避免未来再次把非字符串 key 传给 `startswith()`。
+- 修复后已通过 `uv tool install -e . --force` 更新本机 `young` 命令；安装后的 `young daily --llm` 临时 HOME 路径不再触发该 AttributeError，临时无 LLM 配置时按预期回退到普通 daily。
+- 本地修复 `/stock 600519 --llm --lens buffett` 报错 `LLM 输出未通过机械校验`：先读取项目记忆与本机 worktree 状态，复现真实命令确认错误来自 `generate_llm_daily_report()` repair 后的机械校验。根因是 `numbers_grounded` 虽已设计为 advisory，但首轮仍用 `not all(checks.values())` 触发 repair；同时 `conclusion_present` 只识别“详细结论/综合判断/核心理由”等少数固定词，容易把单 Lens 报告里的“核心观点/投资结论/结论要点/综合意见”等正式研报表达误判为缺结论。修复方式是首轮也只对 blocking checks 触发 repair，并扩展结论词表；`numbers_grounded` 继续保留 metadata 警示，不阻断、不强制二次改写。
+- 为该问题新增/调整回归测试：`test_review_gate_accepts_common_research_conclusion_wording` 覆盖“核心观点”可作为结论；`test_llm_report_does_not_block_when_only_number_grounding_fails` 覆盖仅 `numbers_grounded` 失败不阻断且不二次调用 LLM；旧日期片段测试同步为 advisory 语义。
+- 修复后已通过真实命令 `uv run young stock 600519 --llm --lens buffett`，成功生成并保存到本地报告目录 `~/.young_stock/reports/20260708/20260708-午间-600519深度分析-buffett.md`；随后通过 `uv tool install -e . --force` 更新本机 `young` 命令到当前本地版本。
+
+修改文件：
+- `src/young_stock/providers.py`
+- `src/young_stock/model_transport/base.py`
+- `src/young_stock/model_transport/api.py`
+- `src/young_stock/model_transport/subscription_cli.py`
+- `src/young_stock/model_transport/registry.py`
+- `src/young_stock/model_transport/__init__.py`
+- `src/young_stock/net/__init__.py`
+- `src/young_stock/net/client.py`
+- `src/young_stock/net/limiter.py`
+- `src/young_stock/net/policy.py`
+- `src/young_stock/net/trace.py`
+- `src/young_stock/cache_v2.py`
+- `src/young_stock/sources/adapters/__init__.py`
+- `src/young_stock/sources/adapters/eastmoney_base.py`
+- `src/young_stock/sources/adapters/eastmoney_market.py`
+- `src/young_stock/sources/adapters/eastmoney_capital.py`
+- `src/young_stock/sources/adapters/eastmoney_reports.py`
+- `src/young_stock/sources/adapters/cninfo.py`
+- `src/young_stock/sources/adapters/ths.py`
+- `src/young_stock/sources/adapters/mootdx.py`
+- `src/young_stock/sources/adapters/a_share_extensions.py`
+- `src/young_stock/sources/registry.py`
+- `src/young_stock/global_market.py`
+- `src/young_stock/news_radar.py`
+- `src/young_stock/data/news_sources.json`
+- `src/young_stock/mcp_server.py`
+- `src/young_stock/evidence/__init__.py`
+- `src/young_stock/evidence/emotion.py`
+- `src/young_stock/config.py`
+- `src/young_stock/llm.py`
+- `src/young_stock/cli.py`
+- `src/young_stock/chat.py`
+- `src/young_stock/reports.py`
+- `src/young_stock/research_style.py`
+- `src/young_stock/review_gate.py`
+- `src/young_stock/_core.py`
+- `tests/test_net.py`
+- `tests/test_cache_v2.py`
+- `tests/test_a_share_adapters.py`
+- `tests/test_global_market.py`
+- `tests/test_news_radar.py`
+- `tests/test_mcp.py`
+- `tests/test_model_transport.py`
+- `tests/test_config.py`
+- `tests/test_core.py`
+- `tests/test_emotion_evidence.py`
+- `tests/test_provider_cli.py`
+- `tests/test_provider_registry.py`
+- `tests/test_openai_compatible_provider.py`
+- `tests/test_model_listing.py`
+- `docs/vibe-integration/charter.md`
+- `docs/vibe-integration/capability-map.md`
+- `docs/vibe-integration/roadmap.md`
+- `docs/vibe-integration/decisions.md`
+- `docs/vibe-integration/progress.md`
+
+测试结果：
+- `uv run pytest tests/test_model_transport.py`：7 passed。
+- `uv run pytest tests/test_llm.py tests/test_config.py tests/test_cli.py tests/test_chat.py tests/test_chat_memory.py tests/test_provider_registry.py tests/test_openai_compatible_provider.py tests/test_model_listing.py tests/test_provider_cli.py tests/test_artifacts.py tests/test_model_transport.py`：198 passed。
+- `uv run pytest tests/test_provider_registry.py tests/test_openai_compatible_provider.py tests/test_model_listing.py tests/test_provider_cli.py`：11 passed。
+- `uv run pytest tests/test_llm.py tests/test_config.py tests/test_cli.py`：134 passed。
+- `uv run pytest tests/test_net.py tests/test_cache_v2.py tests/test_core.py tests/test_market_routes.py tests/test_source_adapters.py`：88 passed。
+- `uv run ruff check src/young_stock/net src/young_stock/cache_v2.py src/young_stock/_core.py src/young_stock/reports.py tests/test_net.py tests/test_cache_v2.py tests/test_core.py`：passed。
+- `uv run pytest tests/test_emotion_evidence.py`：10 passed。
+- `uv run pytest tests/test_evidence.py tests/test_llm_reports.py tests/test_review_gate.py tests/test_research_style.py`：54 passed。
+- `uv run pytest tests/test_emotion_evidence.py tests/test_evidence.py tests/test_llm_reports.py tests/test_review_gate.py tests/test_research_style.py tests/test_cli.py tests/test_core.py::test_core_cache_load_marks_stale_v2_payload`：151 passed。
+- `uv run ruff check src/young_stock/evidence src/young_stock/reports.py src/young_stock/research_style.py src/young_stock/review_gate.py tests/test_emotion_evidence.py`：passed。
+- `uv run ruff check src/young_stock/cli.py src/young_stock/evidence src/young_stock/reports.py src/young_stock/research_style.py src/young_stock/review_gate.py tests/test_emotion_evidence.py`：passed。
+- `uv run pytest tests/test_a_share_adapters.py tests/test_source_adapters.py tests/test_sources.py tests/test_evidence.py tests/test_emotion_evidence.py`：34 passed。
+- `uv run ruff check src/young_stock/sources src/young_stock/evidence src/young_stock/_core.py tests/test_a_share_adapters.py tests/test_sources.py tests/test_evidence.py`：passed。
+- `uv run pytest tests/test_stock_extras.py tests/test_cli.py tests/test_core.py tests/test_a_share_adapters.py tests/test_source_adapters.py tests/test_sources.py tests/test_evidence.py tests/test_emotion_evidence.py`：189 passed。
+- `uv run pytest tests/test_global_market.py tests/test_core.py::test_normalize_single_stock_symbol`：11 passed。
+- `uv run pytest tests/test_global_market.py tests/test_core.py tests/test_source_adapters.py tests/test_sources.py tests/test_evidence.py`：94 passed。
+- `uv run ruff check src/young_stock/global_market.py src/young_stock/_core.py src/young_stock/evidence tests/test_global_market.py tests/test_core.py`：passed。
+- `uv run pytest tests/test_cli.py tests/test_stock_extras.py tests/test_report_routing.py`：92 passed。
+- `uv run pytest tests/test_news_radar.py`：10 passed。
+- `uv run pytest tests/test_news_radar.py tests/test_evidence.py tests/test_llm_reports.py tests/test_research_style.py tests/test_sources.py tests/test_net.py tests/test_cache_v2.py`：73 passed。
+- `uv run ruff check src/young_stock/news_radar.py src/young_stock/evidence src/young_stock/reports.py src/young_stock/research_style.py src/young_stock/_core.py tests/test_news_radar.py tests/test_evidence.py tests/test_llm_reports.py`：passed。
+- `uv run pytest tests/test_mcp.py`：8 passed。
+- `uv run pytest tests/test_cli.py::test_cli_help tests/test_cli.py::test_cli_subcommands_registered tests/test_cli.py::test_cli_top_level_command_help_is_available tests/test_evidence.py tests/test_sources.py tests/test_mcp.py`：29 passed。
+- `uv run ruff check src/young_stock/mcp_server.py src/young_stock/cli.py tests/test_mcp.py`：passed。
+- 本轮最终验收命令与结果见下方“第 9 阶段验收结果”。
+- `git diff --check` 通过。
+- `/daily --llm` 本地修复验证：`uv run pytest tests/test_research_style.py::test_to_research_evidence_handles_numeric_ladder_keys -q`：1 passed；`uv run pytest tests/test_research_style.py tests/test_emotion_evidence.py -q`：19 passed；`uv run pytest -q`：457 passed。
+- 真实本地 Evidence 验证：`to_research_evidence(build_daily_evidence(...))` 对 20260708 输出连板梯队 key `['14', '9', '8', '7', '5', '3', '2']`，确认非字符串 key 已在研报转换边界规范化。
+- `/stock 600519 --llm --lens buffett` 本地修复验证：新增回归测试先红后绿；`uv run pytest tests/test_review_gate.py tests/test_llm_reports.py -q`：42 passed；`uv run ruff check src/young_stock/review_gate.py src/young_stock/reports.py tests/test_review_gate.py tests/test_llm_reports.py`：passed；`uv run young stock 600519 --llm --lens buffett`：exit 0 并保存报告；`young --version`：`young-stock-cli 0.3.16`。
+
+未解决问题：
+- `minimax` 的 OpenAI-compatible base 采用当前通用 `/v1` 形态登记，未做 live 验证。
+- `kimi` 与 `moonshot` 同属 Moonshot OpenPlatform base，但保留两个 provider id 以兼容用户习惯。
+- 未做跨供应商隐式 fallback；fallback 仍只在当前 provider 内按用户配置的 model 列表执行。
+- Gemini CLI、Qwen Code、DeepSeek CLI 未在当前环境可靠验证，未登记为可用 subscription-cli provider。
+- OpenAI local CLI / Claude Code 订阅 CLI 的真实登录态未在测试中消耗；默认测试使用 fake CLI 覆盖本机流程与错误形态。
+
+第 9 阶段验收结果：
+- 调用链状态：CLI / Chat / MCP 通过 Evidence Service、Source Resolver、Adapter、Managed HTTP Client 获取只读证据；报告模型链路通过 Evidence、Model Transport、API Provider 或 Subscription CLI、Review Gate、Report Artifact。
+- 已迁移：A 股扩展聚合。
+- 未迁移：quote 主链、基金数据、个股新闻链、CLI 打印函数和历史兼容导出。
+- 普通 CI 约束：可联网测试必须使用 `@pytest.mark.network`，默认测试保持 fixture/fake/offline。
+- `uv run ruff check src/young_stock/sources/adapters/a_share_extensions.py src/young_stock/_core.py README.md docs/vibe-integration tests/test_a_share_adapters.py`：passed。
+- `uv run pytest tests/test_packaging_docs.py tests/test_a_share_adapters.py tests/test_cache_v2.py tests/test_net.py`：30 passed。
+- `uv run pytest tests/test_config.py tests/test_openai_compatible_provider.py tests/test_provider_cli.py tests/test_provider_registry.py tests/test_model_listing.py tests/test_model_transport.py tests/test_net.py tests/test_cache_v2.py tests/test_a_share_adapters.py tests/test_sources.py tests/test_source_adapters.py tests/test_evidence.py tests/test_emotion_evidence.py tests/test_global_market.py tests/test_news_radar.py tests/test_llm_reports.py tests/test_report_routing.py tests/test_cli.py tests/test_lens_registry.py tests/test_methods_debate.py tests/test_mcp.py`：239 passed。
+- CLI smoke：`young --help`、`young daily --help`、`young stock --help`、`young fund --help`、`young mcp --help`、`young config providers` 均 exit 0。
+- `uv run pytest`：456 passed。
+
+风险：
+- Vibe 随仓 Skill 文档能力远多于后端 runtime，容易误纳入阶段 1。
+- 东财限流若做成全局 sleep，会拖慢 CLI；若做得太松，会放大风控。
+- rich-source 依赖如果误进默认安装，会破坏 young 轻量定位。
+- 新增 docs 会被仓库文档测试扫描，需要避免内部路径和禁用词。
+- 新供应商默认 API Base 可能随官方调整而变化；registry 只记录 provider 级默认值，模型可用性仍以 `/models` 和 chat 探测为准。
+- 本机订阅 CLI 是外部工具，未来版本参数可能变化；transport 必须继续以版本/help 探测和 fake CLI 回归测试兜底。
+- 网络层目前只通过 `_fetch_raw` 和旧 cache wrapper 做小范围试点；尚未把 `_core.py` 中所有 urllib/requests 调用迁入。
+- v2 cache wrapper 的参数哈希能力已具备，但旧 `cache_save/cache_load` 调用面还没有逐个拆出业务参数；后续迁移单个 adapter 时应补精确 parameters。
+- A 股扩展 Adapter 的 reportName/字段来自东财公开 HTTP 形态，默认测试为离线 fixture/contract；真实接口字段若调整，Adapter 应只调整解析层，不能把原始字段透传到报告层。
+- 默认路径已接入多个东财 datacenter 轻量请求；若后续觉得 stock 报告过慢，应优先按 Evidence 使用场景裁剪，而不是引入重依赖。
+- PDF 研报、互动问答、一致预期、完整财务三表、逐笔和五档仍必须保持 rich-source，不得进入基础安装或默认抓取。
+- 港美股 rich-source 当前是结构化入口和缺依赖提示；真实 SEC/XBRL/期权/机构持仓 adapter 后续接入时，仍必须先抽取结构化事实和关键片段，禁止把 filing 全文直接塞给模型。
+- RSS/Atom 源 URL 可能随站点调整失效；Source Health 和 Evidence 状态会记录失败，但 live 覆盖不进入默认测试。
+- 资讯相似标题聚合采用轻量 token overlap；足够处理 RSS 重复标题和同事件多源，若后续要跨语言/复杂事件聚类，应替换为独立可测试聚类器。
+- MCP 当前是最小 stdio JSON-RPC 实现，覆盖 initialize、tools/list、tools/call、shutdown；如果后续需要 SSE/HTTP transport，应作为新阶段处理，不能在本实现里顺手加入写工具。
+
+下一阶段前置条件：
+- 若继续 A 股扩展数据或 rich-source 深化，必须复用本阶段网络/缓存入口，不把重试、代理和限流逻辑散落到 Adapter。

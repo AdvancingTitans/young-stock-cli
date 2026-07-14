@@ -35,7 +35,10 @@ from .evidence import build_daily_evidence, build_fund_evidence, build_stock_evi
 from .lens.registry import lens_ids
 from .llm import LLMClient, LLMError, LLMNotConfigured
 from .local_store import load_store, now_label, save_store, young_home
+from .mcp_server import serve_stdio
 from .methodology import load_builtin_methodology
+from .model_transport.registry import model_transport_for_config, transport_ids
+from .model_transport.subscription_cli import subscription_cli_provider_ids
 from .profile import (
     add_profile_item,
     clear_profile,
@@ -45,9 +48,12 @@ from .profile import (
     remove_profile_item,
     save_profile,
 )
+from .providers import provider_ids, provider_spec, provider_specs
 from .reports import generate_llm_daily_report
 from .research_bridge import RESEARCH_COMMAND_ENV, run_research_bridge
 from .sources.extras import collect_stock_extras, fetch_lhb
+
+MODEL_PROVIDER_IDS = tuple(dict.fromkeys((*provider_ids(), *subscription_cli_provider_ids())))
 
 
 @click.group(
@@ -57,6 +63,16 @@ from .sources.extras import collect_stock_extras, fetch_lhb
 @click.version_option(__version__, "-V", "--version", message="young-stock-cli %(version)s")
 def cli() -> None:
     pass
+
+
+@cli.command(name="mcp", help="Run the read-only MCP stdio server.")
+def mcp() -> None:
+    serve_stdio()
+
+
+@cli.result_callback()
+def _reset_cli_runtime_flags(*_args: object, **_kwargs: object) -> None:
+    _core.NO_CACHE = False
 
 
 def _run(market: str, date: str | None, refresh: bool, include_news: bool = True) -> None:
@@ -104,6 +120,7 @@ def _render_config_lines(config_data: dict[str, object]) -> list[str]:
     lines.extend(
         [
             "- LLM",
+            f"  - transport: {_mask_for_human(llm.get('transport') or ('api' if llm else ''))}",
             f"  - provider: {_mask_for_human(llm.get('provider'))}",
             f"  - model: {_mask_for_human(llm.get('model'))}",
             f"  - api_base: {_mask_for_human(llm.get('api_base'))}",
@@ -965,7 +982,7 @@ def _run_llm_replay(
     try:
         markdown, metadata = generate_llm_daily_report(
             evidence.to_dict(),
-            LLMClient(config),
+            model_transport_for_config(config),
             methodology=methodology.text,
             lens=lens,
             debate_rounds=debate_rounds,
@@ -1143,12 +1160,27 @@ def config_show() -> None:
         click.echo(line)
 
 
+@config.command("providers", help="List supported LLM API providers.")
+def config_providers() -> None:
+    for spec in provider_specs():
+        base = spec.default_api_base or "(required)"
+        key_env = spec.default_api_key_env or "-"
+        explicit_base = "yes" if spec.requires_explicit_base_url else "no"
+        probe = "yes" if spec.supports_model_probe else "no"
+        click.echo(
+            f"{spec.provider_id}\t{spec.display_name}\t"
+            f"protocol={spec.protocol}\tbase={base}\tkey_env={key_env}\t"
+            f"explicit_base={explicit_base}\tmodel_probe={probe}"
+        )
+
+
 @config.command("models", help="Configure the LLM provider/model, or list model IDs from the resolved endpoint.")
 @click.option(
     "--provider",
     default=None,
-    type=click.Choice(["openai", "ark", "kimi", "moonshot", "deepseek", "qwen", "ollama", "anthropic"]),
+    type=click.Choice(MODEL_PROVIDER_IDS),
 )
+@click.option("--transport", default=None, type=click.Choice(transport_ids()), help="Model transport: api or subscription-cli.")
 @click.option("--model", default=None, help="Model ID used by chat and LLM reports.")
 @click.option("--api-key", default=None, hide_input=True)
 @click.option("--api-key-env", default=None, help="Environment variable containing the API key.")
@@ -1166,6 +1198,7 @@ def config_show() -> None:
 def config_models(
     ctx: click.Context,
     provider: str | None,
+    transport: str | None,
     model: str | None,
     api_key: str | None,
     api_key_env: str | None,
@@ -1177,6 +1210,7 @@ def config_models(
 ) -> None:
     saved = dict(load_config(strict=False).get("llm") or {})
     effective_saved = dict(load_effective_config(strict=False).get("llm") or {})
+    resolved_transport = transport or saved.get("transport") or "api"
     resolved_provider = provider or saved.get("provider")
     explicit_timeout = ctx.get_parameter_source("timeout") is ParameterSource.COMMANDLINE
     explicit_max_tokens = ctx.get_parameter_source("max_tokens") is ParameterSource.COMMANDLINE
@@ -1188,13 +1222,21 @@ def config_models(
     if model:
         if not resolved_provider:
             raise click.ClickException("请提供 --provider，或先保存 provider 后再只更新 --model。")
+        spec = provider_spec(resolved_provider) if resolved_transport == "api" else None
+        if resolved_transport == "api" and spec is None:
+            raise click.ClickException(f"{resolved_provider} 不是 API provider；如需本机 CLI，请添加 --transport subscription-cli。")
+        if resolved_transport == "subscription-cli" and resolved_provider not in subscription_cli_provider_ids():
+            raise click.ClickException(f"{resolved_provider} 不是已支持的 subscription-cli provider。")
         candidate_api_base = normalize_api_base(
             resolved_provider,
             api_base if explicit_api_base else saved.get("api_base", ""),
         )
+        if spec and spec.requires_explicit_base_url and not candidate_api_base:
+            raise click.ClickException(f"{spec.display_name} 需要显式提供 Base URL：请添加 --api-base。")
         if is_kimi_coding_api_base(candidate_api_base):
             raise click.ClickException(kimi_coding_plan_unsupported_message())
         updated = update_llm_config(
+            transport=resolved_transport,
             provider=resolved_provider,
             model=model,
             api_key=api_key if explicit_api_key else None,
@@ -1207,6 +1249,7 @@ def config_models(
         llm = updated.get("llm") or {}
         click.echo(
             "LLM configured: "
+            f"transport={llm.get('transport')}; "
             f"provider={llm.get('provider')}; "
             f"model={llm.get('model')}; "
             f"config={config_path()}"
@@ -1215,9 +1258,12 @@ def config_models(
 
     if not list_models:
         raise click.ClickException("请提供 --model 保存配置，或使用 --list 查询可用模型 ID。")
+    if resolved_transport != "api":
+        raise click.ClickException("subscription-cli transport 不支持 --list；请在本机 CLI 中确认可用模型。")
 
     query = {
         **effective_saved,
+        "transport": "api",
         "provider": resolved_provider,
         "api_key": api_key if explicit_api_key else effective_saved.get("api_key"),
         "api_key_env": api_key_env if explicit_api_key_env else effective_saved.get("api_key_env"),

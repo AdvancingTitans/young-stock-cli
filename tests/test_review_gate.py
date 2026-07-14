@@ -48,6 +48,20 @@ def test_review_gate_requires_contract_fields():
     assert result["watchlist_present"] is False
 
 
+def test_review_gate_accepts_common_research_conclusion_wording():
+    result = review_investment_output(
+        "投资评级：持有观察。\n"
+        "核心观点：据公开市场数据，基本面仍需等待确认。\n"
+        "证据：公开行情显示价格波动可控。\n"
+        "风险提示：若量能不足，反弹延续性仍需确认。\n"
+        "持仓建议：等待确认，不追高。\n"
+        "观察清单：跟踪下一交易日成交额与关键价位。",
+        {},
+    )
+
+    assert result["conclusion_present"] is True
+
+
 def test_review_gate_allows_grounded_symbol_digits_embedded_in_evidence_identifiers():
     result = review_investment_output(
         "# 贵州茅台（600519）复盘\n"

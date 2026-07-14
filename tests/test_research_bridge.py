@@ -34,6 +34,8 @@ def test_run_research_bridge_uses_placeholder_and_compacts_output(monkeypatch):
     assert result["_source"] == "configured research bridge"
     assert "营收增长 10%" in result["summary_material"]
     assert "https://example.com/raw" not in result["summary_material"]
+    assert "title: 财报增长" in result["source_material"]
+    assert "https://example.com/raw" in result["source_material"]
 
 
 def test_run_research_bridge_appends_query_when_placeholder_absent(monkeypatch):

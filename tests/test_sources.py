@@ -15,6 +15,7 @@ def test_registry_covers_requested_sources_and_metadata():
         "tencent",
         "sina",
         "ths",
+        "mootdx",
         "cninfo",
         "hkexnews",
         "futu",
@@ -51,13 +52,28 @@ def test_registry_only_advertises_capabilities_with_runtime_adapters():
     assert by_id["yfinance"].capabilities == ("technical", "financials")
     assert by_id["cninfo"].capabilities == ("announcements", "events")
     assert by_id["hkexnews"].capabilities == ("announcements", "events")
+    assert {
+        "flow",
+        "margin",
+        "lhb",
+        "lockup",
+        "holder_count",
+        "block_trades",
+        "dividend",
+        "announcements",
+        "research_reports",
+        "classification",
+    } <= set(by_id["eastmoney"].capabilities)
 
 
 def test_rich_and_browser_sources_require_explicit_policy():
     rich = find_sources("us", "history", SourcePolicy(rich_source=True))
     browser = find_sources("a", "boards", SourcePolicy(browser_fallback=True))
+    a_quote_rich = find_sources("a", "quote", SourcePolicy(rich_source=True))
 
     assert {source.id for source in rich} == {"eastmoney", "yahoo"}
+    assert "mootdx" in {source.id for source in a_quote_rich}
+    assert "mootdx" not in {source.id for source in find_sources("a", "quote")}
     assert "browser_board" in {source.id for source in browser}
     assert "browser_board" not in {
         source.id

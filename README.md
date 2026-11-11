@@ -72,7 +72,7 @@ young report
 
 | Area | Commands | Notes |
 | --- | --- | --- |
-| Markets | `young a`, `young hk`, `young us`, `young global`, `young indices`, `young zt-pool`, `young flow` | Public market snapshots and flow views. |
+| Markets | `young a`, `young hk`, `young us`, `young global`, `young indices`, `young zt-pool`, `young flow` | Public market snapshots and flow views. `young hk` shows the Hang Seng, HSCEI and HSTECH indices; `young hk --stock 00700` shows one HK stock. |
 | Symbols | `young stock <symbol>`, `young lhb <symbol>`, `young fund <code>`, `young news <query>` | Add `--llm` to stock or fund research explicitly. |
 | Watchlist reports | `young daily --format full|summary|key-points`, `young daily --llm` | Supports custom module order, lenses, rich sources, and browser fallback. |
 | Local state | `young profile ...`, `young portfolio ...`, `young memory ...`, `young style ...`, `young diary ...` | Stored locally under the young home directory. |

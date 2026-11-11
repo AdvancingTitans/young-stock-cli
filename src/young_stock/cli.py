@@ -477,11 +477,25 @@ def a(date: str | None, refresh: bool, no_news: bool, browser_fallback: bool) ->
     _run("a", date, refresh, include_news=not no_news)
 
 
-@cli.command(help="Hong Kong market after-hours snapshot.")
+@cli.command(help="Hong Kong market after-hours snapshot; --stock shows one HK stock.")
 @_date_opt
 @_refresh_opt
+@click.option("--stock", "symbol", default=None, help="Show one HK stock quote, e.g. 00700 or 0700.HK.")
 @click.option("--no-news", is_flag=True, help="Only show market data, skip news lookup.")
-def hk(date: str | None, refresh: bool, no_news: bool) -> None:
+def hk(date: str | None, refresh: bool, symbol: str | None, no_news: bool) -> None:
+    if symbol:
+        if refresh:
+            _core.NO_CACHE = True
+        date_str = date or _core.nearest_trade_date()
+        try:
+            normalized, market = _core.normalize_stock_symbol(symbol)
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+        if market != "hk_market":
+            raise click.ClickException(f"--stock expects an HK code like 00700, got: {symbol}")
+        _print_query_context(date_str)
+        _core.run_stock_quote(normalized, date_str, include_news=not no_news)
+        return
     _run("hk", date, refresh, include_news=not no_news)
 
 

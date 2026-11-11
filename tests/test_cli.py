@@ -609,6 +609,36 @@ def test_cli_hk_no_news(monkeypatch):
     assert calls == [("20260529", False)]
 
 
+def test_cli_hk_stock_quote(monkeypatch):
+    from click.testing import CliRunner
+
+    calls = []
+    monkeypatch.setattr(cli_module._core, "nearest_trade_date", lambda: "20260529")
+    monkeypatch.setattr(cli_module, "_print_query_context", lambda date_str: None)
+    monkeypatch.setattr(
+        cli_module._core, "run_stock_quote",
+        lambda symbol, date_str, include_news=True: calls.append((symbol, date_str, include_news)))
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["hk", "--stock", "00700", "--no-news"])
+
+    assert result.exit_code == 0, result.output
+    # bare HK codes are normalized to the internal 5-digit .HK form
+    assert calls == [("00700.HK", "20260529", False)]
+
+
+def test_cli_hk_stock_rejects_non_hk_code(monkeypatch):
+    from click.testing import CliRunner
+
+    monkeypatch.setattr(cli_module._core, "nearest_trade_date", lambda: "20260529")
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["hk", "--stock", "600519"])
+
+    assert result.exit_code != 0
+    assert "HK code" in result.output
+
+
 def test_cli_update_runs_pip_upgrade(monkeypatch):
     from click.testing import CliRunner
 

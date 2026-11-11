@@ -72,7 +72,7 @@ young report
 
 | 范围 | 命令 | 说明 |
 | --- | --- | --- |
-| 市场 | `young a`、`young hk`、`young us`、`young global`、`young indices`、`young zt-pool`、`young flow` | 公共市场快照与资金流。 |
+| 市场 | `young a`、`young hk`、`young us`、`young global`、`young indices`、`young zt-pool`、`young flow` | 公共市场快照与资金流。`young hk` 显示恒生指数、国企指数与恒生科技指数；`young hk --stock 00700` 显示单只港股行情。 |
 | 标的 | `young stock <symbol>`、`young lhb <symbol>`、`young fund <code>`、`young news <query>` | stock 与 fund 需要显式加 `--llm` 才进入模型分析。 |
 | 自选日报 | `young daily --format full|summary|key-points`、`young daily --llm` | 支持自定义模块顺序、Lens、rich source 与 browser fallback。 |
 | 本地状态 | `young profile ...`、`young portfolio ...`、`young memory ...`、`young style ...`、`young diary ...` | 保存到 young home 目录。 |
